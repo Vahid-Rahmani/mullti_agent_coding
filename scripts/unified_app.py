@@ -84,7 +84,17 @@ POLL_MS = 50  # how often the main thread drains the output queue
 
 AGENT_TAB_LABELS = {tag: f"{tag} {name}" for tag, name, _ in AGENTS}
 
-# Quick action shortcuts -> prompt templates prefilled into the entry.
+# Model selector options. "Auto" lets each agent use its configured hybrid
+# model from opencode.json; selecting a concrete model overrides it via -m.
+AUTO_MODEL = "Auto (Smart Hybrid Routing)"
+MODEL_OPTIONS = [
+    AUTO_MODEL,
+    "opencode/deepseek-v4-flash-free",
+    "opencode/ling-3.0-tiny-free",
+    "opencode/big-pickle",
+]
+
+# Quick action shortcuts -> prompt templates prefilled into the prompt area.
 QUICK_ACTIONS = [
     ("Analyze", "Analyze the current project and produce a requirements analysis."),
     ("Plan", "Plan the next implementation step for the current project."),
@@ -270,6 +280,7 @@ class UnifiedApp(tk.Tk):
         container.pack(fill=tk.BOTH, expand=True)
 
         self.autoscroll_var = tk.BooleanVar(value=True)
+        self.model_vars: dict[str, tk.StringVar] = {}
 
         # 1. Active workspace header.
         header_bar = ttk.Frame(container, style="Header.TFrame", padding=(12, 10))
@@ -306,6 +317,7 @@ class UnifiedApp(tk.Tk):
         # Master Console tab.
         master_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
         self.notebook.add(master_frame, text="💬 Master Console")
+        self._build_model_selector(master_frame, "master")
         self.master_stream = StreamView(master_frame, autoscroll=self.autoscroll_var)
 
         # One tab per agent.
@@ -314,6 +326,7 @@ class UnifiedApp(tk.Tk):
         for tag, name, _ in AGENTS:
             agent_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
             self.notebook.add(agent_frame, text=AGENT_TAB_LABELS[tag])
+            self._build_model_selector(agent_frame, tag)
             self.agent_streams[tag] = StreamView(agent_frame, autoscroll=self.autoscroll_var)
             self.agent_tabs[tag] = agent_frame
 
@@ -337,8 +350,11 @@ class UnifiedApp(tk.Tk):
         input_row = ttk.Frame(control, style="App.TFrame")
         input_row.pack(fill=tk.X)
 
-        self.entry = tk.Entry(
+        # Prompt area (multiline: Enter submits, Shift+Enter inserts a newline).
+        self.prompt_text = tk.Text(
             input_row,
+            height=4,
+            wrap=tk.WORD,
             bg=PANEL,
             fg=TEXT,
             insertbackground=TEXT,
@@ -348,9 +364,12 @@ class UnifiedApp(tk.Tk):
             highlightthickness=1,
             highlightbackground=BORDER,
             highlightcolor=ACCENT,
+            padx=8,
+            pady=6,
         )
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6)
-        self.entry.bind("<Return>", self._on_run_command)
+        self.prompt_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.prompt_text.bind("<Return>", self._on_run_command)
+        self.prompt_text.bind("<Shift-Return>", self._on_insert_newline)
 
         ttk.Checkbutton(
             input_row, text="Auto-scroll", variable=self.autoscroll_var, style="Muted.TCheckbutton"
@@ -366,7 +385,24 @@ class UnifiedApp(tk.Tk):
         )
         self.clear_btn.pack(side=tk.LEFT)
 
-        self.entry.focus_set()
+        self.prompt_text.focus_set()
+
+    def _build_model_selector(self, parent: tk.Widget, tag: str) -> None:
+        """Add a readonly model dropdown row at the top of a tab."""
+        row = ttk.Frame(parent, style="App.TFrame")
+        row.pack(fill=tk.X, pady=(0, 2))
+        ttk.Label(row, text="Model:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        var = tk.StringVar(value=AUTO_MODEL)
+        combo = ttk.Combobox(
+            row,
+            textvariable=var,
+            values=MODEL_OPTIONS,
+            state="readonly",
+            width=40,
+            font=(FONT_FAMILY, 9),
+        )
+        combo.pack(side=tk.LEFT)
+        self.model_vars[tag] = var
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self)
@@ -445,10 +481,19 @@ class UnifiedApp(tk.Tk):
         if frame is not None:
             self.notebook.select(frame)
 
+    def _get_prompt(self) -> str:
+        """Read the current prompt text (stripped)."""
+        return self.prompt_text.get("1.0", tk.END).strip()
+
     def _prefill_prompt(self, template: str) -> None:
-        self.entry.delete(0, tk.END)
-        self.entry.insert(0, template)
-        self.entry.focus_set()
+        self.prompt_text.delete("1.0", tk.END)
+        self.prompt_text.insert("1.0", template)
+        self.prompt_text.focus_set()
+
+    def _on_insert_newline(self, _event=None) -> str:
+        """Shift+Enter inserts a newline instead of submitting."""
+        self.prompt_text.insert(tk.INSERT, "\n")
+        return "break"
 
     def _on_change_directory(self) -> None:
         chosen = filedialog.askdirectory(
@@ -461,11 +506,26 @@ class UnifiedApp(tk.Tk):
 
     # ------------------------------------------------------------- actions
 
-    def _on_run_command(self, event=None) -> None:
-        prompt = self.entry.get().strip()
+    def _resolve_model(self, tag: str) -> str | None:
+        """Resolve the model override for a tab.
+
+        Priority: the agent tab's dropdown (if not Auto), then the Master
+        Console dropdown (if not Auto), then None (use the agent's configured
+        hybrid model from opencode.json).
+        """
+        var = self.model_vars.get(tag)
+        if var is not None and var.get() != AUTO_MODEL:
+            return var.get()
+        master = self.model_vars.get("master")
+        if master is not None and master.get() != AUTO_MODEL:
+            return master.get()
+        return None
+
+    def _on_run_command(self, event=None) -> str:
+        prompt = self._get_prompt()
         if not prompt:
-            return
-        self.entry.delete(0, tk.END)
+            return "break"
+        self.prompt_text.delete("1.0", tk.END)
         self._append_master(f"▶ {prompt}")
 
         for tag, name, agent in AGENTS:
@@ -480,6 +540,7 @@ class UnifiedApp(tk.Tk):
             self._append_master_muted(f"→ {tag.upper()} {name}: thinking")
 
         self.running += len(AGENTS)
+        return "break"
 
     def _run_agent(self, tag: str, name: str, agent: str, prompt: str) -> None:
         """Worker thread: run opencode for one agent, stream lines to the queue."""
@@ -490,9 +551,13 @@ class UnifiedApp(tk.Tk):
                     "opencode executable not found on PATH. "
                     "Install opencode or add it to PATH before using this launcher."
                 )
-            cmd = [exe, "run", "--agent", agent, "--auto", prompt]
+            cmd = [exe, "run", "--agent", agent, "--auto"]
             # --auto auto-approves tool permissions (bash/file ops) so they are
             # not auto-rejected. (opencode run has no --yes/-y flag.)
+            model = self._resolve_model(tag)
+            if model:
+                cmd += ["-m", model]
+            cmd.append(prompt)
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(self.workspace),
