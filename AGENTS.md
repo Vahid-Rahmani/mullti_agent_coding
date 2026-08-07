@@ -8,13 +8,15 @@ and memory used to drive software projects (typically under `projects/`).
 
 | Agent | Role | Model |
 |---|---|---|
-| `system-architect` | System architecture + design approval (read-only) | opencode/deepseek-v4-flash-free |
+| `system-architect` | System architecture + design approval (read-only) | mulerouter/gpt-5.5 |
 | `analyst` | Requirements analysis (read-only) | opencode/deepseek-v4-flash-free |
-| `planner` | PLAN.md + TASKS.json (read-only) | opencode/deepseek-v4-flash-free |
-| `backend-dev` | Backend implementation | opencode/deepseek-v4-flash-free |
-| `frontend-dev` | Frontend implementation | opencode/deepseek-v4-flash-free |
+| `planner` | PLAN.md + TASKS.json (read-only) | mulerouter/qwen3.7-max |
+| `backend-dev` | Backend implementation | mulerouter/gpt-5.5 |
+| `frontend-dev` | Frontend implementation | mulerouter/gpt-5.4-mini |
 | `tester` | Test authoring + execution | opencode/deepseek-v4-flash-free |
-| `reviewer` | Code review, approve/reject (read-only) | opencode/deepseek-v4-flash-free |
+| `reviewer` | Code review, approve/reject (read-only) | mulerouter/qwen3-max |
+
+Every agent has a fallback chain ending in `ollama/qwen2.5-coder:7b` (local).
 
 Every agent has a fallback chain ending in `ollama/qwen2.5-coder:7b` (local).
 
@@ -58,6 +60,12 @@ by side, each listening for tasks in its own inbox.
 - **Models** — the worker reads each agent's configured model from
   `opencode.json` and passes it explicitly (`-m`) so the role's own model is
   used (this pins the primary model and bypasses `fallback_models`, by design).
+  Model assignment is hybrid by domain: heavy reasoning/coding agents use
+  MuleRouter (`gpt-5.5`, `qwen3.7-max`, `gpt-5.4-mini`, `qwen3-max`), while
+  light/fast agents use `opencode/deepseek-v4-flash-free`. MuleRouter is an
+  OpenAI-compatible provider at `https://api.mulerouter.ai/vendors/openai/v1`;
+  its API key lives only in `~/.local/share/opencode/auth.json` (never
+  committed).
 - **Mode note** — all 7 agents are `mode: all`: they can be invoked standalone
   (`opencode run --agent X`) and still be used as subagents by other agents.
   The read-only annotations on `system-architect`, `analyst`, `planner`, and

@@ -16,11 +16,27 @@ AGENTS.md instructions). `--pure` (disable external plugins) only reduces this t
 Also: `groq/gpt-oss-120b` is NOT a valid opencode model ID — the registry ID is
 `groq/openai/gpt-oss-120b` (verify with `opencode models`).
 
-## Decision
-All 7 control-plane agents now use `opencode/deepseek-v4-flash-free` as primary
-model. Groq models remain in `fallback_models` (they only trigger if the primary
-provider is down — but note the worker pins `-m`, so fallbacks are bypassed in the
-launcher by design).
+## Resolution
+All 7 control-plane agents now use a hybrid model assignment (primary models via
+MuleRouter or opencode-deepseek):
+
+| Agent | Primary model | Provider |
+|---|---|---|
+| system-architect | mulerouter/gpt-5.5 | MuleRouter |
+| planner | mulerouter/qwen3.7-max | MuleRouter |
+| backend-dev | mulerouter/gpt-5.5 | MuleRouter |
+| frontend-dev | mulerouter/gpt-5.4-mini | MuleRouter |
+| reviewer | mulerouter/qwen3-max | MuleRouter |
+| analyst | opencode/deepseek-v4-flash-free | opencode |
+| tester | opencode/deepseek-v4-flash-free | opencode |
+
+- MuleRouter is an OpenAI-compatible provider: `https://api.mulerouter.ai/vendors/openai/v1`
+  (the `/v1` alias 404s; use the `/vendors/openai/v1` path). Verified model IDs:
+  `gpt-5.5`, `gpt-5.4-mini`, `qwen3-max`, `qwen3.7-max`.
+- The MuleRouter key lives in `~/.local/share/opencode/auth.json` (never committed).
+- groq models were dropped from `fallback_models` (they cannot run on the free tier);
+  fallbacks are now `opencode/deepseek-v4-flash-free` → `ollama/qwen2.5-coder:7b`.
+- `opencode/big-pickle` is opencode-hosted, NOT available on MuleRouter.
 
 ## Takeaway
 - Verify model IDs with `opencode models` before configuring agents.
@@ -29,3 +45,4 @@ launcher by design).
   full context.
 - `-m` in the launcher pins the primary model and intentionally bypasses
   `fallback_models`.
+- MuleRouter: the OpenAI-compatible base path is `/vendors/openai/v1`, not `/v1`.

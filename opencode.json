@@ -24,6 +24,27 @@
           "name": "Qwen2.5 Coder 7B (local)"
         }
       }
+    },
+    "mulerouter": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "MuleRouter",
+      "options": {
+        "baseURL": "https://api.mulerouter.ai/vendors/openai/v1"
+      },
+      "models": {
+        "gpt-5.5": {
+          "name": "GPT 5.5"
+        },
+        "gpt-5.4-mini": {
+          "name": "GPT 5.4 Mini"
+        },
+        "qwen3-max": {
+          "name": "Qwen3 Max"
+        },
+        "qwen3.7-max": {
+          "name": "Qwen3.7 Max"
+        }
+      }
     }
   },
   "agent": {
@@ -32,7 +53,6 @@
       "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
-        "groq/llama-3.3-70b-versatile",
         "ollama/qwen2.5-coder:7b"
       ],
       "permission": {
@@ -46,7 +66,7 @@
     "planner": {
       "description": "Converts validated requirements into PLAN.md and TASKS.json with priorities and dependencies.",
       "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "mulerouter/qwen3.7-max",
       "fallback_models": [
         "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
@@ -62,9 +82,8 @@
     "backend-dev": {
       "description": "Implements backend tasks: APIs, services, data layer, and backend tests.",
       "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "mulerouter/gpt-5.5",
       "fallback_models": [
-        "groq/llama-3.3-70b-versatile",
         "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ],
@@ -79,9 +98,8 @@
     "frontend-dev": {
       "description": "Implements frontend tasks: UI components, pages, state, and client-side integration.",
       "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "mulerouter/gpt-5.4-mini",
       "fallback_models": [
-        "groq/llama-3.3-70b-versatile",
         "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ],
@@ -98,7 +116,6 @@
       "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
-        "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ],
       "permission": {
@@ -112,9 +129,9 @@
     "reviewer": {
       "description": "Performs code quality and security review; approves or rejects merges.",
       "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "mulerouter/qwen3-max",
       "fallback_models": [
-        "groq/llama-3.3-70b-versatile",
+        "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ],
       "permission": {
@@ -128,9 +145,9 @@
     "system-architect": {
       "description": "Designs system architecture, data models, and tech stack. Validates plans and is the final design approver.",
       "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "mulerouter/gpt-5.5",
       "fallback_models": [
-        "groq/llama-3.3-70b-versatile",
+        "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ],
       "permission": {
