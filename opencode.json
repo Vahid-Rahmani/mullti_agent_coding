@@ -48,6 +48,9 @@
     }
   },
   "agent": {
+    "compaction": {
+      "model": "mulerouter/gpt-5.5"
+    },
     "analyst": {
       "description": "Analyzes requirements, edge cases, and risks before planning begins.",
       "mode": "all",
