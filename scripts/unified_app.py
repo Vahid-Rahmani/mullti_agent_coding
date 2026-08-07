@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-MultiAgentCoding — Unified Control Plane (Tabbed Dashboard)
+MultiAgentCoding — AI Agent Workspace GUI
 
-A modern single-window dashboard for the control-plane agents:
-  * top header with 7 live status cards (m1..m7: 🟢 Idle / 🟡 Working / 🔴 Error),
-  * a tabbed body: '💬 Master Console' (conversational feed + operation summary)
-    plus one dedicated tab per agent (m1 System Architect ... m7 Reviewer),
-  * a bottom input bar with 'RUN COMMAND' (broadcasts to all agents) and
-    'CLEAR LOGS' buttons.
+An ultra-professional single-window workspace for the control-plane agents:
+  * a prominent workspace header showing the current target path + Change Directory,
+  * a status dashboard with 4-state badges for m1..m7 (⚪ Idle / 🟡 Thinking /
+    🟢 Active / 🔴 Error) that navigate to the agent's tab on click,
+  * a tabbed body: '💬 Master Console' plus one dedicated tab per agent,
+  * an interactive control bar with RUN COMMAND, CLEAR LOGS, an auto-scroll
+    toggle, and quick action shortcuts.
 
 Submitting a prompt spawns one thread per agent running
-    opencode run --agent <agent_name> "<prompt>"
-and routes each agent's stdout/stderr into its own tab, keeping the Master
-Console clean and readable.
+    opencode run --agent <agent_name> --auto "<prompt>"
+and routes each agent's stdout/stderr (with ANSI codes stripped) into its own tab.
 
 Usage:
     python scripts/unified_app.py
@@ -22,13 +22,14 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
+from tkinter import filedialog, ttk
 
 # Workspace root = the directory the launcher was launched from (so `myagent`
 # targets whatever folder it is run in), not the script directory.
@@ -45,7 +46,7 @@ AGENTS = [
     ("m7", "Reviewer", "reviewer"),
 ]
 
-# Per-tag accent colors (used for status cards, tab labels, and stream tags).
+# Per-tag accent colors (used for status badges, tab labels, and stream tags).
 TAG_COLORS = {
     "m1": "#ff6b6b",
     "m2": "#4ecdc4",
@@ -59,8 +60,9 @@ TAG_COLORS = {
 }
 
 # Status indicators (emoji-driven per spec).
-STATUS_IDLE = "🟢 Idle"
-STATUS_WORKING = "🟡 Working"
+STATUS_IDLE = "⚪ Idle"
+STATUS_THINKING = "🟡 Thinking"
+STATUS_ACTIVE = "🟢 Active"
 STATUS_ERROR = "🔴 Error"
 
 # Modern dark palette.
@@ -71,14 +73,34 @@ BORDER = "#3c3c3c"
 TEXT = "#d4d4d4"
 MUTED = "#9a9a9a"
 ACCENT = "#0e639c"
+ACCENT_ACTIVE = "#1177bb"
 ERROR = "#ff5555"
 STREAM_BG = "#121212"
+HEADER_BG = "#1a1a1b"
 
 FONT_FAMILY = "Consolas"
 FONT_SIZE = 10
 POLL_MS = 50  # how often the main thread drains the output queue
 
 AGENT_TAB_LABELS = {tag: f"{tag} {name}" for tag, name, _ in AGENTS}
+
+# Quick action shortcuts -> prompt templates prefilled into the entry.
+QUICK_ACTIONS = [
+    ("Analyze", "Analyze the current project and produce a requirements analysis."),
+    ("Plan", "Plan the next implementation step for the current project."),
+    ("Implement", "Implement the next planned task for the current project."),
+    ("Test", "Write and run tests for the current project."),
+    ("Review", "Review the latest changes in the current project."),
+]
+
+# Matches CSI (ANSI) sequences like \x1b[0m, \x1b[91m, \x1b[1m and OSC
+# sequences like \x1b]...\x07.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from a log string."""
+    return _ANSI_RE.sub("", text)
 
 
 def _opencode_command() -> str | None:
@@ -95,7 +117,7 @@ def _opencode_command() -> str | None:
 class StreamView(tk.Text):
     """Read-only, dark-styled stream widget with per-agent tag colors."""
 
-    def __init__(self, parent: tk.Widget) -> None:
+    def __init__(self, parent: tk.Widget, autoscroll: "tk.BooleanVar | None" = None) -> None:
         super().__init__(
             parent,
             wrap=tk.WORD,
@@ -109,9 +131,10 @@ class StreamView(tk.Text):
             highlightthickness=1,
             highlightbackground=BORDER,
             highlightcolor=BORDER,
-            padx=8,
-            pady=6,
+            padx=10,
+            pady=8,
         )
+        self._autoscroll = autoscroll
         scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=self.yview)
         self.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -126,22 +149,28 @@ class StreamView(tk.Text):
         self.tag_configure("error", foreground=ERROR)
         self.tag_configure("muted", foreground=MUTED)
 
+    def _maybe_scroll(self) -> None:
+        if self._autoscroll is None or self._autoscroll.get():
+            self.see(tk.END)
+
     def append(self, text: str, tag: str = "") -> None:
-        """Append a line (main thread only)."""
+        """Append a line (main thread only), stripping ANSI codes."""
+        text = _strip_ansi(text)
         self.configure(state=tk.NORMAL)
         if tag:
             self.insert(tk.END, f"[{tag}] ", (f"tag_{tag}", "tag"))
         self.insert(tk.END, text + "\n", "body")
-        self.see(tk.END)
+        self._maybe_scroll()
         self.configure(state=tk.DISABLED)
 
     def append_error(self, text: str, tag: str = "") -> None:
-        """Append an error line (main thread only)."""
+        """Append an error line (main thread only), stripping ANSI codes."""
+        text = _strip_ansi(text)
         self.configure(state=tk.NORMAL)
         if tag:
             self.insert(tk.END, f"[{tag}] ", (f"tag_{tag}", "tag"))
         self.insert(tk.END, text + "\n", "error")
-        self.see(tk.END)
+        self._maybe_scroll()
         self.configure(state=tk.DISABLED)
 
     def clear(self) -> None:
@@ -151,13 +180,24 @@ class StreamView(tk.Text):
         self.configure(state=tk.DISABLED)
 
 
-class StatusCard(ttk.Frame):
-    """One agent status card: tag/name + live 🟢/🟡/🔴 indicator."""
+class StatusBadge(ttk.Frame):
+    """One agent status badge: tag/name + live ⚪/🟡/🟢/🔴 indicator.
 
-    def __init__(self, parent: tk.Widget, tag: str, name: str, color: str) -> None:
-        super().__init__(parent, style="Card.TFrame", padding=6)
+    Clicking the badge navigates the notebook to the agent's tab.
+    """
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        tag: str,
+        name: str,
+        color: str,
+        on_click: "callable[[str], None] | None" = None,
+    ) -> None:
+        super().__init__(parent, style="Card.TFrame", padding=(8, 6), cursor="hand2")
         self.tag = tag
         self.color = color
+        self._on_click = on_click
 
         self.name_label = ttk.Label(
             self,
@@ -173,7 +213,14 @@ class StatusCard(ttk.Frame):
         )
         self.status_label.pack(anchor=tk.W)
 
+        for widget in (self, self.name_label, self.status_label):
+            widget.bind("<Button-1>", self._handle_click)
+
         self.set_status_idle()
+
+    def _handle_click(self, _event=None) -> None:
+        if self._on_click:
+            self._on_click(self.tag)
 
     def set_status(self, status: str) -> None:
         self.status_label.configure(text=status)
@@ -181,22 +228,27 @@ class StatusCard(ttk.Frame):
     def set_status_idle(self) -> None:
         self.set_status(STATUS_IDLE)
 
-    def set_status_working(self) -> None:
-        self.set_status(STATUS_WORKING)
+    def set_status_thinking(self) -> None:
+        self.set_status(STATUS_THINKING)
+
+    def set_status_active(self) -> None:
+        self.set_status(STATUS_ACTIVE)
 
     def set_status_error(self) -> None:
         self.set_status(STATUS_ERROR)
 
 
 class UnifiedApp(tk.Tk):
-    """Tabbed single-window unified dashboard."""
+    """AI Agent Workspace GUI."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.title("MultiAgentCoding — Unified Control Plane")
-        self.geometry("1100x720")
-        self.minsize(800, 500)
+        self.title("MultiAgentCoding — AI Agent Workspace")
+        self.geometry("1180x760")
+        self.minsize(860, 540)
         self.configure(bg=BG)
+
+        self.workspace = PROJECT_ROOT  # mutable; updated by Change Directory
 
         # Queue bridging worker threads -> Tk main thread.
         self.events: "queue.Queue[tuple]" = queue.Queue()
@@ -214,19 +266,37 @@ class UnifiedApp(tk.Tk):
     def _build_ui(self) -> None:
         self._configure_styles()
 
-        container = ttk.Frame(self, padding=8, style="App.TFrame")
+        container = ttk.Frame(self, padding=10, style="App.TFrame")
         container.pack(fill=tk.BOTH, expand=True)
 
-        # 1. Top header: status cards row.
-        header = ttk.Frame(container, style="App.TFrame")
-        header.pack(fill=tk.X, pady=(0, 6))
-        self.cards: dict[str, StatusCard] = {}
-        for i, (tag, name, _) in enumerate(AGENTS):
-            card = StatusCard(header, tag, name, TAG_COLORS[tag])
-            card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4 if i < 6 else 0))
-            self.cards[tag] = card
+        self.autoscroll_var = tk.BooleanVar(value=True)
 
-        # 2. Main body: tabbed interface.
+        # 1. Active workspace header.
+        header_bar = ttk.Frame(container, style="Header.TFrame", padding=(12, 10))
+        header_bar.pack(fill=tk.X, pady=(0, 8))
+        self.workspace_var = tk.StringVar(value=f"📂 Workspace: {self.workspace}")
+        ttk.Label(
+            header_bar,
+            textvariable=self.workspace_var,
+            style="HeaderTitle.TLabel",
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            header_bar,
+            text="Change Directory…",
+            style="Accent.TButton",
+            command=self._on_change_directory,
+        ).pack(side=tk.RIGHT)
+
+        # 2. Agent status dashboard.
+        dash = ttk.Frame(container, style="App.TFrame")
+        dash.pack(fill=tk.X, pady=(0, 8))
+        self.badges: dict[str, StatusBadge] = {}
+        for i, (tag, name, _) in enumerate(AGENTS):
+            badge = StatusBadge(dash, tag, name, TAG_COLORS[tag], on_click=self._goto_agent_tab)
+            badge.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4 if i < 6 else 0))
+            self.badges[tag] = badge
+
+        # 3. Main body: tabbed interface.
         body = ttk.Frame(container, style="App.TFrame")
         body.pack(fill=tk.BOTH, expand=True)
 
@@ -236,18 +306,36 @@ class UnifiedApp(tk.Tk):
         # Master Console tab.
         master_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
         self.notebook.add(master_frame, text="💬 Master Console")
-        self.master_stream = StreamView(master_frame)
+        self.master_stream = StreamView(master_frame, autoscroll=self.autoscroll_var)
 
         # One tab per agent.
         self.agent_streams: dict[str, StreamView] = {}
+        self.agent_tabs: dict[str, tk.Widget] = {}
         for tag, name, _ in AGENTS:
             agent_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
             self.notebook.add(agent_frame, text=AGENT_TAB_LABELS[tag])
-            self.agent_streams[tag] = StreamView(agent_frame)
+            self.agent_streams[tag] = StreamView(agent_frame, autoscroll=self.autoscroll_var)
+            self.agent_tabs[tag] = agent_frame
 
-        # 3. Bottom input controls.
-        input_row = ttk.Frame(container, style="App.TFrame")
-        input_row.pack(fill=tk.X, pady=(6, 0))
+        # 4. Interactive control bar.
+        control = ttk.Frame(container, style="App.TFrame")
+        control.pack(fill=tk.X, pady=(8, 0))
+
+        # Quick action shortcuts (top row of the control bar).
+        quick_row = ttk.Frame(control, style="App.TFrame")
+        quick_row.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(quick_row, text="Quick actions:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        for label, template in QUICK_ACTIONS:
+            ttk.Button(
+                quick_row,
+                text=label,
+                style="Quick.TButton",
+                command=lambda t=template: self._prefill_prompt(t),
+            ).pack(side=tk.LEFT, padx=(0, 4))
+
+        # Prompt entry + run/clear + autoscroll.
+        input_row = ttk.Frame(control, style="App.TFrame")
+        input_row.pack(fill=tk.X)
 
         self.entry = tk.Entry(
             input_row,
@@ -261,13 +349,17 @@ class UnifiedApp(tk.Tk):
             highlightbackground=BORDER,
             highlightcolor=ACCENT,
         )
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6, padx=(0, 0))
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6)
         self.entry.bind("<Return>", self._on_run_command)
+
+        ttk.Checkbutton(
+            input_row, text="Auto-scroll", variable=self.autoscroll_var, style="Muted.TCheckbutton"
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self.run_btn = ttk.Button(
             input_row, text="RUN COMMAND", style="Accent.TButton", command=self._on_run_command
         )
-        self.run_btn.pack(side=tk.LEFT, padx=(6, 4))
+        self.run_btn.pack(side=tk.LEFT, padx=(8, 4))
 
         self.clear_btn = ttk.Button(
             input_row, text="CLEAR LOGS", style="Danger.TButton", command=self._on_clear_logs
@@ -281,12 +373,21 @@ class UnifiedApp(tk.Tk):
         style.theme_use("clam")
 
         style.configure("App.TFrame", background=BG)
+        style.configure("Header.TFrame", background=HEADER_BG, relief=tk.FLAT)
+        style.configure(
+            "HeaderTitle.TLabel",
+            background=HEADER_BG,
+            foreground="#ffffff",
+            font=(FONT_FAMILY, 11, "bold"),
+        )
+        style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=(FONT_FAMILY, 9))
+
         style.configure("App.TNotebook", background=BG, borderwidth=0)
         style.configure(
             "App.TNotebook.Tab",
             background=PANEL,
             foreground=TEXT,
-            padding=(10, 5),
+            padding=(12, 6),
             font=(FONT_FAMILY, 9),
             borderwidth=0,
         )
@@ -305,18 +406,27 @@ class UnifiedApp(tk.Tk):
             "Accent.TButton",
             background=ACCENT,
             foreground="#ffffff",
-            padding=(12, 6),
+            padding=(14, 7),
             font=(FONT_FAMILY, 9, "bold"),
         )
-        style.map("Accent.TButton", background=[("active", "#1177bb")])
+        style.map("Accent.TButton", background=[("active", ACCENT_ACTIVE)])
         style.configure(
             "Danger.TButton",
             background="#7a2f2f",
             foreground="#ffffff",
-            padding=(12, 6),
+            padding=(12, 7),
             font=(FONT_FAMILY, 9, "bold"),
         )
         style.map("Danger.TButton", background=[("active", "#9c3d3d")])
+        style.configure(
+            "Quick.TButton",
+            background=PANEL_ALT,
+            foreground=TEXT,
+            padding=(10, 5),
+            font=(FONT_FAMILY, 9),
+        )
+        style.map("Quick.TButton", background=[("active", ACCENT)], foreground=[("active", "#ffffff")])
+        style.configure("Muted.TCheckbutton", background=BG, foreground=TEXT, font=(FONT_FAMILY, 9))
 
     # -------------------------------------------------------------- helpers
 
@@ -330,8 +440,24 @@ class UnifiedApp(tk.Tk):
             return
         self.master_stream.append(text, tag="")
 
-    def _update_status(self) -> None:
-        pass  # status now lives on the per-agent cards
+    def _goto_agent_tab(self, tag: str) -> None:
+        frame = self.agent_tabs.get(tag)
+        if frame is not None:
+            self.notebook.select(frame)
+
+    def _prefill_prompt(self, template: str) -> None:
+        self.entry.delete(0, tk.END)
+        self.entry.insert(0, template)
+        self.entry.focus_set()
+
+    def _on_change_directory(self) -> None:
+        chosen = filedialog.askdirectory(
+            title="Select Workspace Target Directory",
+            initialdir=str(self.workspace),
+        )
+        if chosen:
+            self.workspace = Path(chosen)
+            self.workspace_var.set(f"📂 Workspace: {self.workspace}")
 
     # ------------------------------------------------------------- actions
 
@@ -350,8 +476,8 @@ class UnifiedApp(tk.Tk):
                 daemon=True,
             )
             thread.start()
-            self.cards[tag].set_status_working()
-            self._append_master_muted(f"→ {tag.upper()} {name}: started")
+            self.badges[tag].set_status_thinking()
+            self._append_master_muted(f"→ {tag.upper()} {name}: thinking")
 
         self.running += len(AGENTS)
 
@@ -369,7 +495,7 @@ class UnifiedApp(tk.Tk):
             # not auto-rejected. (opencode run has no --yes/-y flag.)
             proc = subprocess.Popen(
                 cmd,
-                cwd=str(PROJECT_ROOT),
+                cwd=str(self.workspace),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -408,15 +534,16 @@ class UnifiedApp(tk.Tk):
                 if kind == "line":
                     _, tag, name, line = event
                     self.agent_streams[tag].append(f"[{tag} {name}] {line}", tag=tag)
+                    self.badges[tag].set_status_active()
                 elif kind == "error":
                     _, tag, name, message = event
                     self.agent_streams[tag].append_error(f"[{tag} {name}] {message}", tag=tag)
-                    self.cards[tag].set_status_error()
+                    self.badges[tag].set_status_error()
                     self._append_master_muted(f"✗ {tag.upper()} {name}: {message}")
                 elif kind == "done":
                     _, tag, name, success = event
                     if success:
-                        self.cards[tag].set_status_idle()
+                        self.badges[tag].set_status_idle()
                         self._append_master_muted(f"✓ {tag.upper()} {name}: finished")
                     self.running = max(0, self.running - 1)
         except queue.Empty:
