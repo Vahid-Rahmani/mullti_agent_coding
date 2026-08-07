@@ -1,0 +1,62 @@
+﻿{
+  "project": "expense-manager",
+  "root": "test",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "پوشه/ساختار اولیه پروژه",
+      "description": "در پوشه test: ایجاد tests/__init__.py، data/ (gitignored), و فایل requirements.txt (خالی یا فقط stdlib). حفظ PLAN.md و TASKS.json.",
+      "priority": "high",
+      "dependencies": [],
+      "owner": "backend-dev"
+    },
+    {
+      "id": "T2",
+      "title": "هسته ExpenseManager + ذخیره JSON",
+      "description": "پیاده‌سازی test/expense_manager.py شامل کلاس ExpenseManager با متدهای add_expense(desc, amount)، get_expenses()، get_total()، save() و load(). ذخیره در فایل JSON. مدیریت نماد/خطاهای داده نامعتبر.",
+      "priority": "high",
+      "dependencies": ["T1"],
+      "owner": "backend-dev"
+    },
+    {
+      "id": "T3",
+      "title": "رابط خط فرمان CLI",
+      "description": "پیاده‌سازی test/app.py که دستورهای add/list/total را از آرگومان command line (argparse) می‌خواند و با ExpenseManager کار می‌کند. مسیر داده پیش‌فرض test/data/expenses.json.",
+      "priority": "medium",
+      "dependencies": ["T2"],
+      "owner": "backend-dev"
+    },
+    {
+      "id": "T4",
+      "title": "تست‌های واحد هسته",
+      "description": "نوشتن tests/test_expense_manager.py با unittest: تست افزودن، لیست، مجموع، ذخیره/بارگذاری JSON، موجودیت مقدار معتبر و خطای ورودی نامعتبر.",
+      "priority": "high",
+      "dependencies": ["T2"],
+      "owner": "tester"
+    },
+    {
+      "id": "T5",
+      "title": "تست‌های واحد CLI",
+      "description": "نوشتن tests/test_cli.py برای فراخوانی app.py با آرگومان‌های add/list و بررسی خروجی و تغییر فایل JSON.",
+      "priority": "medium",
+      "dependencies": ["T3"],
+      "owner": "tester"
+    },
+    {
+      "id": "T6",
+      "title": "اجرا و تایید همه تست‌ها",
+      "description": "اجرای `python -m unittest discover -s test/tests` از ریشه و تأیید green (exit 0). ثبت خروجی در _logs.",
+      "priority": "high",
+      "dependencies": ["T4", "T5"],
+      "owner": "tester"
+    },
+    {
+      "id": "T7",
+      "title": "بررسی نهایی و README",
+      "description": "اضافه کردن README.md کوتاه (نصب/اجرا/تست) و بازبینی نهایی طراحی؛ اطمینان از عدم commit داده نمونه و راز.",
+      "priority": "low",
+      "dependencies": ["T6"],
+      "owner": "reviewer"
+    }
+  ]
+}

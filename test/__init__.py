@@ -1,0 +1,1 @@
+# Package marker so tests can import expense_tracker as a module.
