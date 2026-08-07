@@ -1,0 +1,100 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "M1 - System Architect",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent system-architect -Title \"M1 - System Architect\" -Slot 1",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "M2 - Analyst",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent analyst -Title \"M2 - Analyst\" -Slot 2",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "M3 - Planner",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent planner -Title \"M3 - Planner\" -Slot 3",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "M4 - Backend Dev",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent backend-dev -Title \"M4 - Backend Dev\" -Slot 4",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "M5 - Frontend Dev",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent frontend-dev -Title \"M5 - Frontend Dev\" -Slot 5",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "M6 - Tester",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent tester -Title \"M6 - Tester\" -Slot 6",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "M7 - Reviewer",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent reviewer -Title \"M7 - Reviewer\" -Slot 7",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Launch All Agents",
+            "dependsOn": [
+                "M1 - System Architect",
+                "M2 - Analyst",
+                "M3 - Planner",
+                "M4 - Backend Dev",
+                "M5 - Frontend Dev",
+                "M6 - Tester",
+                "M7 - Reviewer"
+            ],
+            "dependsOrder": "parallel",
+            "presentation": {
+                "group": "agents",
+                "reveal": "never"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

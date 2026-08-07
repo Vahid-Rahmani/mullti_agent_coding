@@ -1,15 +1,29 @@
 {
   "enabled": true,
-  "retry_on_errors": [429, 500, 502, 503, 504],
-  "retryable_error_patterns": ["quota", "usage limit", "credit balance", "model not found"],
+  "retry_on_errors": [429, 500, 502, 503, 504, 507],
+  "retryable_error_patterns": [
+    "rate limit",
+    "too many requests",
+    "429",
+    "token limit",
+    "context length",
+    "context window",
+    "maximum context",
+    "input is too long",
+    "quota",
+    "usage limit",
+    "credit balance",
+    "model not found",
+    "model is not supported",
+    "insufficient balance"
+  ],
   "max_fallback_attempts": 4,
-  "cooldown_seconds": 60,
+  "cooldown_seconds": 0,
   "timeout_seconds": 30,
   "notify_on_fallback": true,
   "fallback_models": [
+    "opencode/big-pickle",
     "opencode/deepseek-v4-flash-free",
-    "groq/llama-3.3-70b-versatile",
-    "groq/openai/gpt-oss-120b",
     "ollama/qwen2.5-coder:7b"
   ]
 }
