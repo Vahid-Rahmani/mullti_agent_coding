@@ -4,7 +4,12 @@ param(
     [string]$Title = "",
     [ValidateRange(1, 7)]
     [int]$Slot = 1,
-    [switch]$Smoke
+    [switch]$Smoke,
+    [string]$ModelOverride = "",
+    [string]$AgentOverride = "",
+    [string]$TaskFile = "",
+    [string]$LogFile = "",
+    [string]$Workspace = ""
 )
 
 $ErrorActionPreference = 'Continue'
@@ -50,7 +55,7 @@ catch {
     Write-Host "Warning: window placement skipped ($($_.Exception.Message))"
 }
 
-# --- Resolve agent model from opencode.json ---
+# --- Resolve agent model from opencode.json (unless overridden) ---
 $configPath = Join-Path $ProjectRoot 'opencode.json'
 if (-not (Test-Path $configPath)) {
     Write-Error "opencode.json not found at $configPath"
@@ -61,8 +66,10 @@ if (-not $config.agent.PSObject.Properties[$Agent]) {
     Write-Error "Unknown agent '$Agent'. Valid agents: $($config.agent.PSObject.Properties.Name -join ', ')"
     exit 1
 }
-$Model = $config.agent.$Agent.model
-if (-not $Model) {
+if (-not $ModelOverride) {
+    $ModelOverride = $config.agent.$Agent.model
+}
+if (-not $ModelOverride) {
     Write-Error "Agent '$Agent' has no model configured."
     exit 1
 }
@@ -73,30 +80,41 @@ $done = Join-Path $inbox 'done'
 $logs = Join-Path $ProjectRoot '_logs'
 New-Item -ItemType Directory -Path $inbox, $done, $logs -Force | Out-Null
 
-$taskFile = Join-Path $inbox "$Agent.task"
-$logFile = Join-Path $logs "$Agent.log"
+if (-not $TaskFile) { $TaskFile = Join-Path $inbox "$Agent.task" }
+if (-not $LogFile) { $LogFile = Join-Path $logs "$Agent.log" }
+
+$RunAgent = if ($AgentOverride) { $AgentOverride } else { $Agent }
 $idleShown = $false
 
 Write-Host "=== MultiAgentCoding: $($Agent) worker ==="
-Write-Host "Model : $Model"
-Write-Host "Inbox : _inbox\$Agent.task"
-Write-Host "Log   : _logs\$Agent.log"
+Write-Host "Model : $ModelOverride"
+Write-Host "Inbox : $TaskFile"
+Write-Host "Log   : $LogFile"
 Write-Host ""
 
 while ($true) {
-    if (Test-Path $taskFile) {
-        $task = (Get-Content -Raw $taskFile).Trim()
+    if (Test-Path $TaskFile) {
+        $task = (Get-Content -Raw $TaskFile).Trim()
         if ($task) {
             $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
             $header = "`n[$stamp] ===== TASK RECEIVED ($Agent) =====" + "`n" + $task + "`n========== OUTPUT =========="
-            Add-Content -Path $logFile -Value $header -Encoding UTF8
+            Add-Content -Path $LogFile -Value $header -Encoding UTF8
             Write-Host "[$stamp] Running task..."
-            $output = & opencode run --agent $Agent -m $Model $task 2>&1 | Out-String
-            Add-Content -Path $logFile -Value $output -Encoding UTF8
+            if ($Workspace) { Push-Location $Workspace }
+            try {
+                # Stream output line-by-line so the web UI can tail in real-time.
+                & opencode run --agent $RunAgent --auto -m $ModelOverride $task 2>&1 | ForEach-Object {
+                    Add-Content -Path $LogFile -Value "$_" -Encoding UTF8
+                    Write-Host $_
+                }
+            }
+            finally {
+                if ($Workspace) { Pop-Location }
+            }
             $doneName = "$Agent-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.task'
-            Move-Item $taskFile (Join-Path $done $doneName) -Force
+            Move-Item $TaskFile (Join-Path $done $doneName) -Force
             $doneStamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-            Add-Content -Path $logFile -Value "`n[$doneStamp] ===== TASK COMPLETE =====`n" -Encoding UTF8
+            Add-Content -Path $LogFile -Value "`n[$doneStamp] ===== TASK COMPLETE =====" -Encoding UTF8
             Write-Host "[$doneStamp] Task done -> _inbox\done\$doneName"
             if ($Smoke) {
                 Write-Host "SMOKE: task processed. Exiting."
@@ -104,7 +122,7 @@ while ($true) {
             }
         }
         else {
-            Remove-Item $taskFile -Force
+            Remove-Item $TaskFile -Force
         }
     }
     elseif ($Smoke) {
@@ -112,7 +130,7 @@ while ($true) {
         [Environment]::Exit(0)
     }
     elseif (-not $idleShown) {
-        Write-Host "Listening for tasks in _inbox\$Agent.task ... (drop a file there to run)"
+        Write-Host "Listening for tasks in $TaskFile ... (drop a file there to run)"
         $idleShown = $true
     }
     Start-Sleep -Seconds 3

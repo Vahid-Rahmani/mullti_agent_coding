@@ -95,6 +95,17 @@
                 "reveal": "never"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Launch Web UI",
+            "type": "shell",
+            "command": "python ${workspaceFolder}/scripts/web_app.py --port 8501",
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
         }
     ]
 }

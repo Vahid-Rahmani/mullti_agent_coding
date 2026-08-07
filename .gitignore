@@ -4,6 +4,7 @@
 *.pem
 *.key
 auth.json
+opencode.json.bak
 
 # MultiAgentCoding runtime data
 knowledge/index.jsonl
