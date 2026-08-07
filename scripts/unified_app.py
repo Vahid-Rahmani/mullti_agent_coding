@@ -30,8 +30,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-# Repo root = parent of this script's directory (scripts/).
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Workspace root = the directory the launcher was launched from (so `myagent`
+# targets whatever folder it is run in), not the script directory.
+PROJECT_ROOT = Path(os.getcwd())
 
 # (tag, display name, opencode agent name) — order matches opencode.json agents.
 AGENTS = [
