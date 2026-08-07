@@ -7,7 +7,7 @@ import unittest
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
-from unified_app import AUTO_MODEL, MODEL_OPTIONS, UnifiedApp
+from unified_app import AUTO_MODEL, MODEL_OPTIONS, UnifiedApp, _build_run_command
 
 
 class ModelConstantsTestCase(unittest.TestCase):
@@ -44,6 +44,30 @@ class ResolveModelTestCase(unittest.TestCase):
     def test_master_resolves_to_its_own_value(self):
         self.app.model_vars["master"].set("opencode/deepseek-v4-flash-free")
         self.assertEqual(self.app._resolve_model("master"), "opencode/deepseek-v4-flash-free")
+
+
+class BuildRunCommandTestCase(unittest.TestCase):
+
+    def test_no_model_keeps_auto_command_shape(self):
+        self.assertEqual(
+            _build_run_command("opencode", "tester", "run tests", None),
+            ["opencode", "run", "--agent", "tester", "--auto", "run tests"],
+        )
+
+    def test_model_appends_dash_m_before_prompt(self):
+        self.assertEqual(
+            _build_run_command("opencode", "tester", "run tests", "opencode/big-pickle"),
+            [
+                "opencode",
+                "run",
+                "--agent",
+                "tester",
+                "--auto",
+                "-m",
+                "opencode/big-pickle",
+                "run tests",
+            ],
+        )
 
 
 if __name__ == "__main__":

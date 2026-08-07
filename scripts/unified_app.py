@@ -124,6 +124,20 @@ def _opencode_command() -> str | None:
     return shutil.which("opencode") or shutil.which("opencode.cmd")
 
 
+def _build_run_command(exe: str, agent: str, prompt: str, model: str | None) -> list[str]:
+    """Build the ``opencode run`` argv for one agent.
+
+    ``--auto`` auto-approves tool permissions (bash/file ops) so they are not
+    auto-rejected (opencode run has no --yes/-y flag). When a model override is
+    resolved, ``-m <model>`` is inserted before the prompt.
+    """
+    cmd = [exe, "run", "--agent", agent, "--auto"]
+    if model:
+        cmd += ["-m", model]
+    cmd.append(prompt)
+    return cmd
+
+
 class StreamView(tk.Text):
     """Read-only, dark-styled stream widget with per-agent tag colors."""
 
@@ -529,9 +543,10 @@ class UnifiedApp(tk.Tk):
         self._append_master(f"▶ {prompt}")
 
         for tag, name, agent in AGENTS:
+            model = self._resolve_model(tag)
             thread = threading.Thread(
                 target=self._run_agent,
-                args=(tag, name, agent, prompt),
+                args=(tag, name, agent, prompt, model),
                 name=f"agent-{tag}",
                 daemon=True,
             )
@@ -542,7 +557,7 @@ class UnifiedApp(tk.Tk):
         self.running += len(AGENTS)
         return "break"
 
-    def _run_agent(self, tag: str, name: str, agent: str, prompt: str) -> None:
+    def _run_agent(self, tag: str, name: str, agent: str, prompt: str, model: str | None = None) -> None:
         """Worker thread: run opencode for one agent, stream lines to the queue."""
         try:
             exe = _opencode_command()
@@ -551,13 +566,7 @@ class UnifiedApp(tk.Tk):
                     "opencode executable not found on PATH. "
                     "Install opencode or add it to PATH before using this launcher."
                 )
-            cmd = [exe, "run", "--agent", agent, "--auto"]
-            # --auto auto-approves tool permissions (bash/file ops) so they are
-            # not auto-rejected. (opencode run has no --yes/-y flag.)
-            model = self._resolve_model(tag)
-            if model:
-                cmd += ["-m", model]
-            cmd.append(prompt)
+            cmd = _build_run_command(exe, agent, prompt, model)
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(self.workspace),
