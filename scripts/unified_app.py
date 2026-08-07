@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-MultiAgentCoding — Unified Control Plane
+MultiAgentCoding — Unified Control Plane (Tabbed Dashboard)
 
-A single-window launcher for the control-plane agents. One Tkinter window with:
-  * a command input bar at the bottom where you type a prompt and press Enter,
-  * a unified live terminal stream that shows every interaction in one place,
-    with color-coded tags for each agent ([m1 System Architect] ... [m7 Reviewer]).
+A modern single-window dashboard for the control-plane agents:
+  * top header with 7 live status cards (m1..m7: 🟢 Idle / 🟡 Working / 🔴 Error),
+  * a tabbed body: '💬 Master Console' (conversational feed + operation summary)
+    plus one dedicated tab per agent (m1 System Architect ... m7 Reviewer),
+  * a bottom input bar with 'RUN COMMAND' (broadcasts to all agents) and
+    'CLEAR LOGS' buttons.
 
 Submitting a prompt spawns one thread per agent running
     opencode run --agent <agent_name> "<prompt>"
-and streams each agent's stdout/stderr into the single stream view.
-No extra windows or split panes are opened.
+and routes each agent's stdout/stderr into its own tab, keeping the Master
+Console clean and readable.
 
 Usage:
     python scripts/unified_app.py
@@ -42,7 +44,7 @@ AGENTS = [
     ("m7", "Reviewer", "reviewer"),
 ]
 
-# Per-tag foreground colors for the stream view.
+# Per-tag accent colors (used for status cards, tab labels, and stream tags).
 TAG_COLORS = {
     "m1": "#ff6b6b",
     "m2": "#4ecdc4",
@@ -55,9 +57,27 @@ TAG_COLORS = {
     "system": "#95a5a6",
 }
 
+# Status indicators (emoji-driven per spec).
+STATUS_IDLE = "🟢 Idle"
+STATUS_WORKING = "🟡 Working"
+STATUS_ERROR = "🔴 Error"
+
+# Modern dark palette.
+BG = "#1e1e1e"
+PANEL = "#252526"
+PANEL_ALT = "#2d2d30"
+BORDER = "#3c3c3c"
+TEXT = "#d4d4d4"
+MUTED = "#9a9a9a"
+ACCENT = "#0e639c"
+ERROR = "#ff5555"
+STREAM_BG = "#121212"
+
 FONT_FAMILY = "Consolas"
 FONT_SIZE = 10
 POLL_MS = 50  # how often the main thread drains the output queue
+
+AGENT_TAB_LABELS = {tag: f"{tag} {name}" for tag, name, _ in AGENTS}
 
 
 def _opencode_command() -> str | None:
@@ -71,15 +91,111 @@ def _opencode_command() -> str | None:
     return shutil.which("opencode") or shutil.which("opencode.cmd")
 
 
+class StreamView(tk.Text):
+    """Read-only, dark-styled stream widget with per-agent tag colors."""
+
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(
+            parent,
+            wrap=tk.WORD,
+            bg=STREAM_BG,
+            fg=TEXT,
+            insertbackground=TEXT,
+            relief=tk.FLAT,
+            font=(FONT_FAMILY, FONT_SIZE),
+            state=tk.DISABLED,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=BORDER,
+            highlightcolor=BORDER,
+            padx=8,
+            pady=6,
+        )
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=self.yview)
+        self.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.tag_configure("tag", foreground="#ffffff")
+        for tag, color in TAG_COLORS.items():
+            self.tag_configure(
+                f"tag_{tag}", foreground=color, font=(FONT_FAMILY, FONT_SIZE, "bold")
+            )
+        self.tag_configure("body", foreground=TEXT)
+        self.tag_configure("error", foreground=ERROR)
+        self.tag_configure("muted", foreground=MUTED)
+
+    def append(self, text: str, tag: str = "") -> None:
+        """Append a line (main thread only)."""
+        self.configure(state=tk.NORMAL)
+        if tag:
+            self.insert(tk.END, f"[{tag}] ", (f"tag_{tag}", "tag"))
+        self.insert(tk.END, text + "\n", "body")
+        self.see(tk.END)
+        self.configure(state=tk.DISABLED)
+
+    def append_error(self, text: str, tag: str = "") -> None:
+        """Append an error line (main thread only)."""
+        self.configure(state=tk.NORMAL)
+        if tag:
+            self.insert(tk.END, f"[{tag}] ", (f"tag_{tag}", "tag"))
+        self.insert(tk.END, text + "\n", "error")
+        self.see(tk.END)
+        self.configure(state=tk.DISABLED)
+
+    def clear(self) -> None:
+        """Clear all content (main thread only)."""
+        self.configure(state=tk.NORMAL)
+        self.delete("1.0", tk.END)
+        self.configure(state=tk.DISABLED)
+
+
+class StatusCard(ttk.Frame):
+    """One agent status card: tag/name + live 🟢/🟡/🔴 indicator."""
+
+    def __init__(self, parent: tk.Widget, tag: str, name: str, color: str) -> None:
+        super().__init__(parent, style="Card.TFrame", padding=6)
+        self.tag = tag
+        self.color = color
+
+        self.name_label = ttk.Label(
+            self,
+            text=f"{tag.upper()} · {name}",
+            style="CardName.TLabel",
+        )
+        self.name_label.pack(anchor=tk.W)
+
+        self.status_label = ttk.Label(
+            self,
+            text=STATUS_IDLE,
+            style="CardStatus.TLabel",
+        )
+        self.status_label.pack(anchor=tk.W)
+
+        self.set_status_idle()
+
+    def set_status(self, status: str) -> None:
+        self.status_label.configure(text=status)
+
+    def set_status_idle(self) -> None:
+        self.set_status(STATUS_IDLE)
+
+    def set_status_working(self) -> None:
+        self.set_status(STATUS_WORKING)
+
+    def set_status_error(self) -> None:
+        self.set_status(STATUS_ERROR)
+
+
 class UnifiedApp(tk.Tk):
-    """Single-window unified launcher UI."""
+    """Tabbed single-window unified dashboard."""
 
     def __init__(self) -> None:
         super().__init__()
         self.title("MultiAgentCoding — Unified Control Plane")
-        self.geometry("1000x680")
-        self.minsize(640, 400)
-        self.configure(bg="#1e1e1e")
+        self.geometry("1100x720")
+        self.minsize(800, 500)
+        self.configure(bg=BG)
 
         # Queue bridging worker threads -> Tk main thread.
         self.events: "queue.Queue[tuple]" = queue.Queue()
@@ -95,103 +211,135 @@ class UnifiedApp(tk.Tk):
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
-        container = ttk.Frame(self, padding=4)
+        self._configure_styles()
+
+        container = ttk.Frame(self, padding=8, style="App.TFrame")
         container.pack(fill=tk.BOTH, expand=True)
 
-        # Title / status row.
-        status_row = ttk.Frame(container)
-        status_row.pack(fill=tk.X, pady=(0, 2))
-        ttk.Label(
-            status_row,
-            text="MultiAgentCoding — Unified Control Plane",
-            font=(FONT_FAMILY, 10, "bold"),
-        ).pack(side=tk.LEFT)
-        self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(status_row, textvariable=self.status_var).pack(side=tk.RIGHT)
+        # 1. Top header: status cards row.
+        header = ttk.Frame(container, style="App.TFrame")
+        header.pack(fill=tk.X, pady=(0, 6))
+        self.cards: dict[str, StatusCard] = {}
+        for i, (tag, name, _) in enumerate(AGENTS):
+            card = StatusCard(header, tag, name, TAG_COLORS[tag])
+            card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4 if i < 6 else 0))
+            self.cards[tag] = card
 
-        # Unified live terminal stream.
-        stream_frame = ttk.Frame(container)
-        stream_frame.pack(fill=tk.BOTH, expand=True, pady=2)
+        # 2. Main body: tabbed interface.
+        body = ttk.Frame(container, style="App.TFrame")
+        body.pack(fill=tk.BOTH, expand=True)
 
-        self.stream = tk.Text(
-            stream_frame,
-            wrap=tk.WORD,
-            bg="#121212",
-            fg="#d4d4d4",
-            insertbackground="#d4d4d4",
-            relief=tk.FLAT,
-            font=(FONT_FAMILY, FONT_SIZE),
-            state=tk.DISABLED,
-        )
-        scrollbar = ttk.Scrollbar(stream_frame, orient=tk.VERTICAL, command=self.stream.yview)
-        self.stream.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.stream.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.notebook = ttk.Notebook(body, style="App.TNotebook")
+        self.notebook.pack(fill=tk.BOTH, expand=True)
 
-        # Register text tags for each agent + master/system.
-        self.stream.tag_configure("tag", foreground="#ffffff")
-        for tag, color in TAG_COLORS.items():
-            self.stream.tag_configure(f"tag_{tag}", foreground=color, font=(FONT_FAMILY, FONT_SIZE, "bold"))
-        self.stream.tag_configure("body", foreground="#d4d4d4")
-        self.stream.tag_configure("error", foreground="#ff5555")
+        # Master Console tab.
+        master_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
+        self.notebook.add(master_frame, text="💬 Master Console")
+        self.master_stream = StreamView(master_frame)
 
-        # Input bar (bottom) + Send button.
-        input_row = ttk.Frame(container)
-        input_row.pack(fill=tk.X, pady=(4, 0))
+        # One tab per agent.
+        self.agent_streams: dict[str, StreamView] = {}
+        for tag, name, _ in AGENTS:
+            agent_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
+            self.notebook.add(agent_frame, text=AGENT_TAB_LABELS[tag])
+            self.agent_streams[tag] = StreamView(agent_frame)
+
+        # 3. Bottom input controls.
+        input_row = ttk.Frame(container, style="App.TFrame")
+        input_row.pack(fill=tk.X, pady=(6, 0))
 
         self.entry = tk.Entry(
             input_row,
-            bg="#2b2b2b",
-            fg="#ffffff",
-            insertbackground="#ffffff",
+            bg=PANEL,
+            fg=TEXT,
+            insertbackground=TEXT,
             relief=tk.FLAT,
             font=(FONT_FAMILY, FONT_SIZE),
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground=BORDER,
+            highlightcolor=ACCENT,
         )
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=5)
-        self.entry.bind("<Return>", self._on_submit)
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6, padx=(0, 0))
+        self.entry.bind("<Return>", self._on_run_command)
 
-        self.send_btn = ttk.Button(input_row, text="Send to all agents", command=self._on_submit)
-        self.send_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.run_btn = ttk.Button(
+            input_row, text="RUN COMMAND", style="Accent.TButton", command=self._on_run_command
+        )
+        self.run_btn.pack(side=tk.LEFT, padx=(6, 4))
+
+        self.clear_btn = ttk.Button(
+            input_row, text="CLEAR LOGS", style="Danger.TButton", command=self._on_clear_logs
+        )
+        self.clear_btn.pack(side=tk.LEFT)
 
         self.entry.focus_set()
 
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self)
+        style.theme_use("clam")
+
+        style.configure("App.TFrame", background=BG)
+        style.configure("App.TNotebook", background=BG, borderwidth=0)
+        style.configure(
+            "App.TNotebook.Tab",
+            background=PANEL,
+            foreground=TEXT,
+            padding=(10, 5),
+            font=(FONT_FAMILY, 9),
+            borderwidth=0,
+        )
+        style.map(
+            "App.TNotebook.Tab",
+            background=[("selected", PANEL_ALT)],
+            foreground=[("selected", "#ffffff")],
+        )
+
+        style.configure("Card.TFrame", background=PANEL, relief=tk.FLAT)
+        style.configure("CardName.TLabel", background=PANEL, foreground=TEXT, font=(FONT_FAMILY, 9, "bold"))
+        style.configure("CardStatus.TLabel", background=PANEL, foreground=TEXT, font=(FONT_FAMILY, 9))
+
+        style.configure("TEntry", fieldbackground=PANEL, foreground=TEXT)
+        style.configure(
+            "Accent.TButton",
+            background=ACCENT,
+            foreground="#ffffff",
+            padding=(12, 6),
+            font=(FONT_FAMILY, 9, "bold"),
+        )
+        style.map("Accent.TButton", background=[("active", "#1177bb")])
+        style.configure(
+            "Danger.TButton",
+            background="#7a2f2f",
+            foreground="#ffffff",
+            padding=(12, 6),
+            font=(FONT_FAMILY, 9, "bold"),
+        )
+        style.map("Danger.TButton", background=[("active", "#9c3d3d")])
+
     # -------------------------------------------------------------- helpers
 
-    def _append(self, text: str, tag: str = "") -> None:
-        """Append a line to the stream (main thread only)."""
+    def _append_master(self, text: str, tag: str = "master") -> None:
         if self._closing:
             return
-        self.stream.configure(state=tk.NORMAL)
-        if tag:
-            self.stream.insert(tk.END, f"[{tag}] ", (f"tag_{tag}", "tag"))
-        self.stream.insert(tk.END, text + "\n", "body")
-        self.stream.see(tk.END)
-        self.stream.configure(state=tk.DISABLED)
+        self.master_stream.append(text, tag=tag)
 
-    def _append_error(self, text: str, tag: str = "") -> None:
+    def _append_master_muted(self, text: str) -> None:
         if self._closing:
             return
-        self.stream.configure(state=tk.NORMAL)
-        if tag:
-            self.stream.insert(tk.END, f"[{tag}] ", (f"tag_{tag}", "tag"))
-        self.stream.insert(tk.END, text + "\n", "error")
-        self.stream.see(tk.END)
-        self.stream.configure(state=tk.DISABLED)
+        self.master_stream.append(text, tag="")
 
     def _update_status(self) -> None:
-        if self.running > 0:
-            self.status_var.set(f"Running: {self.running} agent(s)")
-        else:
-            self.status_var.set("Ready")
+        pass  # status now lives on the per-agent cards
 
     # ------------------------------------------------------------- actions
 
-    def _on_submit(self, event=None) -> None:
+    def _on_run_command(self, event=None) -> None:
         prompt = self.entry.get().strip()
         if not prompt:
             return
         self.entry.delete(0, tk.END)
-        self._append(f"▶ {prompt}", tag="master")
+        self._append_master(f"▶ {prompt}")
 
         for tag, name, agent in AGENTS:
             thread = threading.Thread(
@@ -201,9 +349,10 @@ class UnifiedApp(tk.Tk):
                 daemon=True,
             )
             thread.start()
+            self.cards[tag].set_status_working()
+            self._append_master_muted(f"→ {tag.upper()} {name}: started")
 
         self.running += len(AGENTS)
-        self._update_status()
 
     def _run_agent(self, tag: str, name: str, agent: str, prompt: str) -> None:
         """Worker thread: run opencode for one agent, stream lines to the queue."""
@@ -237,10 +386,13 @@ class UnifiedApp(tk.Tk):
                 self.procs.pop(tag, None)
             if returncode != 0:
                 self.events.put(("error", tag, name, f"exit code {returncode}"))
+            else:
+                self.events.put(("done", tag, name, True))
         except Exception as exc:  # noqa: BLE001 — surface any worker failure in the UI
             self.events.put(("error", tag, name, f"ERROR: {exc}"))
-        finally:
-            self.events.put(("done", tag, name))
+            self.events.put(("done", tag, name, False))
+        else:
+            self.events.put(("done", tag, name, True))
 
     # -------------------------------------------------------------- event loop
 
@@ -252,19 +404,29 @@ class UnifiedApp(tk.Tk):
                 kind = event[0]
                 if kind == "line":
                     _, tag, name, line = event
-                    self._append(f"[{tag} {name}] {line}", tag=tag)
+                    self.agent_streams[tag].append(f"[{tag} {name}] {line}", tag=tag)
                 elif kind == "error":
                     _, tag, name, message = event
-                    self._append_error(f"[{tag} {name}] {message}", tag=tag)
+                    self.agent_streams[tag].append_error(f"[{tag} {name}] {message}", tag=tag)
+                    self.cards[tag].set_status_error()
+                    self._append_master_muted(f"✗ {tag.upper()} {name}: {message}")
                 elif kind == "done":
+                    _, tag, name, success = event
+                    if success:
+                        self.cards[tag].set_status_idle()
+                        self._append_master_muted(f"✓ {tag.upper()} {name}: finished")
                     self.running = max(0, self.running - 1)
-                    self._update_status()
         except queue.Empty:
             pass
         if not self._closing:
             self.after(POLL_MS, self._poll_events)
 
     # ---------------------------------------------------------------- cleanup
+
+    def _on_clear_logs(self) -> None:
+        self.master_stream.clear()
+        for stream in self.agent_streams.values():
+            stream.clear()
 
     def _terminate_all(self) -> None:
         with self.procs_lock:
