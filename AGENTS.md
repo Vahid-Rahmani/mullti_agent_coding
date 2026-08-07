@@ -1,8 +1,8 @@
 # AGENTS.md — MultiAgentCoding Control Plane
 
 This repository is the **control plane** for a self-evolving multi-agent coding
-system. It holds the opencode configuration, agent definitions, skills, and
-memory used to drive software projects (typically under `projects/`).
+system. It holds the MultiAgentCoding configuration, agent definitions, skills,
+and memory used to drive software projects (typically under `projects/`).
 
 ## Roles
 
