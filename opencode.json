@@ -49,7 +49,7 @@
   },
   "agent": {
     "compaction": {
-      "model": "mulerouter/gpt-5.5"
+      "model": "opencode/deepseek-v4-flash-free"
     },
     "analyst": {
       "description": "Analyzes requirements, edge cases, and risks before planning begins.",
@@ -71,7 +71,7 @@
     "planner": {
       "description": "Converts validated requirements into PLAN.md and TASKS.json with priorities and dependencies.",
       "mode": "all",
-      "model": "mulerouter/qwen3.7-max",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
         "opencode/deepseek-v4-flash-free",
@@ -88,7 +88,7 @@
     "backend-dev": {
       "description": "Implements backend tasks: APIs, services, data layer, and backend tests.",
       "mode": "all",
-      "model": "mulerouter/gpt-5.5",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
         "opencode/deepseek-v4-flash-free",
@@ -105,7 +105,7 @@
     "frontend-dev": {
       "description": "Implements frontend tasks: UI components, pages, state, and client-side integration.",
       "mode": "all",
-      "model": "mulerouter/gpt-5.4-mini",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
         "opencode/deepseek-v4-flash-free",
@@ -139,7 +139,7 @@
     "reviewer": {
       "description": "Performs code quality and security review; approves or rejects merges.",
       "mode": "all",
-      "model": "mulerouter/qwen3-max",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
         "opencode/deepseek-v4-flash-free",
@@ -156,7 +156,7 @@
     "system-architect": {
       "description": "Designs system architecture, data models, and tech stack. Validates plans and is the final design approver.",
       "mode": "all",
-      "model": "mulerouter/gpt-5.5",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
         "opencode/deepseek-v4-flash-free",

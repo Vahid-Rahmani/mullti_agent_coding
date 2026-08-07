@@ -8,13 +8,13 @@ and memory used to drive software projects (typically under `projects/`).
 
 | Agent | Role | Model |
 |---|---|---|
-| `system-architect` | System architecture + design approval (read-only) | mulerouter/gpt-5.5 |
+| `system-architect` | System architecture + design approval (read-only) | opencode/deepseek-v4-flash-free |
 | `analyst` | Requirements analysis (read-only) | opencode/deepseek-v4-flash-free |
-| `planner` | PLAN.md + TASKS.json (read-only) | mulerouter/qwen3.7-max |
-| `backend-dev` | Backend implementation | mulerouter/gpt-5.5 |
-| `frontend-dev` | Frontend implementation | mulerouter/gpt-5.4-mini |
+| `planner` | PLAN.md + TASKS.json (read-only) | opencode/deepseek-v4-flash-free |
+| `backend-dev` | Backend implementation | opencode/deepseek-v4-flash-free |
+| `frontend-dev` | Frontend implementation | opencode/deepseek-v4-flash-free |
 | `tester` | Test authoring + execution | opencode/deepseek-v4-flash-free |
-| `reviewer` | Code review, approve/reject (read-only) | mulerouter/qwen3-max |
+| `reviewer` | Code review, approve/reject (read-only) | opencode/deepseek-v4-flash-free |
 
 Every agent has an explicit `fallback_models` chain (see [Fallback Policy](#fallback-policy)).
 
@@ -82,12 +82,11 @@ by side, each listening for tasks in its own inbox.
   `opencode.json` and passes it explicitly (`-m`) so the role's own model is
   used. `-m` pins the session to the primary model at launch, but the
   model-fallback plugin still applies its chain on any failure within that
-  session (see [Fallback Policy](#fallback-policy)). Model assignment is hybrid
-  by domain: heavy reasoning/coding agents use MuleRouter (`gpt-5.5`,
-  `qwen3.7-max`, `gpt-5.4-mini`, `qwen3-max`), while light/fast agents use
-  `opencode/deepseek-v4-flash-free`. MuleRouter is an OpenAI-compatible provider
-  at `https://api.mulerouter.ai/vendors/openai/v1`; its API key lives only in
-  `~/.local/share/opencode/auth.json` (never committed).
+  session (see [Fallback Policy](#fallback-policy)). All 7 agents use the free
+  `opencode/deepseek-v4-flash-free` model (no paid credits required). The
+  MuleRouter provider block remains defined in `opencode.json` but is no longer
+  used by default; its API key lives only in `~/.local/share/opencode/auth.json`
+  (never committed).
 - **Mode note** — all 7 agents are `mode: all`: they can be invoked standalone
   (`opencode run --agent X`) and still be used as subagents by other agents.
   The read-only annotations on `system-architect`, `analyst`, `planner`, and

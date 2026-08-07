@@ -363,7 +363,9 @@ class UnifiedApp(tk.Tk):
                     "opencode executable not found on PATH. "
                     "Install opencode or add it to PATH before using this launcher."
                 )
-            cmd = [exe, "run", "--agent", agent, prompt]
+            cmd = [exe, "run", "--agent", agent, "--auto", prompt]
+            # --auto auto-approves tool permissions (bash/file ops) so they are
+            # not auto-rejected. (opencode run has no --yes/-y flag.)
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(PROJECT_ROOT),
