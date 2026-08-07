@@ -10,10 +10,10 @@ and memory used to drive software projects (typically under `projects/`).
 |---|---|---|
 | `system-architect` | System architecture + design approval (read-only) | opencode/deepseek-v4-flash-free |
 | `analyst` | Requirements analysis (read-only) | opencode/deepseek-v4-flash-free |
-| `planner` | PLAN.md + TASKS.json (read-only) | groq/llama-3.3-70b-versatile |
-| `backend-dev` | Backend implementation | groq/gpt-oss-120b |
-| `frontend-dev` | Frontend implementation | groq/gpt-oss-120b |
-| `tester` | Test authoring + execution | groq/llama-3.3-70b-versatile |
+| `planner` | PLAN.md + TASKS.json (read-only) | opencode/deepseek-v4-flash-free |
+| `backend-dev` | Backend implementation | opencode/deepseek-v4-flash-free |
+| `frontend-dev` | Frontend implementation | opencode/deepseek-v4-flash-free |
+| `tester` | Test authoring + execution | opencode/deepseek-v4-flash-free |
 | `reviewer` | Code review, approve/reject (read-only) | opencode/deepseek-v4-flash-free |
 
 Every agent has a fallback chain ending in `ollama/qwen2.5-coder:7b` (local).
@@ -34,6 +34,35 @@ Every agent has a fallback chain ending in `ollama/qwen2.5-coder:7b` (local).
 - Consult `knowledge/` (via the `knowledge` reference) before planning or reviewing.
 - Keep `PLAN.md` and `TASKS.json` at the project root of the target project.
 - Commits are small and single-purpose; branch pattern `feature/{agent}-{task}`.
+
+## Execution Environment (Windows)
+
+This repo ships a human-facing 7-window launcher that runs the seven roles side
+by side, each listening for tasks in its own inbox.
+
+- **Launch** — run `launch_agents.bat` at the repo root, or in VS Code use the
+  `Launch All Agents` terminal task (`.vscode/tasks.json`). Seven terminal
+  windows open, titled `M1 - System Architect` … `M7 - Reviewer`, positioned in
+  a 4×2 grid.
+- **Task inbox flow** — drop a single-line task into `_inbox/<agent>.task`
+  (e.g. `_inbox/analyst.task`). The agent's window polls the inbox, runs
+  `opencode run --agent <name> -m <model> "<task>"`, appends the full output to
+  `_logs/<agent>.log`, then moves the consumed task to `_inbox/done/`. Poll
+  interval is 3s.
+- **Window map** — `M1` system-architect, `M2` analyst, `M3` planner,
+  `M4` backend-dev, `M5` frontend-dev, `M6` tester, `M7` reviewer.
+- **Event-driven handoff** — each role processes its inbox independently. To
+  hand work to the next role, drop the next task into that role's inbox after
+  the previous role logs completion. There is no shared queue; the operator (or
+  a driving agent) sequences the drops.
+- **Models** — the worker reads each agent's configured model from
+  `opencode.json` and passes it explicitly (`-m`) so the role's own model is
+  used (this pins the primary model and bypasses `fallback_models`, by design).
+- **Mode note** — all 7 agents are `mode: all`: they can be invoked standalone
+  (`opencode run --agent X`) and still be used as subagents by other agents.
+  The read-only annotations on `system-architect`, `analyst`, `planner`, and
+  `reviewer` are permission-based (`edit: deny`) and are unaffected by the mode
+  change.
 
 ## Memory & evolution
 

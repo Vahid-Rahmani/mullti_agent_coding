@@ -29,7 +29,7 @@
   "agent": {
     "analyst": {
       "description": "Analyzes requirements, edge cases, and risks before planning begins.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "groq/llama-3.3-70b-versatile",
@@ -45,8 +45,8 @@
     },
     "planner": {
       "description": "Converts validated requirements into PLAN.md and TASKS.json with priorities and dependencies.",
-      "mode": "subagent",
-      "model": "groq/llama-3.3-70b-versatile",
+      "mode": "all",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
@@ -61,8 +61,8 @@
     },
     "backend-dev": {
       "description": "Implements backend tasks: APIs, services, data layer, and backend tests.",
-      "mode": "subagent",
-      "model": "groq/gpt-oss-120b",
+      "mode": "all",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "groq/llama-3.3-70b-versatile",
         "opencode/deepseek-v4-flash-free",
@@ -78,8 +78,8 @@
     },
     "frontend-dev": {
       "description": "Implements frontend tasks: UI components, pages, state, and client-side integration.",
-      "mode": "subagent",
-      "model": "groq/gpt-oss-120b",
+      "mode": "all",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "groq/llama-3.3-70b-versatile",
         "opencode/deepseek-v4-flash-free",
@@ -95,8 +95,8 @@
     },
     "tester": {
       "description": "Writes and runs unit, integration, and e2e tests; reports failures precisely.",
-      "mode": "subagent",
-      "model": "groq/llama-3.3-70b-versatile",
+      "mode": "all",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
@@ -111,7 +111,7 @@
     },
     "reviewer": {
       "description": "Performs code quality and security review; approves or rejects merges.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "groq/llama-3.3-70b-versatile",
@@ -127,7 +127,7 @@
     },
     "system-architect": {
       "description": "Designs system architecture, data models, and tech stack. Validates plans and is the final design approver.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "groq/llama-3.3-70b-versatile",

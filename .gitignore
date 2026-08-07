@@ -8,6 +8,7 @@ auth.json
 # MultiAgentCoding runtime data
 knowledge/index.jsonl
 _logs/
+_inbox/
 
 # node
 node_modules/
