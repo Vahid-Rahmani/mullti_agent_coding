@@ -1,0 +1,20 @@
+# secrets
+.env
+.env.*
+*.pem
+*.key
+auth.json
+
+# opencode runtime data
+knowledge/index.jsonl
+_logs/
+
+# node
+node_modules/
+
+# hive
+.hive/
+
+# OS
+Thumbs.db
+.DS_Store

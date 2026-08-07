@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "retry_on_errors": [429, 500, 502, 503, 504],
+  "retryable_error_patterns": ["quota", "usage limit", "credit balance", "model not found"],
+  "max_fallback_attempts": 4,
+  "cooldown_seconds": 60,
+  "timeout_seconds": 30,
+  "notify_on_fallback": true,
+  "fallback_models": [
+    "opencode/deepseek-v4-flash-free",
+    "groq/llama-3.3-70b-versatile",
+    "groq/openai/gpt-oss-120b",
+    "ollama/qwen2.5-coder:7b"
+  ]
+}
