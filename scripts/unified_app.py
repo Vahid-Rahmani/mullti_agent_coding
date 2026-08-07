@@ -11,8 +11,10 @@ An ultra-professional single-window workspace for the control-plane agents:
     toggle, and quick action shortcuts.
 
 Submitting a prompt spawns one thread per agent running
-    opencode run --agent <agent_name> --auto "<prompt>"
+    opencode run --agent <agent_name|mode> --auto [-m <model>] "<prompt>"
 and routes each agent's stdout/stderr (with ANSI codes stripped) into its own tab.
+Each tab has a "Model:" dropdown and a cascading "Mode:" dropdown; a concrete
+mode is passed as ``--agent <mode>``, overriding the tab's default agent.
 
 Usage:
     python scripts/unified_app.py
@@ -94,6 +96,16 @@ MODEL_OPTIONS = [
     "opencode/big-pickle",
 ]
 
+# Mode selector options. "Auto (Default)" keeps the tab's default agent; a
+# concrete mode is passed as `--agent <mode>` (opencode run has no --mode flag).
+AUTO_MODE = "Auto (Default)"
+MODE_OPTIONS_BY_MODEL: dict[str, list[str]] = {
+    AUTO_MODEL: [AUTO_MODE],
+    "opencode/deepseek-v4-flash-free": ["architect", "build", "analyze"],
+    "opencode/big-pickle": ["plan", "build", "analyze"],
+    "opencode/ling-3.0-tiny-free": ["review", "compact"],
+}
+
 # Quick action shortcuts -> prompt templates prefilled into the prompt area.
 QUICK_ACTIONS = [
     ("Analyze", "Analyze the current project and produce a requirements analysis."),
@@ -124,14 +136,17 @@ def _opencode_command() -> str | None:
     return shutil.which("opencode") or shutil.which("opencode.cmd")
 
 
-def _build_run_command(exe: str, agent: str, prompt: str, model: str | None) -> list[str]:
+def _build_run_command(exe: str, agent: str, prompt: str, model: str | None, mode: str | None = None) -> list[str]:
     """Build the ``opencode run`` argv for one agent.
 
     ``--auto`` auto-approves tool permissions (bash/file ops) so they are not
     auto-rejected (opencode run has no --yes/-y flag). When a model override is
-    resolved, ``-m <model>`` is inserted before the prompt.
+    resolved, ``-m <model>`` is inserted before the prompt. When a concrete mode
+    is resolved (not ``AUTO_MODE``), it is passed as ``--agent <mode>``,
+    overriding the tab's default agent.
     """
-    cmd = [exe, "run", "--agent", agent, "--auto"]
+    chosen_agent = mode if mode and mode != AUTO_MODE else agent
+    cmd = [exe, "run", "--agent", chosen_agent, "--auto"]
     if model:
         cmd += ["-m", model]
     cmd.append(prompt)
@@ -295,6 +310,8 @@ class UnifiedApp(tk.Tk):
 
         self.autoscroll_var = tk.BooleanVar(value=True)
         self.model_vars: dict[str, tk.StringVar] = {}
+        self.mode_vars: dict[str, tk.StringVar] = {}
+        self.mode_combos: dict[str, ttk.Combobox] = {}
 
         # 1. Active workspace header.
         header_bar = ttk.Frame(container, style="Header.TFrame", padding=(12, 10))
@@ -331,7 +348,7 @@ class UnifiedApp(tk.Tk):
         # Master Console tab.
         master_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
         self.notebook.add(master_frame, text="💬 Master Console")
-        self._build_model_selector(master_frame, "master")
+        self._build_selector_row(master_frame, "master")
         self.master_stream = StreamView(master_frame, autoscroll=self.autoscroll_var)
 
         # One tab per agent.
@@ -340,7 +357,7 @@ class UnifiedApp(tk.Tk):
         for tag, name, _ in AGENTS:
             agent_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
             self.notebook.add(agent_frame, text=AGENT_TAB_LABELS[tag])
-            self._build_model_selector(agent_frame, tag)
+            self._build_selector_row(agent_frame, tag)
             self.agent_streams[tag] = StreamView(agent_frame, autoscroll=self.autoscroll_var)
             self.agent_tabs[tag] = agent_frame
 
@@ -401,22 +418,56 @@ class UnifiedApp(tk.Tk):
 
         self.prompt_text.focus_set()
 
-    def _build_model_selector(self, parent: tk.Widget, tag: str) -> None:
-        """Add a readonly model dropdown row at the top of a tab."""
+    def _build_selector_row(self, parent: tk.Widget, tag: str) -> None:
+        """Add a readonly Model + Mode dropdown row at the top of a tab.
+
+        The Mode dropdown cascades from the selected Model via
+        ``MODE_OPTIONS_BY_MODEL``.
+        """
         row = ttk.Frame(parent, style="App.TFrame")
         row.pack(fill=tk.X, pady=(0, 2))
+
         ttk.Label(row, text="Model:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
-        var = tk.StringVar(value=AUTO_MODEL)
-        combo = ttk.Combobox(
+        model_var = tk.StringVar(value=AUTO_MODEL)
+        model_combo = ttk.Combobox(
             row,
-            textvariable=var,
+            textvariable=model_var,
             values=MODEL_OPTIONS,
             state="readonly",
             width=40,
             font=(FONT_FAMILY, 9),
         )
-        combo.pack(side=tk.LEFT)
-        self.model_vars[tag] = var
+        model_combo.pack(side=tk.LEFT)
+        self.model_vars[tag] = model_var
+
+        ttk.Label(row, text="Mode:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 6))
+        mode_var = tk.StringVar(value=AUTO_MODE)
+        mode_combo = ttk.Combobox(
+            row,
+            textvariable=mode_var,
+            values=MODE_OPTIONS_BY_MODEL.get(AUTO_MODEL, [AUTO_MODE]),
+            state="readonly",
+            width=24,
+            font=(FONT_FAMILY, 9),
+        )
+        mode_combo.pack(side=tk.LEFT)
+        self.mode_vars[tag] = mode_var
+        self.mode_combos[tag] = mode_combo
+
+        model_combo.bind("<<ComboboxSelected>>", lambda _e, t=tag: self._on_model_changed(t))
+
+    def _on_model_changed(self, tag: str) -> None:
+        """Repopulate a tab's Mode dropdown from the newly selected Model."""
+        model_var = self.model_vars.get(tag)
+        mode_var = self.mode_vars.get(tag)
+        if model_var is None or mode_var is None:
+            return
+        model = model_var.get()
+        modes = MODE_OPTIONS_BY_MODEL.get(model, [AUTO_MODE])
+        mode_var.set(modes[0] if modes else AUTO_MODE)
+        combo = self.mode_combos.get(tag)
+        if combo is not None:
+            combo["values"] = modes
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self)
@@ -535,6 +586,21 @@ class UnifiedApp(tk.Tk):
             return master.get()
         return None
 
+    def _resolve_mode(self, tag: str) -> str:
+        """Resolve the mode override for a tab.
+
+        Priority: the agent tab's dropdown (if not Auto), then the Master
+        Console dropdown (if not Auto), then ``AUTO_MODE`` (use the tab's
+        default agent).
+        """
+        var = self.mode_vars.get(tag)
+        if var is not None and var.get() != AUTO_MODE:
+            return var.get()
+        master = self.mode_vars.get("master")
+        if master is not None and master.get() != AUTO_MODE:
+            return master.get()
+        return AUTO_MODE
+
     def _on_run_command(self, event=None) -> str:
         prompt = self._get_prompt()
         if not prompt:
@@ -544,9 +610,10 @@ class UnifiedApp(tk.Tk):
 
         for tag, name, agent in AGENTS:
             model = self._resolve_model(tag)
+            mode = self._resolve_mode(tag)
             thread = threading.Thread(
                 target=self._run_agent,
-                args=(tag, name, agent, prompt, model),
+                args=(tag, name, agent, prompt, model, mode),
                 name=f"agent-{tag}",
                 daemon=True,
             )
@@ -557,7 +624,7 @@ class UnifiedApp(tk.Tk):
         self.running += len(AGENTS)
         return "break"
 
-    def _run_agent(self, tag: str, name: str, agent: str, prompt: str, model: str | None = None) -> None:
+    def _run_agent(self, tag: str, name: str, agent: str, prompt: str, model: str | None = None, mode: str | None = None) -> None:
         """Worker thread: run opencode for one agent, stream lines to the queue."""
         try:
             exe = _opencode_command()
@@ -566,7 +633,7 @@ class UnifiedApp(tk.Tk):
                     "opencode executable not found on PATH. "
                     "Install opencode or add it to PATH before using this launcher."
                 )
-            cmd = _build_run_command(exe, agent, prompt, model)
+            cmd = _build_run_command(exe, agent, prompt, model, mode)
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(self.workspace),
