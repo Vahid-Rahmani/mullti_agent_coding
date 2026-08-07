@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -59,9 +60,15 @@ FONT_SIZE = 10
 POLL_MS = 50  # how often the main thread drains the output queue
 
 
-def _opencode_command() -> str:
-    """Return the opencode executable name to invoke (PATHEXT-aware)."""
-    return "opencode"
+def _opencode_command() -> str | None:
+    """Resolve the opencode executable path (PATHEXT-aware, Windows-safe).
+
+    On Windows the CLI is shipped as ``opencode.cmd``; passing the bare name to
+    ``subprocess.Popen`` with ``shell=False`` fails with WinError 2 because
+    CreateProcess does not resolve ``.cmd``/``.bat`` via PATHEXT. ``shutil.which``
+    resolves the full path so the child process can be located and executed.
+    """
+    return shutil.which("opencode") or shutil.which("opencode.cmd")
 
 
 class UnifiedApp(tk.Tk):
@@ -201,7 +208,13 @@ class UnifiedApp(tk.Tk):
     def _run_agent(self, tag: str, name: str, agent: str, prompt: str) -> None:
         """Worker thread: run opencode for one agent, stream lines to the queue."""
         try:
-            cmd = [_opencode_command(), "run", "--agent", agent, prompt]
+            exe = _opencode_command()
+            if not exe:
+                raise FileNotFoundError(
+                    "opencode executable not found on PATH. "
+                    "Install opencode or add it to PATH before using this launcher."
+                )
+            cmd = [exe, "run", "--agent", agent, prompt]
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(PROJECT_ROOT),
