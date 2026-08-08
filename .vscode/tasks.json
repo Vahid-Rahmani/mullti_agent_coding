@@ -99,7 +99,7 @@
         {
             "label": "Launch Web UI",
             "type": "shell",
-            "command": "python ${workspaceFolder}/scripts/web_app.py --port 8501",
+            "command": "python ${workspaceFolder}/scripts/supervisor.py --port 8501 --no-browser --watch",
             "presentation": {
                 "panel": "new",
                 "group": "agents",

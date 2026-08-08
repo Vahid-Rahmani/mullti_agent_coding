@@ -162,6 +162,10 @@ def main(argv: list[str] | None = None) -> int:
         help=f"child web_app port (default {DEFAULT_PORT})",
     )
     parser.add_argument(
+        "--no-browser", action="store_true",
+        help="accepted for launcher compatibility; the supervised child always runs headless",
+    )
+    parser.add_argument(
         "--once", action="store_true",
         help="single restart cycle then exit (default)",
     )

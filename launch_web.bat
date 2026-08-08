@@ -3,13 +3,29 @@ setlocal
 cd /d "%~dp0"
 
 set "PORT=8501"
-for %%A in (%*) do (
-    if /i "%%~A"=="--help" goto :usage
-    if /i "%%~A"=="-h" goto :usage
-    if /i "%%~A"=="--no-browser" set "NOBROWSER=1"
-    if /i "%%~A"=="--dry" set "DRY=1"
-    if /i "%%~A"=="--smoke" set "SMOKE=1"
+set "NOBROWSER="
+set "DRY="
+set "SMOKE="
+set "NOBROWSER_SPACE="
+
+:parse
+if "%~1"=="" goto :parsed
+if /i "%~1"=="--help" goto :usage
+if /i "%~1"=="-h" goto :usage
+if /i "%~1"=="--no-browser" (
+    set "NOBROWSER=--no-browser"
+    set "NOBROWSER_SPACE= "
 )
+if /i "%~1"=="--dry" set "DRY=1"
+if /i "%~1"=="--smoke" set "SMOKE=1"
+if /i "%~1"=="--port" (
+    set "PORT=%~2"
+    if not defined PORT goto :usage
+    shift
+)
+shift
+goto :parse
+:parsed
 
 if defined SMOKE (
     echo [launch_web] SMOKE: starting web UI headless on port %PORT%, verifying, then exiting.
@@ -24,24 +40,21 @@ if defined SMOKE (
 )
 
 if defined DRY (
-    echo [dry] start "MultiAgentCoding Web UI" python scripts/web_app.py --port %PORT% %NOBROWSER%
+    echo [dry] start "MultiAgentCoding Web UI" python scripts/supervisor.py --port %PORT% %NOBROWSER%%NOBROWSER_SPACE%--watch
     exit /b 0
 )
 
-echo [launch_web] Starting MultiAgentCoding Web UI at http://localhost:%PORT%
-if defined NOBROWSER (
-    python scripts/web_app.py --port %PORT% --no-browser
-) else (
-    start "MultiAgentCoding Web UI" python scripts/web_app.py --port %PORT%
-)
+echo [launch_web] Starting supervised MultiAgentCoding Web UI at http://localhost:%PORT%
+echo [launch_web] Restart via POST /api/restart or scripts\restart_web.ps1
+start "MultiAgentCoding Web UI" python scripts/supervisor.py --port %PORT% %NOBROWSER% --watch
 exit /b 0
 
 :usage
 echo Usage: launch_web.bat [--port N] [--no-browser] [--smoke^|--dry]
 echo.
-echo   (no args)     Start the web UI and open the default browser
+echo   (no args)     Start the supervised web UI (supervisor keeps it alive)
 echo   --port N      Listen on port N (default 8501)
-echo   --no-browser  Do not open the browser
+echo   --no-browser  Accepted for compatibility (supervisor runs the child headless)
 echo   --smoke       Start headless on :8501 and exit (verification)
 echo   --dry         Print the launch command without running
 exit /b 0
