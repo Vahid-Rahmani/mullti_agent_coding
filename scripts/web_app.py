@@ -1223,6 +1223,7 @@ const state = {
   cursors: { master: 0, m1: 0, m2: 0, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0 },
   overrides: {},   // tab -> {model, mode}
   cards: {},       // tag -> rendered DOM
+  checkpoint: null, // state.md checkpoint from /api/state (resume card)
 };
 const AGENT_IDS = ["m1","m2","m3","m4","m5","m6","m7"];
 const $ = (id) => document.getElementById(id);
@@ -1370,6 +1371,7 @@ function chatCard(tag) {
 function renderChat() {
   const chat = $("chat");
   chat.innerHTML = "";
+  if (state.tab === "master" && state.checkpoint) chat.appendChild(resumeCard());
   if (state.tab === "master") {
     const card = chatCard("master");
     chat.appendChild(card);
@@ -1381,6 +1383,70 @@ function renderChat() {
     // replay buffer
     for (const line of state.buffers[state.tab] || []) appendToCard(state.tab, "line", line);
   }
+}
+
+/* ------------------------------------------------------------------ resume */
+function resumeSummaryText() {
+  const ck = state.checkpoint || {};
+  const lines = [];
+  lines.push("Continue the previous workflow from the last checkpoint.");
+  lines.push("");
+  lines.push(`Phase: ${ck.phase || "idle"}`);
+  const completed = ck.completed || [];
+  lines.push(`Completed: ${completed.length} finish record(s)`);
+  const worktrees = ck.active_worktrees || [];
+  if (worktrees.length) lines.push(`Active worktrees: ${worktrees.join(", ")}`);
+  if (ck.pending_modification) {
+    lines.push(`Pending modification: ${ck.pending_modification}`);
+  }
+  const decisions = ck.decisions || [];
+  if (decisions.length) {
+    lines.push("Decisions:");
+    for (const d of decisions.slice(0, 5)) lines.push(`- ${d}`);
+    if (decisions.length > 5) lines.push(`- … ${decisions.length - 5} more`);
+  }
+  lines.push("");
+  lines.push("Resume the workflow where it left off.");
+  return lines.join("\n");
+}
+
+function resumeCard() {
+  const card = document.createElement("div");
+  card.className = "card p-4";
+  card.id = "resumeCard";
+  const ck = state.checkpoint || {};
+  const completed = (ck.completed || []).length;
+  const decisions = (ck.decisions || []).length;
+  const pending = ck.pending_modification;
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-2">
+      <span class="w-2 h-2 rounded-full bg-lime"></span>
+      <span class="font-semibold text-sm">Resume from checkpoint?</span>
+      <span class="flex-1"></span>
+      <span class="text-[10px] font-mono text-muted">state.md</span>
+    </div>
+    <div class="text-xs text-muted mb-3 space-y-1">
+      <div>Phase: <span class="text-txt font-mono">${esc(ck.phase || "idle")}</span></div>
+      <div>Completed: <span class="text-txt font-mono">${completed}</span> record(s)</div>
+      ${pending ? `<div>Pending modification: <span class="text-lime font-mono">${esc(String(pending).slice(0, 200))}</span></div>` : ""}
+      <div>Decisions: <span class="text-txt font-mono">${decisions}</span> note(s)</div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="btnResume" class="px-3 py-1.5 rounded-lg bg-lime text-bg text-xs font-semibold">Resume</button>
+      <button id="btnDismiss" class="px-3 py-1.5 rounded border border-edge text-xs text-muted hover:text-txt">Dismiss</button>
+      <span class="text-[10px] text-muted">Loads the checkpoint summary into the prompt; nothing runs automatically.</span>
+    </div>`;
+  card.querySelector("#btnResume").addEventListener("click", () => {
+    const ta = $("input");
+    ta.value = resumeSummaryText();
+    autosize();
+    ta.focus();
+  });
+  card.querySelector("#btnDismiss").addEventListener("click", () => {
+    state.checkpoint = null;
+    card.remove();
+  });
+  return card;
 }
 
 function appendToCard(tag, kind, text) {
@@ -1893,6 +1959,11 @@ $("btnAddProvider").addEventListener("click", async () => {
   const st = await res.json();
   window.__workspace = st.workspace || "";
   $("lblWorkspace").textContent = "workspace: " + (st.workspace || "…");
+  try {
+    const sres = await fetch("/api/state");
+    const sdata = await sres.json();
+    state.checkpoint = sdata.checkpoint || null;
+  } catch (_) { state.checkpoint = null; }
   selectTab("master");
   connectStream();
 })();
