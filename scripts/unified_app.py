@@ -125,6 +125,50 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+# Marker inserted between the retained head and tail of an over-long prompt.
+_TRUNCATE_MARKER = "… [truncated] …"
+
+
+def prune_prompt(prompt: str, max_chars: int = 12000) -> str:
+    """Reduce a prompt to a compact, dispatch-safe size.
+
+    Strips ANSI escapes (reusing ``_strip_ansi``), collapses runs of 3+ blank
+    lines to a single blank line, dedupes consecutive identical lines, and — if
+    the result still exceeds ``max_chars`` — keeps the head (~40%) and tail
+    (~60%) joined by a truncation marker. Never raises; empty input returns an
+    empty string.
+    """
+    if not prompt:
+        return ""
+    text = _strip_ansi(prompt)
+    lines = text.splitlines()
+    pruned: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            j = i
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            run_len = j - i
+            pruned.extend([""] * (1 if run_len >= 3 else run_len))
+            i = j
+        else:
+            if pruned and pruned[-1] == line:
+                i += 1
+                continue
+            pruned.append(line)
+            i += 1
+    result = "\n".join(pruned)
+    if len(result) <= max_chars:
+        return result
+    head_len = int(max_chars * 0.4)
+    tail_len = max_chars - head_len - len(_TRUNCATE_MARKER)
+    if tail_len <= 0:
+        return _TRUNCATE_MARKER
+    return result[:head_len] + _TRUNCATE_MARKER + result[-tail_len:]
+
+
 def _opencode_command() -> str | None:
     """Resolve the opencode executable path (PATHEXT-aware, Windows-safe).
 

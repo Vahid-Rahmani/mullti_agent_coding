@@ -14,6 +14,7 @@ from unified_app import (
     MODE_OPTIONS_BY_MODEL,
     UnifiedApp,
     _build_run_command,
+    prune_prompt,
 )
 
 
@@ -178,6 +179,48 @@ class BuildRunCommandTestCase(unittest.TestCase):
             _build_run_command("opencode", "tester", "run tests", None, AUTO_MODE),
             ["opencode", "run", "--agent", "tester", "--auto", "run tests"],
         )
+
+
+class PrunePromptTestCase(unittest.TestCase):
+
+    def test_empty_input_returns_empty_string(self):
+        self.assertEqual(prune_prompt(""), "")
+
+    def test_strips_ansi_sequences(self):
+        result = prune_prompt("\x1b[31mred\x1b[0m \x1b[1mbold\x1b[0m text")
+        self.assertEqual(result, "red bold text")
+
+    def test_collapses_three_plus_blank_lines_to_one(self):
+        self.assertEqual(prune_prompt("a\n\n\n\nb"), "a\n\nb")
+
+    def test_keeps_one_or_two_blank_lines(self):
+        self.assertEqual(prune_prompt("a\n\n\nb"), "a\n\n\nb")
+
+    def test_dedupes_consecutive_identical_lines(self):
+        self.assertEqual(
+            prune_prompt("foo\nfoo\nbar\nbar\nbar\nbaz"),
+            "foo\nbar\nbaz",
+        )
+
+    def test_keeps_non_consecutive_identical_lines(self):
+        self.assertEqual(prune_prompt("foo\nbar\nfoo"), "foo\nbar\nfoo")
+
+    def test_short_prompt_not_truncated(self):
+        self.assertEqual(prune_prompt("short prompt"), "short prompt")
+
+    def test_truncates_head_and_tail_with_marker(self):
+        prompt = "A" * 1000
+        marker = "… [truncated] …"
+        result = prune_prompt(prompt, max_chars=200)
+        self.assertIn(marker, result)
+        self.assertLessEqual(len(result), 200)
+        head, _, tail = result.partition(marker)
+        self.assertEqual(head, "A" * int(200 * 0.4))
+        self.assertEqual(tail, "A" * (200 - int(200 * 0.4) - len(marker)))
+
+    def test_never_raises_on_tiny_max_chars(self):
+        result = prune_prompt("A" * 100, max_chars=1)
+        self.assertIsInstance(result, str)
 
 
 if __name__ == "__main__":

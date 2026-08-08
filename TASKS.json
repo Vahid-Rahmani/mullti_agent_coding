@@ -1,0 +1,86 @@
+{
+  "project": "ui-ux-redesign-layout-overhaul",
+  "root": ".",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Restore deleted test suite from git",
+      "description": "test/tests/*.py (and test/ files) are tracked in git but deleted on disk. Restore them from HEAD (git restore --source=HEAD -- test/ or git checkout HEAD -- test/) and run the full suite `python -m unittest discover -s test/tests -v` to confirm a green baseline BEFORE any UI edits. Do not commit anything yet.",
+      "priority": "high",
+      "dependencies": [],
+      "owner": "tester"
+    },
+    {
+      "id": "T2",
+      "title": "Typography: root + base font scaling",
+      "description": "In scripts/web_app.py PAGE_HTML <style>, add `html { font-size: 17px; }` so all rem-based Tailwind text/spacing scale up. Ensure base body text, inputs, selects, textareas, and placeholders use readable sizes (>= 14px effective). Do NOT change layout structure or colors.",
+      "priority": "high",
+      "dependencies": ["T1"],
+      "owner": "frontend-dev"
+    },
+    {
+      "id": "T3",
+      "title": "Typography: terminal logs, code blocks, responses",
+      "description": "Bump log/console typography in scripts/web_app.py: #canvasOut text-[11px] -> text-[13px]; pre.codeblock font-size 12px -> 14px; chat response <pre> text-xs -> text-sm; thoughts accordion pre text-[11px] -> text-[13px]; resume-card body text-xs -> text-sm. Keep monospace font families intact.",
+      "priority": "high",
+      "dependencies": ["T2"],
+      "owner": "frontend-dev"
+    },
+    {
+      "id": "T4",
+      "title": "Typography: micro-labels, badges, chips, controls",
+      "description": "Eliminate tiny fonts (< 12px) in scripts/web_app.py: source chips text-[9px] -> text-[11px]; status badges text-[10px] -> text-xs; chat-card micro-labels (text-[10px]) -> text-xs; settings modal inputs/buttons text-xs -> text-sm where appropriate; sidebar labels and quick-action pills >= text-xs. KEEP marker strings tests assert: badge-ready, badge-needs-setup, badge-local, chip-auth, chip-env, chip-none, providerMatrix, pEnvVar.",
+      "priority": "high",
+      "dependencies": ["T3"],
+      "owner": "frontend-dev"
+    },
+    {
+      "id": "T5",
+      "title": "Layout: unify Terminal Logs into single window",
+      "description": "Restructure scripts/web_app.py so the right Terminal Logs rail (w-96) is integrated into the main workplane as a bottom console panel below the chat area, forming one unified single-window workspace with NO dead zones between chat, console, and input. Keep element ids #canvasOut and #canvasTag and the literal label 'Terminal Logs' (tests assert it). Adjust JS (renderCanvas / SSE wiring) only if element references move; API endpoints unchanged.",
+      "priority": "high",
+      "dependencies": ["T4"],
+      "owner": "frontend-dev"
+    },
+    {
+      "id": "T6",
+      "title": "Layout: compact spacing, remove dead zones",
+      "description": "Remove redundant empty spaces in scripts/web_app.py: tighten top-bar and tab-header paddings, chat container padding (px-4 py-4 space-y-4), card paddings, quick-actions row, input area, and the sidebar's flex-1 spacer. Chat + console + input must form one compact continuous column with no empty gaps.",
+      "priority": "medium",
+      "dependencies": ["T5"],
+      "owner": "frontend-dev"
+    },
+    {
+      "id": "T7",
+      "title": "Theme: dark theme polish",
+      "description": "Refine the dark theme in scripts/web_app.py PAGE_HTML: consistent border/radius treatment, subtle panel elevation/separation, improved hover/active/focus states for buttons, pills, nav items, inputs, and selects; polished status dots, scrollbars, and settings modal. Keep the palette's spirit (bg/panel/panel2/edge/accent/lime) unless a clear refinement improves it; keep contrast high.",
+      "priority": "medium",
+      "dependencies": ["T6"],
+      "owner": "frontend-dev"
+    },
+    {
+      "id": "T8",
+      "title": "Responsiveness across breakpoints",
+      "description": "Make scripts/web_app.py responsive: sidebar collapses/hides on narrow widths; console stacks below chat; settings modal scrolls and fits; provider matrix grid adapts (sm/lg already present); input and quick-actions wrap cleanly. Verify usable at ~360px and ~1920px widths.",
+      "priority": "medium",
+      "dependencies": ["T7"],
+      "owner": "frontend-dev"
+    },
+    {
+      "id": "T9",
+      "title": "Update UI-marker tests for new markup",
+      "description": "Update test/tests/test_web_app.py index assertions to match the new markup. KEEP assertions for: MultiAgentCoding, Terminal Logs, API &amp; Models, providerMatrix, Add custom provider, badge-ready/needs-setup/local, chip-auth/env/none, Verify &amp; discover, Import models, Max Output Tokens, Context Window, type=\"password\", Invalid API key, Provider unreachable, pEnvVar. ADD markers for the new integrated console and `font-size: 17px`. All other test classes must remain green unchanged.",
+      "priority": "high",
+      "dependencies": ["T8"],
+      "owner": "tester"
+    },
+    {
+      "id": "T10",
+      "title": "End-to-end verification pass",
+      "description": "Run the full suite: `python -m unittest discover -s test/tests -v` (exit 0). Headless smoke: start `python scripts/web_app.py --no-browser --port 8512`, GET / returns 200 with expected markers, GET /api/catalog and /api/status work, POST /api/route preview works; then stop the server. Confirm `git status --short` shows no test deletions or stray files and no secrets.",
+      "priority": "high",
+      "dependencies": ["T9"],
+      "owner": "tester"
+    }
+  ]
+}

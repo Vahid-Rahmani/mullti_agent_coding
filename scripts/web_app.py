@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
@@ -58,7 +59,11 @@ from unified_app import (
     _build_run_command,
     _opencode_command,
     _strip_ansi,
+    prune_prompt,
 )
+
+# Self-evolution engine (pure stdlib; no web_app dependency).
+from self_evolve import Proposal, SelfEvolveEngine, detect_optimization_loops
 
 # --------------------------------------------------------------------------- config
 
@@ -291,10 +296,16 @@ class WebHub:
         return model, mode
 
     def run(self, prompt: str, overrides: dict[str, dict[str, str]]) -> None:
-        """Spawn one worker thread per agent (mirrors desktop RUN COMMAND)."""
+        """Spawn one worker thread per agent (mirrors desktop RUN COMMAND).
+
+        The original prompt stays in the master buffer; agents receive the
+        pruned copy, and the pruned prompt is recorded in state.md.
+        """
         if not prompt.strip():
             raise HTTPException(status_code=400, detail="Prompt must not be empty.")
         self.append_line("master", f"▶ {prompt}")
+        pruned = prune_prompt(prompt)
+        STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
         with self.lock:
             self.running += len(AGENTS)
         for tag, name, agent in AGENTS:
@@ -302,7 +313,7 @@ class WebHub:
             self.set_status(tag, STATUS_THINKING)
             threading.Thread(
                 target=self._run_agent,
-                args=(tag, name, agent, prompt, model, mode),
+                args=(tag, name, agent, pruned, model, mode),
                 name=f"web-{tag}",
                 daemon=True,
             ).start()
@@ -316,6 +327,7 @@ class WebHub:
         model: str | None,
         mode: str | None,
     ) -> None:
+        ok = False
         try:
             exe = _opencode_command()
             if not exe:
@@ -349,6 +361,7 @@ class WebHub:
                 self.append_error(tag, f"[{tag} {name}] exit code {returncode}")
                 self.set_status(tag, STATUS_ERROR)
             else:
+                ok = True
                 self.set_status(tag, STATUS_IDLE)
         except Exception as exc:  # noqa: BLE001 — surface in UI
             self.append_error(tag, f"[{tag} {name}] ERROR: {exc}")
@@ -356,6 +369,7 @@ class WebHub:
         finally:
             with self.lock:
                 self.running = max(0, self.running - 1)
+            STATE.record_finish(tag, ok)
 
     def terminate_all(self) -> None:
         with self.lock:
@@ -367,9 +381,212 @@ class WebHub:
             except Exception:
                 pass
         self.append_line("master", "── terminated ──")
+        STATE.record_restart("interrupted", "terminated by user")
 
 
 HUB = WebHub()
+
+# --------------------------------------------------------------------------- state tracker
+
+
+def _state_escape(text: str) -> str:
+    """Escape backslashes/newlines for a single-line state.md field."""
+    return text.replace("\\", "\\\\").replace("\n", "\\n")
+
+
+def _state_unescape(text: str) -> str:
+    """Invert _state_escape (only ``\\n`` and ``\\\\`` are escaped)."""
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        if text[i] == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            out.append("\n" if nxt == "n" else nxt)
+            i += 2
+            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
+class StateTracker:
+    """Read/write the workspace ``state.md`` checkpoint (sections format).
+
+    Sections: ``## Phase``, ``## Last Run``, ``## Completed``, ``## Active
+    Worktrees``, ``## Decisions``, ``## Pending Modification``, ``## Restart
+    Log``. Writes mirror ``_write_config`` (temp file + ``os.replace``) so a
+    crash never leaves a half-written state file. Never touches ``knowledge/``
+    or writes API keys/secrets.
+    """
+
+    MAX_COMPLETED = 20
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path if path is not None else PROJECT_ROOT / "state.md"
+        self.lock = threading.Lock()
+
+    def load(self) -> dict | None:
+        """Parse state.md into a dict, or None when missing/corrupt."""
+        if not self.path.exists():
+            return None
+        try:
+            text = self.path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return self._parse(text)
+
+    def update(self, **fields: object) -> dict:
+        """Merge ``fields`` into the on-disk state and write atomically."""
+        return self._mutate(lambda data: data.update(fields))
+
+    def record_run(self, prompt: str, started: str) -> dict:
+        return self.update(
+            phase="running",
+            last_run={"prompt": prompt, "started": started},
+        )
+
+    def record_finish(self, tag: str, ok: bool) -> dict:
+        return self._mutate(
+            lambda data: data.setdefault("completed", []).append(
+                f"{tag}: {'ok' if ok else 'failed'}"
+            )
+        )
+
+    def record_decision(self, text: str) -> dict:
+        return self._mutate(lambda data: data.setdefault("decisions", []).append(text))
+
+    def record_pending_modification(self, detail: str) -> dict:
+        return self.update(pending_modification=detail)
+
+    def clear_pending_modification(self) -> dict:
+        return self.update(pending_modification=None)
+
+    def record_restart(self, action: str, result: str) -> dict:
+        return self._mutate(
+            lambda data: data.setdefault("restart_log", []).append(f"{action}: {result}")
+        )
+
+    # ------------------------------------------------------------ internals
+
+    def _mutate(self, transform) -> dict:
+        with self.lock:
+            data = self.load() or {}
+            transform(data)
+            data = self._compress(data)
+            self._write(data)
+            return data
+
+    def _compress(self, data: dict) -> dict:
+        """Trim ``## Completed`` beyond MAX_COMPLETED into a summary line."""
+        completed = list(data.get("completed") or [])
+        if len(completed) > self.MAX_COMPLETED:
+            excess = len(completed) - self.MAX_COMPLETED
+            data["completed"] = [f"… {excess} earlier finishes compressed"] + completed[-self.MAX_COMPLETED:]
+        return data
+
+    def _parse(self, text: str) -> dict | None:
+        """Split ``## Section`` blocks; None when no sections are present."""
+        sections: dict[str, list[str]] = {}
+        current: str | None = None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("## "):
+                current = stripped[3:].strip()
+                sections[current] = []
+            elif current is not None:
+                sections[current].append(line)
+        if not sections:
+            return None
+
+        phase_lines = sections.get("Phase") or []
+        phase = phase_lines[0].strip() if phase_lines and phase_lines[0].strip() else "idle"
+
+        last_run = None
+        run_lines = sections.get("Last Run") or []
+        if run_lines:
+            prompt = ""
+            started = ""
+            for line in run_lines:
+                if line.startswith("prompt:"):
+                    prompt = _state_unescape(line[len("prompt:"):].strip())
+                elif line.startswith("started:"):
+                    started = line[len("started:"):].strip()
+            last_run = {"prompt": prompt, "started": started}
+
+        def bullets(name: str) -> list[str]:
+            out = []
+            for line in sections.get(name) or []:
+                item = line.strip().lstrip("-").strip()
+                if item:
+                    out.append(item)
+            return out
+
+        pending = "\n".join(sections.get("Pending Modification") or []).strip()
+
+        return {
+            "phase": phase,
+            "last_run": last_run,
+            "completed": bullets("Completed"),
+            "active_worktrees": bullets("Active Worktrees"),
+            "decisions": bullets("Decisions"),
+            "pending_modification": pending or None,
+            "restart_log": bullets("Restart Log"),
+        }
+
+    def _render(self, data: dict) -> str:
+        lines = ["# State", ""]
+        lines += ["## Phase", str(data.get("phase") or "idle"), ""]
+        last_run = data.get("last_run")
+        if last_run:
+            lines += [
+                "## Last Run",
+                f"prompt: {_state_escape(str(last_run.get('prompt', '')))}",
+                f"started: {str(last_run.get('started', ''))}",
+                "",
+            ]
+        for key, heading in (
+            ("completed", "Completed"),
+            ("active_worktrees", "Active Worktrees"),
+            ("decisions", "Decisions"),
+        ):
+            lines += [f"## {heading}"]
+            lines += [f"- {entry}" for entry in (data.get(key) or [])]
+            lines.append("")
+        lines += ["## Pending Modification"]
+        pending = data.get("pending_modification")
+        if pending:
+            lines.append(str(pending))
+        lines.append("")
+        lines += ["## Restart Log"]
+        lines += [f"- {entry}" for entry in (data.get("restart_log") or [])]
+        lines.append("")
+        return "\n".join(lines)
+
+    def _write(self, data: dict) -> None:
+        """Atomic write via temp file + replace (mirrors _write_config)."""
+        parent = self.path.parent
+        parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(parent), suffix=".state.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(self._render(data))
+            os.replace(tmp, self.path)
+        except Exception:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+
+
+STATE = StateTracker()
+
+# --------------------------------------------------------------------------- self-evolve engine
+
+# Gatekeeper for self-modification flows. record_decision resolves STATE at
+# call time so tests that swap web_app.STATE keep working.
+SELF_EVOLVE_ENGINE = SelfEvolveEngine(
+    project_root=PROJECT_ROOT,
+    record_decision=lambda text: STATE.record_decision(text),
+)
 
 # --------------------------------------------------------------------------- opencode.json provider CRUD
 
@@ -673,6 +890,20 @@ class WorkspaceIn(BaseModel):
     path: str
 
 
+class SelfEvolveRequest(BaseModel):
+    prompt: str = ""
+    mode: str = "explicit"  # explicit | detect
+    overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class ApproveProposalRequest(BaseModel):
+    overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class RestartRequest(BaseModel):
+    reason: str = "restart requested"
+
+
 # --------------------------------------------------------------------------- app
 
 app = FastAPI(title="MultiAgentCoding Web UI", docs_url=None, redoc_url=None)
@@ -686,6 +917,18 @@ def index() -> str:
 @app.get("/api/status")
 def api_status() -> dict:
     return {"statuses": HUB.statuses, "running": HUB.running, "workspace": str(HUB.workspace)}
+
+
+@app.get("/api/state")
+def api_state() -> dict:
+    """Return the current state.md checkpoint (None when missing/corrupt)."""
+    return {"checkpoint": STATE.load()}
+
+
+@app.post("/api/state/refresh")
+def api_state_refresh() -> dict:
+    """Re-read state.md from disk and return the fresh checkpoint."""
+    return {"checkpoint": STATE.load()}
 
 
 @app.get("/api/catalog")
@@ -709,6 +952,132 @@ def api_clear() -> dict:
 def api_terminate() -> dict:
     HUB.terminate_all()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- self-evolve endpoints
+
+
+def _proposal_to_dict(proposal: Proposal) -> dict:
+    return {
+        "id": proposal.id,
+        "agent": proposal.agent,
+        "signature": proposal.signature,
+        "count": proposal.count,
+        "suggestion": proposal.suggestion,
+    }
+
+
+def _after_self_evolve_run(prompt: str, overrides: dict) -> None:
+    """Wait for the dispatched swarm run, then verify and write the restart marker.
+
+    Runs on a daemon thread so the endpoint never blocks the SSE/run loop.
+    On verification failure the restart is recorded in state.md and no
+    marker is written (the supervisor must not relaunch on a bad build).
+    """
+    while HUB.running > 0:
+        time.sleep(0.2)
+    result = SELF_EVOLVE_ENGINE.verify()
+    if result["ok"]:
+        SELF_EVOLVE_ENGINE.write_restart_marker(
+            payload={
+                "source": "self-evolve",
+                "prompt": prompt,
+                "ok": True,
+                "verified": True,
+            }
+        )
+    else:
+        STATE.record_restart("verify", "failed: " + "; ".join(result.get("errors") or []))
+
+
+def _spawn_self_evolve_watcher(prompt: str, overrides: dict) -> None:
+    """Start the verify+marker watcher on a daemon thread (patchable in tests)."""
+    threading.Thread(
+        target=_after_self_evolve_run,
+        args=(prompt, overrides),
+        name="self-evolve-watcher",
+        daemon=True,
+    ).start()
+
+
+def _dispatch_self_evolve(prompt: str, overrides: dict, label: str) -> None:
+    """Append a master log line, dispatch the swarm, and schedule verify+marker."""
+    HUB.append_line("master", f"▶ self-evolve ({label}): {prompt}")
+    HUB.run(prompt, overrides)
+    _spawn_self_evolve_watcher(prompt, overrides)
+
+
+@app.post("/api/self-evolve")
+def api_self_evolve(req: SelfEvolveRequest) -> dict:
+    """Self-modification endpoint.
+
+    ``mode=explicit`` records a checkpoint decision, dispatches the swarm,
+    then (on a watcher thread) verifies the repo and writes the restart
+    marker on success. ``mode=detect`` only returns optimization-loop
+    proposals — it never dispatches.
+    """
+    if req.mode == "detect":
+        return {
+            "ok": True,
+            "mode": "detect",
+            "proposals": [_proposal_to_dict(p) for p in detect_optimization_loops()],
+        }
+    if req.mode != "explicit":
+        raise HTTPException(status_code=400, detail="mode must be 'explicit' or 'detect'")
+    if not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt must not be empty.")
+    checkpoint = SELF_EVOLVE_ENGINE.checkpoint(req.prompt)
+    _dispatch_self_evolve(req.prompt, req.overrides, "explicit")
+    return {"ok": True, "mode": "explicit", "checkpoint": checkpoint}
+
+
+@app.get("/api/optimization-proposals")
+def api_optimization_proposals() -> dict:
+    """Return detected optimization-loop proposals (detection never dispatches)."""
+    return {
+        "ok": True,
+        "proposals": [_proposal_to_dict(p) for p in detect_optimization_loops()],
+    }
+
+
+@app.post("/api/optimization-proposals/{proposal_id}/approve")
+def api_optimization_proposals_approve(proposal_id: str, req: ApproveProposalRequest) -> dict:
+    """Approve one proposal: record the decision in state.md and dispatch the
+    swarm with the proposal's suggestion as the prompt."""
+    proposal = next(
+        (p for p in detect_optimization_loops() if p.id == proposal_id), None
+    )
+    if proposal is None:
+        raise HTTPException(status_code=404, detail=f"Proposal '{proposal_id}' not found.")
+    decision = f"approved optimization proposal {proposal.id}: {proposal.suggestion}"
+    STATE.record_decision(decision)
+    _dispatch_self_evolve(proposal.suggestion, req.overrides, f"approved {proposal.id}")
+    return {"ok": True, "approved": proposal.id, "decision": decision}
+
+
+def _schedule_exit(delay: float = 1.0) -> None:
+    """Schedule ``os._exit(0)`` on a short timer (patchable in tests).
+
+    The delay lets the 202 response reach the client before the process dies;
+    the supervisor then reads the restart marker and relaunches.
+    """
+    threading.Timer(delay, lambda: os._exit(0)).start()
+
+
+@app.post("/api/restart", status_code=202)
+def api_restart(req: RestartRequest) -> dict:
+    """Request a supervised restart: record it, write the marker, then exit.
+
+    Records ``STATE.record_restart(reason, "requested")``, writes the restart
+    marker the supervisor watches, returns 202, and schedules ``os._exit(0)``
+    on a short timer so the response is delivered before the supervisor acts.
+    """
+    STATE.record_restart(req.reason, "requested")
+    SELF_EVOLVE_ENGINE.write_restart_marker(
+        payload={"source": "api-restart", "reason": req.reason, "ok": True}
+    )
+    _schedule_exit()
+    return {"ok": True, "reason": req.reason, "restart": "scheduled"}
 
 
 @app.post("/api/workspace")
@@ -852,90 +1221,122 @@ PAGE_HTML = r"""<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
+  /* ---- typography scale: base 16px, small = 13px+ (no more 9-11px) ---- */
+  html { font-size: 16px; }
   html, body { height: 100%; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: #293548; border-radius: 4px; }
+  body { font-size: 15px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2c3a52; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #384a66; }
   ::-webkit-scrollbar-track { background: transparent; }
-  .card { background: #0F172A; border: 1px solid #293548; border-radius: 12px; }
-  .dot { width: 9px; height: 9px; border-radius: 9999px; display: inline-block; }
-  .dot-idle { background: #475569; }
-  .dot-thinking { background: #38BDF8; animation: pulse 1s infinite; }
-  .dot-active { background: #A3E635; animation: pulse 1s infinite; }
-  .dot-error { background: #F87171; }
+  .card { background: #0F172A; border: 1px solid #293548; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,0.28); }
+  .dot { width: 10px; height: 10px; border-radius: 9999px; display: inline-block; }
+  .dot-idle { background: #64748B; }
+  .dot-thinking { background: #38BDF8; animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(56,189,248,0.7); }
+  .dot-active { background: #A3E635; animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(163,230,53,0.7); }
+  .dot-error { background: #F87171; box-shadow: 0 0 8px rgba(248,113,113,0.6); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
-  .acc { border: 1px solid #293548; border-radius: 10px; overflow: hidden; }
+  .acc { border: 1px solid #293548; border-radius: 12px; overflow: hidden; }
   .acc-head { cursor: pointer; user-select: none; }
   .acc-body { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
-  .acc.open .acc-body { max-height: 520px; overflow: auto; }
-  select, textarea { background: #0B0E14; border: 1px solid #293548; color: #E2E8F0; }
-  select:focus, textarea:focus { outline: none; border-color: #38BDF8; }
+  .acc.open .acc-body { max-height: 560px; overflow: auto; }
+  select, textarea, input:not([type="checkbox"]) { background: #0B0E14; border: 1px solid #293548; color: #E2E8F0; }
+  select:focus, textarea:focus { outline: none; border-color: #38BDF8; box-shadow: 0 0 0 3px rgba(56,189,248,0.15); }
   /* API & Models Manager modal inputs: dark grey fields, crisp text, muted placeholders */
-  #settings input {
+  #settings input:not([type="checkbox"]) {
     background: #1E293B;
     border: 1px solid #334155;
     color: #F8FAFC;
-    padding: 6px 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
   }
   #settings input::placeholder { color: #94A3B8; }
-  #settings input:focus { outline: none; border-color: #38BDF8; }
+  #settings input:focus { outline: none; border-color: #38BDF8; box-shadow: 0 0 0 3px rgba(56,189,248,0.15); }
   /* provider matrix status badges + source chips */
-  .badge-ready { background: rgba(74, 222, 128, 0.15); color: #4ADE80; border: 1px solid rgba(74, 222, 128, 0.4); }
-  .badge-needs-setup { background: rgba(251, 191, 36, 0.15); color: #FBBF24; border: 1px solid rgba(251, 191, 36, 0.4); }
-  .badge-local { background: rgba(148, 163, 184, 0.15); color: #94A3B8; border: 1px solid rgba(148, 163, 184, 0.4); }
-  .chip-auth { background: rgba(56, 189, 248, 0.15); color: #38BDF8; }
-  .chip-env { background: rgba(167, 139, 250, 0.15); color: #A78BFA; }
-  .chip-none { background: rgba(148, 163, 184, 0.15); color: #94A3B8; }
-  pre.codeblock { font-family: "JetBrains Mono", monospace; font-size: 12px; line-height: 1.6; }
+  .badge-ready { background: rgba(74, 222, 128, 0.16); color: #4ADE80; border: 1px solid rgba(74, 222, 128, 0.45); }
+  .badge-needs-setup { background: rgba(251, 191, 36, 0.16); color: #FBBF24; border: 1px solid rgba(251, 191, 36, 0.45); }
+  .badge-local { background: rgba(148, 163, 184, 0.16); color: #94A3B8; border: 1px solid rgba(148, 163, 184, 0.45); }
+  .chip-auth { background: rgba(56, 189, 248, 0.16); color: #38BDF8; }
+  .chip-env { background: rgba(167, 139, 250, 0.16); color: #A78BFA; }
+  .chip-none { background: rgba(148, 163, 184, 0.16); color: #94A3B8; }
+  pre.codeblock { font-family: "JetBrains Mono", monospace; font-size: 13px; line-height: 1.7; }
+  /* --- polished interactive primitives --- */
+  .btn { transition: all 0.15s ease; }
+  .btn:hover { transform: translateY(-1px); }
+  .nav-btn.active { background: #1E293B; color: #E2E8F0; box-shadow: inset 0 0 0 1px #38BDF8; }
+  .pill { transition: all 0.15s ease; }
+  .pill:hover { transform: translateY(-1px); border-color: #38BDF8; color: #E2E8F0; }
+  .console-tab { transition: all 0.15s ease; }
+  .console-tab.active { background: #1E293B; color: #38BDF8; border-color: #38BDF8; }
+  /* single-window: stack the terminal console under the chat on narrow screens */
+  @media (max-width: 900px) {
+    #console { width: 100% !important; border-left: none !important; border-top: 1px solid #293548; }
+  }
 </style>
 </head>
 <body class="bg-bg text-txt font-sans h-screen overflow-hidden flex flex-col">
 
 <!-- top bar -->
 <div class="flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-panel">
-  <button id="btnSidebar" class="text-muted hover:text-txt text-lg leading-none w-7 h-7 rounded hover:bg-panel2 transition" title="Toggle sidebar">☰</button>
-  <div class="flex-1 text-sm text-muted truncate">
-    <span class="text-txt font-semibold">MultiAgentCoding</span>
+  <button id="btnSidebar" class="btn text-muted text-xl leading-none w-9 h-9 rounded-lg hover:bg-panel2 transition" title="Toggle sidebar">☰</button>
+  <div class="flex-1 text-sm text-muted truncate min-w-0">
+    <span class="text-txt font-semibold text-[15px]">MultiAgentCoding</span>
     <span class="mx-2 text-edge">|</span>
-    <span id="lblWorkspace" class="font-mono text-xs">workspace: …</span>
+    <span id="lblWorkspace" class="font-mono text-[13px]">workspace: …</span>
   </div>
-  <button id="btnWorkspace" class="text-xs px-2.5 py-1 rounded border border-edge text-muted hover:text-txt hover:border-accent transition">Change…</button>
-  <button id="btnClear" class="text-xs px-2.5 py-1 rounded border border-edge text-muted hover:text-txt transition">Clear</button>
-  <button id="btnStop" class="text-xs px-2.5 py-1 rounded border border-edge text-danger hover:text-txt transition">Stop</button>
+  <button id="btnWorkspace" class="btn text-[13px] px-3 py-1.5 rounded-lg border border-edge text-muted hover:text-txt hover:border-accent transition">Change…</button>
+  <button id="btnClear" class="btn text-[13px] px-3 py-1.5 rounded-lg border border-edge text-muted hover:text-txt transition">Clear</button>
+  <button id="btnStop" class="btn text-[13px] px-3 py-1.5 rounded-lg border border-edge text-danger hover:text-txt transition">Stop</button>
 </div>
 
 <div class="flex flex-1 min-h-0">
 
   <!-- left icon sidebar -->
-  <aside id="sidebar" class="w-14 shrink-0 border-r border-edge bg-panel flex flex-col items-center py-3 gap-1 transition-all duration-200 overflow-hidden">
-    <button data-tab="master" class="nav-btn w-10 h-10 rounded-lg text-lg text-muted hover:text-txt hover:bg-panel2 transition" title="Master Console">⌂</button>
+  <aside id="sidebar" class="w-14 shrink-0 border-r border-edge bg-panel flex flex-col items-center py-3 gap-1.5 transition-all duration-200 overflow-hidden">
+    <button data-tab="master" class="nav-btn w-11 h-11 rounded-xl text-lg text-muted hover:text-txt hover:bg-panel2 transition flex items-center justify-center" title="Master Console">⌂</button>
     <div class="w-8 border-t border-edge my-1"></div>
-    <div id="agentNav" class="flex flex-col items-center gap-1"></div>
+    <div id="agentNav" class="flex flex-col items-center gap-1.5"></div>
     <div class="flex-1"></div>
     <div class="w-8 border-t border-edge my-1"></div>
-    <button data-tab="settings" class="nav-btn w-10 h-10 rounded-lg text-lg text-muted hover:text-txt hover:bg-panel2 transition" title="API & Models">⚙</button>
+    <button data-tab="settings" class="nav-btn w-11 h-11 rounded-xl text-lg text-muted hover:text-txt hover:bg-panel2 transition flex items-center justify-center" title="API & Models">⚙</button>
   </aside>
 
   <!-- center workplane -->
   <main class="flex-1 flex flex-col min-w-0">
 
     <!-- tab header: cascading model/mode dropdowns + status dot -->
-    <div class="flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-panel">
-      <span id="lblTab" class="font-semibold text-sm">Master Console</span>
+    <div class="flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-panel flex-wrap">
+      <span id="lblTab" class="font-semibold text-[15px]">Master Console</span>
       <span id="tabDot" class="dot dot-idle"></span>
       <div class="flex-1"></div>
-      <label class="text-xs text-muted">Model</label>
-      <select id="selModel" class="text-xs rounded px-2 py-1.5 w-56"></select>
-      <label class="text-xs text-muted ml-2">Mode</label>
-      <select id="selMode" class="text-xs rounded px-2 py-1.5 w-44"></select>
+      <label class="text-[13px] text-muted">Model</label>
+      <select id="selModel" class="text-[13px] rounded-lg px-2.5 py-2 w-64"></select>
+      <label class="text-[13px] text-muted ml-2">Mode</label>
+      <select id="selMode" class="text-[13px] rounded-lg px-2.5 py-2 w-48"></select>
     </div>
 
-    <!-- chat messages -->
-    <div id="chat" class="flex-1 overflow-y-auto px-4 py-4 space-y-4"></div>
+    <!-- chat + streaming console: one unified column (no dead zones) -->
+    <div class="flex flex-1 min-h-0">
+      <!-- chat messages -->
+      <div id="chat" class="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-w-0"></div>
+
+      <!-- streaming terminal console, docked inside the main workplane -->
+      <div id="console" class="w-[24rem] shrink-0 border-l border-edge bg-panel flex flex-col min-w-0">
+        <div class="px-3 py-2 border-b border-edge flex items-center gap-2 flex-wrap">
+          <span class="text-[13px] font-semibold text-muted">Terminal Logs</span>
+          <span id="canvasTag" class="font-mono text-accent text-[13px]">m1</span>
+          <div class="flex-1"></div>
+          <div id="consoleTabs" class="flex items-center gap-1"></div>
+        </div>
+        <div id="canvasOut" class="flex-1 min-h-0 m-2 overflow-auto rounded-lg bg-bg border border-edge p-2.5 font-mono text-[13px] text-txt leading-relaxed"></div>
+      </div>
+    </div>
 
     <!-- quick action pills + input -->
-    <div class="border-t border-edge bg-panel px-4 pt-2 pb-3">
-      <div class="flex items-center gap-2 mb-2" id="quickActions">
-        <span class="text-xs text-muted">Quick actions:</span>
+    <div class="border-t border-edge bg-panel px-4 pt-2.5 pb-3">
+      <div class="flex items-center gap-2 flex-wrap mb-2" id="quickActions">
+        <span class="text-[13px] text-muted">Quick actions:</span>
         <button data-pill="Plan the next implementation step for the current project." class="pill">Plan</button>
         <button data-pill="Build / implement the next planned task for the current project." class="pill">Build</button>
         <button data-pill="Review the latest changes in the current project." class="pill">Review</button>
@@ -1006,6 +1407,7 @@ const state = {
   cursors: { master: 0, m1: 0, m2: 0, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0 },
   overrides: {},   // tab -> {model, mode}
   cards: {},       // tag -> rendered DOM
+  checkpoint: null, // state.md checkpoint from /api/state (resume card)
 };
 const AGENT_IDS = ["m1","m2","m3","m4","m5","m6","m7"];
 const $ = (id) => document.getElementById(id);
@@ -1153,6 +1555,7 @@ function chatCard(tag) {
 function renderChat() {
   const chat = $("chat");
   chat.innerHTML = "";
+  if (state.tab === "master" && state.checkpoint) chat.appendChild(resumeCard());
   if (state.tab === "master") {
     const card = chatCard("master");
     chat.appendChild(card);
@@ -1164,6 +1567,70 @@ function renderChat() {
     // replay buffer
     for (const line of state.buffers[state.tab] || []) appendToCard(state.tab, "line", line);
   }
+}
+
+/* ------------------------------------------------------------------ resume */
+function resumeSummaryText() {
+  const ck = state.checkpoint || {};
+  const lines = [];
+  lines.push("Continue the previous workflow from the last checkpoint.");
+  lines.push("");
+  lines.push(`Phase: ${ck.phase || "idle"}`);
+  const completed = ck.completed || [];
+  lines.push(`Completed: ${completed.length} finish record(s)`);
+  const worktrees = ck.active_worktrees || [];
+  if (worktrees.length) lines.push(`Active worktrees: ${worktrees.join(", ")}`);
+  if (ck.pending_modification) {
+    lines.push(`Pending modification: ${ck.pending_modification}`);
+  }
+  const decisions = ck.decisions || [];
+  if (decisions.length) {
+    lines.push("Decisions:");
+    for (const d of decisions.slice(0, 5)) lines.push(`- ${d}`);
+    if (decisions.length > 5) lines.push(`- … ${decisions.length - 5} more`);
+  }
+  lines.push("");
+  lines.push("Resume the workflow where it left off.");
+  return lines.join("\n");
+}
+
+function resumeCard() {
+  const card = document.createElement("div");
+  card.className = "card p-4";
+  card.id = "resumeCard";
+  const ck = state.checkpoint || {};
+  const completed = (ck.completed || []).length;
+  const decisions = (ck.decisions || []).length;
+  const pending = ck.pending_modification;
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-2">
+      <span class="w-2 h-2 rounded-full bg-lime"></span>
+      <span class="font-semibold text-sm">Resume from checkpoint?</span>
+      <span class="flex-1"></span>
+      <span class="text-[10px] font-mono text-muted">state.md</span>
+    </div>
+    <div class="text-xs text-muted mb-3 space-y-1">
+      <div>Phase: <span class="text-txt font-mono">${esc(ck.phase || "idle")}</span></div>
+      <div>Completed: <span class="text-txt font-mono">${completed}</span> record(s)</div>
+      ${pending ? `<div>Pending modification: <span class="text-lime font-mono">${esc(String(pending).slice(0, 200))}</span></div>` : ""}
+      <div>Decisions: <span class="text-txt font-mono">${decisions}</span> note(s)</div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="btnResume" class="px-3 py-1.5 rounded-lg bg-lime text-bg text-xs font-semibold">Resume</button>
+      <button id="btnDismiss" class="px-3 py-1.5 rounded border border-edge text-xs text-muted hover:text-txt">Dismiss</button>
+      <span class="text-[10px] text-muted">Loads the checkpoint summary into the prompt; nothing runs automatically.</span>
+    </div>`;
+  card.querySelector("#btnResume").addEventListener("click", () => {
+    const ta = $("input");
+    ta.value = resumeSummaryText();
+    autosize();
+    ta.focus();
+  });
+  card.querySelector("#btnDismiss").addEventListener("click", () => {
+    state.checkpoint = null;
+    card.remove();
+  });
+  return card;
 }
 
 function appendToCard(tag, kind, text) {
@@ -1676,6 +2143,11 @@ $("btnAddProvider").addEventListener("click", async () => {
   const st = await res.json();
   window.__workspace = st.workspace || "";
   $("lblWorkspace").textContent = "workspace: " + (st.workspace || "…");
+  try {
+    const sres = await fetch("/api/state");
+    const sdata = await sres.json();
+    state.checkpoint = sdata.checkpoint || null;
+  } catch (_) { state.checkpoint = null; }
   selectTab("master");
   connectStream();
 })();
@@ -1683,6 +2155,50 @@ $("btnAddProvider").addEventListener("click", async () => {
 </body>
 </html>
 """
+
+
+# --------------------------------------------------------------------------- window launcher
+
+_EDGE_CANDIDATES = [
+    os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+    os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+]
+
+
+def _find_edge() -> str | None:
+    for cand in _EDGE_CANDIDATES:
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.2)
+    return False
+
+
+def _launch_window(url: str) -> bool:
+    """Open a standalone window; block until closed. Returns True if a window was shown."""
+    try:
+        import webview  # type: ignore
+        webview.create_window("MultiAgentCoding", url)
+        webview.start()
+        return True
+    except Exception:
+        pass
+    edge = _find_edge()
+    if edge:
+        subprocess.run([edge, "--app", url], check=False)
+        return True
+    webbrowser.open(url)
+    return True
 
 
 # --------------------------------------------------------------------------- entry
