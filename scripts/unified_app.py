@@ -11,8 +11,10 @@ An ultra-professional single-window workspace for the control-plane agents:
     toggle, and quick action shortcuts.
 
 Submitting a prompt spawns one thread per agent running
-    opencode run --agent <agent_name> --auto "<prompt>"
+    opencode run --agent <agent_name|mode> --auto [-m <model>] "<prompt>"
 and routes each agent's stdout/stderr (with ANSI codes stripped) into its own tab.
+Each tab has a "Model:" dropdown and a cascading "Mode:" dropdown; a concrete
+mode is passed as ``--agent <mode>``, overriding the tab's default agent.
 
 Usage:
     python scripts/unified_app.py
@@ -84,7 +86,27 @@ POLL_MS = 50  # how often the main thread drains the output queue
 
 AGENT_TAB_LABELS = {tag: f"{tag} {name}" for tag, name, _ in AGENTS}
 
-# Quick action shortcuts -> prompt templates prefilled into the entry.
+# Model selector options. "Auto" lets each agent use its configured hybrid
+# model from opencode.json; selecting a concrete model overrides it via -m.
+AUTO_MODEL = "Auto (Smart Hybrid Routing)"
+MODEL_OPTIONS = [
+    AUTO_MODEL,
+    "opencode/deepseek-v4-flash-free",
+    "opencode/ling-3.0-tiny-free",
+    "opencode/big-pickle",
+]
+
+# Mode selector options. "Auto (Default)" keeps the tab's default agent; a
+# concrete mode is passed as `--agent <mode>` (opencode run has no --mode flag).
+AUTO_MODE = "Auto (Default)"
+MODE_OPTIONS_BY_MODEL: dict[str, list[str]] = {
+    AUTO_MODEL: [AUTO_MODE],
+    "opencode/deepseek-v4-flash-free": ["architect", "build", "analyze"],
+    "opencode/big-pickle": ["plan", "build", "analyze"],
+    "opencode/ling-3.0-tiny-free": ["review", "compact"],
+}
+
+# Quick action shortcuts -> prompt templates prefilled into the prompt area.
 QUICK_ACTIONS = [
     ("Analyze", "Analyze the current project and produce a requirements analysis."),
     ("Plan", "Plan the next implementation step for the current project."),
@@ -112,6 +134,23 @@ def _opencode_command() -> str | None:
     resolves the full path so the child process can be located and executed.
     """
     return shutil.which("opencode") or shutil.which("opencode.cmd")
+
+
+def _build_run_command(exe: str, agent: str, prompt: str, model: str | None, mode: str | None = None) -> list[str]:
+    """Build the ``opencode run`` argv for one agent.
+
+    ``--auto`` auto-approves tool permissions (bash/file ops) so they are not
+    auto-rejected (opencode run has no --yes/-y flag). When a model override is
+    resolved, ``-m <model>`` is inserted before the prompt. When a concrete mode
+    is resolved (not ``AUTO_MODE``), it is passed as ``--agent <mode>``,
+    overriding the tab's default agent.
+    """
+    chosen_agent = mode if mode and mode != AUTO_MODE else agent
+    cmd = [exe, "run", "--agent", chosen_agent, "--auto"]
+    if model:
+        cmd += ["-m", model]
+    cmd.append(prompt)
+    return cmd
 
 
 class StreamView(tk.Text):
@@ -270,6 +309,9 @@ class UnifiedApp(tk.Tk):
         container.pack(fill=tk.BOTH, expand=True)
 
         self.autoscroll_var = tk.BooleanVar(value=True)
+        self.model_vars: dict[str, tk.StringVar] = {}
+        self.mode_vars: dict[str, tk.StringVar] = {}
+        self.mode_combos: dict[str, ttk.Combobox] = {}
 
         # 1. Active workspace header.
         header_bar = ttk.Frame(container, style="Header.TFrame", padding=(12, 10))
@@ -306,6 +348,7 @@ class UnifiedApp(tk.Tk):
         # Master Console tab.
         master_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
         self.notebook.add(master_frame, text="💬 Master Console")
+        self._build_selector_row(master_frame, "master")
         self.master_stream = StreamView(master_frame, autoscroll=self.autoscroll_var)
 
         # One tab per agent.
@@ -314,6 +357,7 @@ class UnifiedApp(tk.Tk):
         for tag, name, _ in AGENTS:
             agent_frame = ttk.Frame(self.notebook, style="App.TFrame", padding=2)
             self.notebook.add(agent_frame, text=AGENT_TAB_LABELS[tag])
+            self._build_selector_row(agent_frame, tag)
             self.agent_streams[tag] = StreamView(agent_frame, autoscroll=self.autoscroll_var)
             self.agent_tabs[tag] = agent_frame
 
@@ -337,8 +381,11 @@ class UnifiedApp(tk.Tk):
         input_row = ttk.Frame(control, style="App.TFrame")
         input_row.pack(fill=tk.X)
 
-        self.entry = tk.Entry(
+        # Prompt area (multiline: Enter submits, Shift+Enter inserts a newline).
+        self.prompt_text = tk.Text(
             input_row,
+            height=4,
+            wrap=tk.WORD,
             bg=PANEL,
             fg=TEXT,
             insertbackground=TEXT,
@@ -348,9 +395,12 @@ class UnifiedApp(tk.Tk):
             highlightthickness=1,
             highlightbackground=BORDER,
             highlightcolor=ACCENT,
+            padx=8,
+            pady=6,
         )
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6)
-        self.entry.bind("<Return>", self._on_run_command)
+        self.prompt_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.prompt_text.bind("<Return>", self._on_run_command)
+        self.prompt_text.bind("<Shift-Return>", self._on_insert_newline)
 
         ttk.Checkbutton(
             input_row, text="Auto-scroll", variable=self.autoscroll_var, style="Muted.TCheckbutton"
@@ -366,7 +416,58 @@ class UnifiedApp(tk.Tk):
         )
         self.clear_btn.pack(side=tk.LEFT)
 
-        self.entry.focus_set()
+        self.prompt_text.focus_set()
+
+    def _build_selector_row(self, parent: tk.Widget, tag: str) -> None:
+        """Add a readonly Model + Mode dropdown row at the top of a tab.
+
+        The Mode dropdown cascades from the selected Model via
+        ``MODE_OPTIONS_BY_MODEL``.
+        """
+        row = ttk.Frame(parent, style="App.TFrame")
+        row.pack(fill=tk.X, pady=(0, 2))
+
+        ttk.Label(row, text="Model:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        model_var = tk.StringVar(value=AUTO_MODEL)
+        model_combo = ttk.Combobox(
+            row,
+            textvariable=model_var,
+            values=MODEL_OPTIONS,
+            state="readonly",
+            width=40,
+            font=(FONT_FAMILY, 9),
+        )
+        model_combo.pack(side=tk.LEFT)
+        self.model_vars[tag] = model_var
+
+        ttk.Label(row, text="Mode:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 6))
+        mode_var = tk.StringVar(value=AUTO_MODE)
+        mode_combo = ttk.Combobox(
+            row,
+            textvariable=mode_var,
+            values=MODE_OPTIONS_BY_MODEL.get(AUTO_MODEL, [AUTO_MODE]),
+            state="readonly",
+            width=24,
+            font=(FONT_FAMILY, 9),
+        )
+        mode_combo.pack(side=tk.LEFT)
+        self.mode_vars[tag] = mode_var
+        self.mode_combos[tag] = mode_combo
+
+        model_combo.bind("<<ComboboxSelected>>", lambda _e, t=tag: self._on_model_changed(t))
+
+    def _on_model_changed(self, tag: str) -> None:
+        """Repopulate a tab's Mode dropdown from the newly selected Model."""
+        model_var = self.model_vars.get(tag)
+        mode_var = self.mode_vars.get(tag)
+        if model_var is None or mode_var is None:
+            return
+        model = model_var.get()
+        modes = MODE_OPTIONS_BY_MODEL.get(model, [AUTO_MODE])
+        mode_var.set(modes[0] if modes else AUTO_MODE)
+        combo = self.mode_combos.get(tag)
+        if combo is not None:
+            combo["values"] = modes
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self)
@@ -445,10 +546,19 @@ class UnifiedApp(tk.Tk):
         if frame is not None:
             self.notebook.select(frame)
 
+    def _get_prompt(self) -> str:
+        """Read the current prompt text (stripped)."""
+        return self.prompt_text.get("1.0", tk.END).strip()
+
     def _prefill_prompt(self, template: str) -> None:
-        self.entry.delete(0, tk.END)
-        self.entry.insert(0, template)
-        self.entry.focus_set()
+        self.prompt_text.delete("1.0", tk.END)
+        self.prompt_text.insert("1.0", template)
+        self.prompt_text.focus_set()
+
+    def _on_insert_newline(self, _event=None) -> str:
+        """Shift+Enter inserts a newline instead of submitting."""
+        self.prompt_text.insert(tk.INSERT, "\n")
+        return "break"
 
     def _on_change_directory(self) -> None:
         chosen = filedialog.askdirectory(
@@ -461,17 +571,49 @@ class UnifiedApp(tk.Tk):
 
     # ------------------------------------------------------------- actions
 
-    def _on_run_command(self, event=None) -> None:
-        prompt = self.entry.get().strip()
+    def _resolve_model(self, tag: str) -> str | None:
+        """Resolve the model override for a tab.
+
+        Priority: the agent tab's dropdown (if not Auto), then the Master
+        Console dropdown (if not Auto), then None (use the agent's configured
+        hybrid model from opencode.json).
+        """
+        var = self.model_vars.get(tag)
+        if var is not None and var.get() != AUTO_MODEL:
+            return var.get()
+        master = self.model_vars.get("master")
+        if master is not None and master.get() != AUTO_MODEL:
+            return master.get()
+        return None
+
+    def _resolve_mode(self, tag: str) -> str:
+        """Resolve the mode override for a tab.
+
+        Priority: the agent tab's dropdown (if not Auto), then the Master
+        Console dropdown (if not Auto), then ``AUTO_MODE`` (use the tab's
+        default agent).
+        """
+        var = self.mode_vars.get(tag)
+        if var is not None and var.get() != AUTO_MODE:
+            return var.get()
+        master = self.mode_vars.get("master")
+        if master is not None and master.get() != AUTO_MODE:
+            return master.get()
+        return AUTO_MODE
+
+    def _on_run_command(self, event=None) -> str:
+        prompt = self._get_prompt()
         if not prompt:
-            return
-        self.entry.delete(0, tk.END)
+            return "break"
+        self.prompt_text.delete("1.0", tk.END)
         self._append_master(f"▶ {prompt}")
 
         for tag, name, agent in AGENTS:
+            model = self._resolve_model(tag)
+            mode = self._resolve_mode(tag)
             thread = threading.Thread(
                 target=self._run_agent,
-                args=(tag, name, agent, prompt),
+                args=(tag, name, agent, prompt, model, mode),
                 name=f"agent-{tag}",
                 daemon=True,
             )
@@ -480,8 +622,9 @@ class UnifiedApp(tk.Tk):
             self._append_master_muted(f"→ {tag.upper()} {name}: thinking")
 
         self.running += len(AGENTS)
+        return "break"
 
-    def _run_agent(self, tag: str, name: str, agent: str, prompt: str) -> None:
+    def _run_agent(self, tag: str, name: str, agent: str, prompt: str, model: str | None = None, mode: str | None = None) -> None:
         """Worker thread: run opencode for one agent, stream lines to the queue."""
         try:
             exe = _opencode_command()
@@ -490,9 +633,7 @@ class UnifiedApp(tk.Tk):
                     "opencode executable not found on PATH. "
                     "Install opencode or add it to PATH before using this launcher."
                 )
-            cmd = [exe, "run", "--agent", agent, "--auto", prompt]
-            # --auto auto-approves tool permissions (bash/file ops) so they are
-            # not auto-rejected. (opencode run has no --yes/-y flag.)
+            cmd = _build_run_command(exe, agent, prompt, model, mode)
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(self.workspace),

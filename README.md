@@ -61,6 +61,26 @@ myagent
 > `--auto` auto-approves tool permissions (bash/file ops) so agents can act
 > without interactive approval. (`opencode run` has no `--yes`/`-y` flag.)
 
+### 2. Web UI (browser-based, Dyad-style)
+
+A modern browser-based workspace with an icon sidebar, center chat workplane,
+live Code + Terminal canvas, and a ⚙ API & Models manager.
+
+```bash
+python scripts/web_app.py          # starts server, opens the browser
+launch_web.bat                     # same, Windows launcher
+python scripts/web_app.py --no-browser --port 8501   # headless
+```
+
+**Features:**
+- **Left icon sidebar** — collapsible navigation for Master Console, M1–M7, ⚙ Settings.
+- **Center workplane** — chat interface per tab, cascading Model/Mode dropdowns,
+  collapsible "Thoughts & process" accordions, quick-action pills (Plan / Build / Review).
+- **Live Canvas (right)** — real-time Code output (syntax-highlighted) and Terminal logs.
+- **⚙ API & Models Manager** — add/edit/delete providers and models in
+  `opencode.json` (atomic writes, `.bak` backup). Keys stay in
+  `~/.local/share/opencode/auth.json` — never stored here.
+
 ### 7-Window Inbox Launcher
 
 Runs the seven roles side by side, each listening for tasks in its own inbox.
