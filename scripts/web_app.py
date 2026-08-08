@@ -42,6 +42,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from urllib.parse import urlparse
 
 # Reuse the desktop GUI's pure logic (constants + command builder).
 from unified_app import (
@@ -61,6 +62,116 @@ from unified_app import (
 
 DEFAULT_PORT = 8501
 CONFIG_PATH = PROJECT_ROOT / "opencode.json"
+
+# Read-only source of API keys (never written by this app, never logged).
+AUTH_PATH = Path(os.path.expanduser("~/.local/share/opencode/auth.json"))
+
+# Built-in provider catalog: id, display name, adapter npm package, base URL,
+# and the conventional env var that holds the API key.
+BUILTIN_PROVIDERS = [
+    {
+        "id": "openai",
+        "name": "OpenAI",
+        "npm": "@ai-sdk/openai",
+        "baseURL": "https://api.openai.com/v1",
+        "envVar": "OPENAI_API_KEY",
+    },
+    {
+        "id": "anthropic",
+        "name": "Anthropic",
+        "npm": "@ai-sdk/anthropic",
+        "baseURL": "https://api.anthropic.com/v1",
+        "envVar": "ANTHROPIC_API_KEY",
+    },
+    {
+        "id": "google",
+        "name": "Google Vertex",
+        "npm": "@ai-sdk/google-vertex",
+        "baseURL": "https://us-central1-aiplatform.googleapis.com/v1",
+        "envVar": "GOOGLE_API_KEY",
+    },
+]
+
+
+def _builtin_provider(name: str) -> dict | None:
+    """Return the built-in provider block for ``name`` (by id), or None."""
+    for provider in BUILTIN_PROVIDERS:
+        if provider["id"] == name:
+            return provider
+    return None
+
+
+def _effective_env_var(name: str, env_var: str | None) -> str | None:
+    """Custom env var name, falling back to the built-in default for the id."""
+    if env_var:
+        return env_var
+    provider = _builtin_provider(name)
+    return provider.get("envVar") if provider else None
+
+
+def _is_local_base_url(base_url: str | None) -> bool:
+    """True when the base URL points at a local host (no API key required)."""
+    if not base_url:
+        return False
+    try:
+        host = urlparse(base_url).hostname or ""
+    except ValueError:
+        return False
+    return host == "localhost" or host == "0.0.0.0" or host.startswith("127.")
+
+
+def _auth_store() -> dict:
+    """Read auth.json (read-only). Never prints or returns key values in logs.
+
+    Missing or corrupt files yield an empty dict instead of raising.
+    """
+    if not AUTH_PATH.exists():
+        return {}
+    try:
+        data = json.loads(AUTH_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def resolve_api_key(name: str, env_var: str | None = None) -> tuple[str | None, str]:
+    """Resolve an API key for ``name`` -> (key, source).
+
+    Precedence: env var (custom ``env_var`` or the built-in default) when set
+    and non-empty -> ``env``; auth.json entry for ``name`` -> ``auth``;
+    otherwise (None, "none"). Empty-string env vars count as unset.
+    """
+    env_name = _effective_env_var(name, env_var)
+    if env_name:
+        value = os.environ.get(env_name, "")
+        if value:
+            return value, "env"
+    entry = _auth_store().get(name)
+    key = (entry or {}).get("key", "")
+    if key:
+        return key, "auth"
+    return None, "none"
+
+
+def provider_status(
+    name: str, env_var: str | None = None, base_url: str | None = None
+) -> dict:
+    """Provider readiness -> {status, source, envVar}.
+
+    status: ready | needs-setup | local. "local" applies when the provider
+    needs no key (e.g. ollama-style local base URL). source: auth | env | none.
+    """
+    if base_url is None:
+        provider = _builtin_provider(name)
+        base_url = provider.get("baseURL") if provider else None
+    if _is_local_base_url(base_url):
+        return {"status": "local", "source": "none", "envVar": _effective_env_var(name, env_var)}
+    key, source = resolve_api_key(name, env_var)
+    return {
+        "status": "ready" if key else "needs-setup",
+        "source": source,
+        "envVar": _effective_env_var(name, env_var),
+    }
 
 
 def _backup_path() -> Path:

@@ -108,6 +108,117 @@ class ProviderCrudTestCase(unittest.TestCase):
             web_app.delete_provider("nope")
 
 
+class ProviderStatusTestCase(unittest.TestCase):
+    """provider_status / resolve_api_key / _auth_store read auth.json + env vars.
+
+    Keys are only ever read in-memory; nothing here writes or logs key values.
+    """
+
+    def setUp(self):
+        self._orig_auth = web_app.AUTH_PATH
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.AUTH_PATH = Path(self._tmp.name) / "auth.json"
+        self._saved_env = {}
+        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MY_CUSTOM_KEY"):
+            self._saved_env[name] = os.environ.get(name)
+            os.environ.pop(name, None)
+
+    def tearDown(self):
+        web_app.AUTH_PATH = self._orig_auth
+        for name, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        self._tmp.cleanup()
+
+    def _write_auth(self, data):
+        web_app.AUTH_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_auth_path_defaults_to_opencode_share(self):
+        self.assertEqual(
+            self._orig_auth,
+            Path.home() / ".local" / "share" / "opencode" / "auth.json",
+        )
+
+    def test_builtin_providers_have_required_fields(self):
+        ids = {p["id"] for p in web_app.BUILTIN_PROVIDERS}
+        self.assertEqual(ids, {"openai", "anthropic", "google"})
+        for provider in web_app.BUILTIN_PROVIDERS:
+            self.assertIn("npm", provider)
+            self.assertIn("baseURL", provider)
+            self.assertIn("envVar", provider)
+
+    def test_auth_store_missing_returns_empty(self):
+        self.assertEqual(web_app._auth_store(), {})
+
+    def test_auth_store_corrupt_returns_empty(self):
+        web_app.AUTH_PATH.write_text("{not json", encoding="utf-8")
+        self.assertEqual(web_app._auth_store(), {})
+
+    def test_auth_store_reads_entries(self):
+        self._write_auth({"openai": {"type": "api", "key": "sk-test"}})
+        store = web_app._auth_store()
+        self.assertEqual(store["openai"]["key"], "sk-test")
+
+    def test_resolve_api_key_none(self):
+        key, source = web_app.resolve_api_key("openai")
+        self.assertIsNone(key)
+        self.assertEqual(source, "none")
+
+    def test_resolve_api_key_from_auth(self):
+        self._write_auth({"openai": {"type": "api", "key": "sk-auth"}})
+        key, source = web_app.resolve_api_key("openai")
+        self.assertEqual(key, "sk-auth")
+        self.assertEqual(source, "auth")
+
+    def test_resolve_api_key_env_precedence_over_auth(self):
+        self._write_auth({"openai": {"type": "api", "key": "sk-auth"}})
+        os.environ["OPENAI_API_KEY"] = "sk-env"
+        key, source = web_app.resolve_api_key("openai")
+        self.assertEqual(key, "sk-env")
+        self.assertEqual(source, "env")
+
+    def test_resolve_api_key_empty_env_falls_back_to_auth(self):
+        self._write_auth({"openai": {"type": "api", "key": "sk-auth"}})
+        os.environ["OPENAI_API_KEY"] = ""
+        key, source = web_app.resolve_api_key("openai")
+        self.assertEqual(key, "sk-auth")
+        self.assertEqual(source, "auth")
+
+    def test_resolve_api_key_custom_env_var(self):
+        self._write_auth({"custom": {"type": "api", "key": "sk-auth"}})
+        os.environ["MY_CUSTOM_KEY"] = "sk-custom"
+        key, source = web_app.resolve_api_key("custom", "MY_CUSTOM_KEY")
+        self.assertEqual(key, "sk-custom")
+        self.assertEqual(source, "env")
+
+    def test_provider_status_ready_from_auth(self):
+        self._write_auth({"openai": {"type": "api", "key": "sk-test"}})
+        status = web_app.provider_status("openai")
+        self.assertEqual(status["status"], "ready")
+        self.assertEqual(status["source"], "auth")
+        self.assertEqual(status["envVar"], "OPENAI_API_KEY")
+
+    def test_provider_status_ready_from_env(self):
+        os.environ["OPENAI_API_KEY"] = "sk-env"
+        status = web_app.provider_status("openai")
+        self.assertEqual(status["status"], "ready")
+        self.assertEqual(status["source"], "env")
+        self.assertEqual(status["envVar"], "OPENAI_API_KEY")
+
+    def test_provider_status_needs_setup_when_no_key(self):
+        status = web_app.provider_status("openai")
+        self.assertEqual(status["status"], "needs-setup")
+        self.assertEqual(status["source"], "none")
+        self.assertEqual(status["envVar"], "OPENAI_API_KEY")
+
+    def test_provider_status_local_for_local_base_url(self):
+        status = web_app.provider_status("ollama", None, "http://localhost:11434/v1")
+        self.assertEqual(status["status"], "local")
+        self.assertEqual(status["source"], "none")
+
+
 class HubResolveTestCase(unittest.TestCase):
     """Hub.resolve mirrors the desktop GUI override priority."""
 
