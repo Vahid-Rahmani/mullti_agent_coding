@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
@@ -1683,6 +1684,50 @@ $("btnAddProvider").addEventListener("click", async () => {
 </body>
 </html>
 """
+
+
+# --------------------------------------------------------------------------- window launcher
+
+_EDGE_CANDIDATES = [
+    os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+    os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+]
+
+
+def _find_edge() -> str | None:
+    for cand in _EDGE_CANDIDATES:
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.2)
+    return False
+
+
+def _launch_window(url: str) -> bool:
+    """Open a standalone window; block until closed. Returns True if a window was shown."""
+    try:
+        import webview  # type: ignore
+        webview.create_window("MultiAgentCoding", url)
+        webview.start()
+        return True
+    except Exception:
+        pass
+    edge = _find_edge()
+    if edge:
+        subprocess.run([edge, "--app", url], check=False)
+        return True
+    webbrowser.open(url)
+    return True
 
 
 # --------------------------------------------------------------------------- entry
