@@ -1162,6 +1162,27 @@ class SelfEvolveEndpointTestCase(unittest.TestCase):
             res = self.client.post("/api/optimization-proposals/nope/approve", json={})
         self.assertEqual(res.status_code, 404)
 
+    def test_api_restart_records_writes_marker_and_schedules_exit(self):
+        with mock.patch.object(web_app, "_schedule_exit") as schedule_mock:
+            res = self.client.post("/api/restart", json={"reason": "upgrade complete"})
+        self.assertEqual(res.status_code, 202)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["reason"], "upgrade complete")
+        # state.md restart log entry
+        state = web_app.STATE.load()
+        self.assertTrue(
+            any("upgrade complete" in e and "requested" in e for e in state["restart_log"])
+        )
+        # restart marker written at the engine's default path
+        marker = self.engine.project_root / "_logs" / "restart.ctl"
+        self.assertTrue(marker.exists())
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+        self.assertEqual(payload["source"], "api-restart")
+        self.assertEqual(payload["reason"], "upgrade complete")
+        # process exit is scheduled (not run inline)
+        schedule_mock.assert_called_once()
+
 
 class SelfEvolveWatcherTestCase(unittest.TestCase):
     """_after_self_evolve_run verifies then writes the restart marker (or records failure)."""
