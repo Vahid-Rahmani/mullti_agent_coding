@@ -900,6 +900,10 @@ class ApproveProposalRequest(BaseModel):
     overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
+class RestartRequest(BaseModel):
+    reason: str = "restart requested"
+
+
 # --------------------------------------------------------------------------- app
 
 app = FastAPI(title="MultiAgentCoding Web UI", docs_url=None, redoc_url=None)
@@ -1049,6 +1053,31 @@ def api_optimization_proposals_approve(proposal_id: str, req: ApproveProposalReq
     STATE.record_decision(decision)
     _dispatch_self_evolve(proposal.suggestion, req.overrides, f"approved {proposal.id}")
     return {"ok": True, "approved": proposal.id, "decision": decision}
+
+
+def _schedule_exit(delay: float = 1.0) -> None:
+    """Schedule ``os._exit(0)`` on a short timer (patchable in tests).
+
+    The delay lets the 202 response reach the client before the process dies;
+    the supervisor then reads the restart marker and relaunches.
+    """
+    threading.Timer(delay, lambda: os._exit(0)).start()
+
+
+@app.post("/api/restart", status_code=202)
+def api_restart(req: RestartRequest) -> dict:
+    """Request a supervised restart: record it, write the marker, then exit.
+
+    Records ``STATE.record_restart(reason, "requested")``, writes the restart
+    marker the supervisor watches, returns 202, and schedules ``os._exit(0)``
+    on a short timer so the response is delivered before the supervisor acts.
+    """
+    STATE.record_restart(req.reason, "requested")
+    SELF_EVOLVE_ENGINE.write_restart_marker(
+        payload={"source": "api-restart", "reason": req.reason, "ok": True}
+    )
+    _schedule_exit()
+    return {"ok": True, "reason": req.reason, "restart": "scheduled"}
 
 
 @app.post("/api/workspace")
