@@ -878,6 +878,13 @@ PAGE_HTML = r"""<!DOCTYPE html>
   }
   #settings input::placeholder { color: #94A3B8; }
   #settings input:focus { outline: none; border-color: #38BDF8; }
+  /* provider matrix status badges + source chips */
+  .badge-ready { background: rgba(74, 222, 128, 0.15); color: #4ADE80; border: 1px solid rgba(74, 222, 128, 0.4); }
+  .badge-needs-setup { background: rgba(251, 191, 36, 0.15); color: #FBBF24; border: 1px solid rgba(251, 191, 36, 0.4); }
+  .badge-local { background: rgba(148, 163, 184, 0.15); color: #94A3B8; border: 1px solid rgba(148, 163, 184, 0.4); }
+  .chip-auth { background: rgba(56, 189, 248, 0.15); color: #38BDF8; }
+  .chip-env { background: rgba(167, 139, 250, 0.15); color: #A78BFA; }
+  .chip-none { background: rgba(148, 163, 184, 0.15); color: #94A3B8; }
   pre.codeblock { font-family: "JetBrains Mono", monospace; font-size: 12px; line-height: 1.6; }
 </style>
 </head>
@@ -953,25 +960,36 @@ PAGE_HTML = r"""<!DOCTYPE html>
 
 <!-- settings overlay (API & Models) -->
 <div id="settings" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6">
-  <div class="card w-full max-w-3xl max-h-[85vh] overflow-auto p-5">
+  <div class="card w-full max-w-4xl max-h-[85vh] overflow-auto p-5">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold">⚙ API &amp; Models Manager</h2>
       <button id="btnSettingsClose" class="text-muted hover:text-txt text-xl leading-none">✕</button>
     </div>
     <p class="text-xs text-muted mb-4">Manages the <code class="font-mono">provider</code> block of <code class="font-mono">opencode.json</code>.
       API keys are never stored here — they live in <code class="font-mono">~/.local/share/opencode/auth.json</code>.</p>
-    <div id="providers" class="space-y-3"></div>
 
-    <div class="border-t border-edge mt-4 pt-4">
-      <h3 class="text-sm font-semibold mb-2">Add provider</h3>
-      <div class="grid grid-cols-2 gap-2">
-        <input id="pName" placeholder="name (e.g. openrouter)" class="text-xs rounded px-2 py-1.5">
-        <input id="pURL" placeholder="base URL (optional)" class="text-xs rounded px-2 py-1.5">
-        <input id="pNpm" placeholder="adapter (default @ai-sdk/openai-compatible)" class="text-xs rounded px-2 py-1.5 col-span-2">
-        <input id="pModels" placeholder="models, comma separated (e.g. openrouter/auto, deepseek/deepseek-chat)" class="text-xs rounded px-2 py-1.5 col-span-2">
+    <!-- provider matrix grid -->
+    <div id="providerMatrix" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+
+    <!-- provider detail view (hidden) -->
+    <div id="providerDetail" class="hidden"></div>
+
+    <!-- add custom provider onboarding form (hidden) -->
+    <div id="addProviderForm" class="hidden">
+      <div class="border-t border-edge mt-4 pt-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold">Add custom provider</h3>
+          <button id="btnCancelAdd" class="px-2 py-0.5 text-xs rounded border border-edge text-muted hover:text-txt">← Back</button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <input id="pName" placeholder="name (e.g. openrouter)" class="text-xs rounded px-2 py-1.5">
+          <input id="pURL" placeholder="base URL (optional)" class="text-xs rounded px-2 py-1.5">
+          <input id="pNpm" placeholder="adapter (default @ai-sdk/openai-compatible)" class="text-xs rounded px-2 py-1.5 col-span-2">
+          <input id="pModels" placeholder="models, comma separated (e.g. openrouter/auto, deepseek/deepseek-chat)" class="text-xs rounded px-2 py-1.5 col-span-2">
+        </div>
+        <button id="btnAddProvider" class="mt-3 px-4 py-1.5 rounded-lg bg-accent text-bg text-sm font-semibold">Add provider</button>
+        <span id="providerMsg" class="text-xs ml-3"></span>
       </div>
-      <button id="btnAddProvider" class="mt-3 px-4 py-1.5 rounded-lg bg-accent text-bg text-sm font-semibold">Add provider</button>
-      <span id="providerMsg" class="text-xs ml-3"></span>
     </div>
   </div>
 </div>
@@ -1331,47 +1349,121 @@ $("btnRun").addEventListener("click", onClickRun);
 $("btnSettingsClose").addEventListener("click", () => $("settings").classList.add("hidden"));
 
 /* ------------------------------------------------------------------ settings / providers */
+const STATUS_BADGE = {
+  ready: { label: "Ready", cls: "badge-ready" },
+  "needs-setup": { label: "Needs Setup", cls: "badge-needs-setup" },
+  local: { label: "Local", cls: "badge-local" },
+};
+const SOURCE_CHIP = {
+  auth: "chip-auth",
+  env: "chip-env",
+  none: "chip-none",
+};
+
+function statusBadge(status) {
+  const b = STATUS_BADGE[status] || STATUS_BADGE["needs-setup"];
+  return `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${b.cls}">${b.label}</span>`;
+}
+
+function sourceChip(source) {
+  return `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase ${SOURCE_CHIP[source] || SOURCE_CHIP.none}">${esc(source || "none")}</span>`;
+}
+
+function providerTile(p) {
+  const tile = document.createElement("div");
+  tile.className = "border border-edge rounded-lg p-3 cursor-pointer hover:border-accent transition";
+  tile.dataset.provider = p.name;
+  tile.innerHTML = `
+    <div class="flex items-center gap-2 mb-2">
+      <span class="font-mono font-semibold text-sm">${esc(p.name)}</span>
+      <span class="flex-1"></span>
+      ${statusBadge(p.status)}
+    </div>
+    <div class="text-[10px] text-muted font-mono mb-2">${esc(p.npm || "—")}</div>
+    <div class="flex items-center gap-2">
+      ${sourceChip(p.statusSource)}
+      <span class="text-[10px] text-muted truncate">${esc(p.baseURL || "no base URL")}</span>
+    </div>`;
+  tile.addEventListener("click", () => openProviderDetail(p));
+  return tile;
+}
+
+function addProviderTile() {
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "border-2 border-dashed border-edge rounded-lg p-3 text-muted hover:text-accent hover:border-accent transition flex flex-col items-center justify-center gap-1";
+  tile.innerHTML = `<span class="text-2xl leading-none">+</span><span class="text-xs font-semibold">Add custom provider</span>`;
+  tile.addEventListener("click", () => openAddProviderForm());
+  return tile;
+}
+
 async function loadProviders() {
   const res = await fetch("/api/providers");
   const list = await res.json();
-  const wrap = $("providers");
+  const wrap = $("providerMatrix");
   wrap.innerHTML = "";
-  if (!list.length) {
-    wrap.innerHTML = '<div class="text-xs text-muted">No custom providers configured (only built-in opencode models).</div>';
-  }
-  for (const p of list) {
-    const card = document.createElement("div");
-    card.className = "border border-edge rounded-lg p-3 mb-3";
-    card.innerHTML = `
+  for (const p of list) wrap.appendChild(providerTile(p));
+  wrap.appendChild(addProviderTile());
+}
+
+function openProviderDetail(p) {
+  $("providerMatrix").classList.add("hidden");
+  $("addProviderForm").classList.add("hidden");
+  const detail = $("providerDetail");
+  detail.classList.remove("hidden");
+  detail.innerHTML = `
+    <div class="border-t border-edge mt-4 pt-4">
       <div class="flex items-center gap-2 mb-2">
+        <button id="btnBackDetail" class="px-2 py-0.5 text-xs rounded border border-edge text-muted hover:text-txt">← Back</button>
         <span class="font-mono font-semibold text-sm">${esc(p.name)}</span>
-        <span class="text-[10px] text-muted font-mono">${esc(p.npm)}</span>
+        ${statusBadge(p.status)}
+        ${sourceChip(p.statusSource)}
         <span class="flex-1"></span>
         <button class="px-2 py-0.5 text-xs rounded border border-edge text-muted hover:text-txt" data-del="${esc(p.name)}">delete</button>
       </div>
+      <div class="text-[10px] text-muted font-mono mb-2">${esc(p.npm || "—")}</div>
       <input data-url data-name="${esc(p.name)}" value="${esc(p.baseURL)}" placeholder="base URL" class="w-full text-xs rounded px-2 py-1.5 mb-2">
       <input data-models data-name="${esc(p.name)}" value="${esc(p.models.join(", "))}" placeholder="models, comma separated" class="w-full text-xs rounded px-2 py-1.5 mb-2">
       <button class="px-2 py-0.5 text-xs rounded bg-accent text-bg font-semibold" data-save="${esc(p.name)}">save</button>`;
-    wrap.appendChild(card);
-  }
-  wrap.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
-    if (!confirm(`Delete provider '${b.dataset.del}'?`)) return;
-    await fetch("/api/providers/" + encodeURIComponent(b.dataset.del), { method: "DELETE" });
+  detail.querySelector("[data-del]").addEventListener("click", async () => {
+    if (!confirm(`Delete provider '${p.name}'?`)) return;
+    await fetch("/api/providers/" + encodeURIComponent(p.name), { method: "DELETE" });
+    closeProviderDetail();
     loadProviders();
-  }));
-  wrap.querySelectorAll("[data-save]").forEach(b => b.addEventListener("click", async () => {
-    const name = b.dataset.save;
-    const card = b.closest(".border");
-    const url = card.querySelector("[data-url]").value;
-    const models = card.querySelector("[data-models]").value.split(",").map(s => s.trim()).filter(Boolean);
-    await fetch("/api/providers/" + encodeURIComponent(name), {
+  });
+  detail.querySelector("[data-save]").addEventListener("click", async () => {
+    const url = detail.querySelector("[data-url]").value;
+    const models = detail.querySelector("[data-models]").value.split(",").map(s => s.trim()).filter(Boolean);
+    await fetch("/api/providers/" + encodeURIComponent(p.name), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ baseURL: url, models }),
     });
+    closeProviderDetail();
     loadProviders();
-  }));
+    loadCatalog();
+  });
+  detail.querySelector("#btnBackDetail").addEventListener("click", () => {
+    closeProviderDetail();
+    loadProviders();
+  });
 }
+
+function closeProviderDetail() {
+  $("providerDetail").classList.add("hidden");
+  $("providerMatrix").classList.remove("hidden");
+}
+
+function openAddProviderForm() {
+  $("providerMatrix").classList.add("hidden");
+  $("providerDetail").classList.add("hidden");
+  $("addProviderForm").classList.remove("hidden");
+}
+
+$("btnCancelAdd").addEventListener("click", () => {
+  $("addProviderForm").classList.add("hidden");
+  $("providerMatrix").classList.remove("hidden");
+});
 
 $("btnAddProvider").addEventListener("click", async () => {
   const name = $("pName").value.trim();
@@ -1387,6 +1479,8 @@ $("btnAddProvider").addEventListener("click", async () => {
   $("providerMsg").textContent = res.ok ? "added ✓" : "error: " + (await res.text());
   if (res.ok) {
     $("pName").value = $("pURL").value = $("pNpm").value = $("pModels").value = "";
+    $("addProviderForm").classList.add("hidden");
+    $("providerMatrix").classList.remove("hidden");
     loadProviders();
     // refresh catalog dropdowns
     loadCatalog();

@@ -536,6 +536,19 @@ class EndpointTestCase(unittest.TestCase):
         self.assertIn("Terminal Logs", res.text)
         self.assertIn("API &amp; Models", res.text)
 
+    def test_index_serves_provider_matrix_ui(self):
+        """Settings modal renders a provider matrix grid with status badges."""
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("providerMatrix", res.text)
+        self.assertIn("Add custom provider", res.text)
+        self.assertIn("badge-ready", res.text)
+        self.assertIn("badge-needs-setup", res.text)
+        self.assertIn("badge-local", res.text)
+        self.assertIn("chip-auth", res.text)
+        self.assertIn("chip-env", res.text)
+        self.assertIn("chip-none", res.text)
+
     def test_catalog_endpoint(self):
         res = self.client.get("/api/catalog")
         self.assertEqual(res.status_code, 200)
