@@ -59,6 +59,7 @@ from unified_app import (
     _build_run_command,
     _opencode_command,
     _strip_ansi,
+    prune_prompt,
 )
 
 # --------------------------------------------------------------------------- config
@@ -292,10 +293,16 @@ class WebHub:
         return model, mode
 
     def run(self, prompt: str, overrides: dict[str, dict[str, str]]) -> None:
-        """Spawn one worker thread per agent (mirrors desktop RUN COMMAND)."""
+        """Spawn one worker thread per agent (mirrors desktop RUN COMMAND).
+
+        The original prompt stays in the master buffer; agents receive the
+        pruned copy, and the pruned prompt is recorded in state.md.
+        """
         if not prompt.strip():
             raise HTTPException(status_code=400, detail="Prompt must not be empty.")
         self.append_line("master", f"▶ {prompt}")
+        pruned = prune_prompt(prompt)
+        STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
         with self.lock:
             self.running += len(AGENTS)
         for tag, name, agent in AGENTS:
@@ -303,7 +310,7 @@ class WebHub:
             self.set_status(tag, STATUS_THINKING)
             threading.Thread(
                 target=self._run_agent,
-                args=(tag, name, agent, prompt, model, mode),
+                args=(tag, name, agent, pruned, model, mode),
                 name=f"web-{tag}",
                 daemon=True,
             ).start()
@@ -317,6 +324,7 @@ class WebHub:
         model: str | None,
         mode: str | None,
     ) -> None:
+        ok = False
         try:
             exe = _opencode_command()
             if not exe:
@@ -350,6 +358,7 @@ class WebHub:
                 self.append_error(tag, f"[{tag} {name}] exit code {returncode}")
                 self.set_status(tag, STATUS_ERROR)
             else:
+                ok = True
                 self.set_status(tag, STATUS_IDLE)
         except Exception as exc:  # noqa: BLE001 — surface in UI
             self.append_error(tag, f"[{tag} {name}] ERROR: {exc}")
@@ -357,6 +366,7 @@ class WebHub:
         finally:
             with self.lock:
                 self.running = max(0, self.running - 1)
+            STATE.record_finish(tag, ok)
 
     def terminate_all(self) -> None:
         with self.lock:
@@ -368,6 +378,7 @@ class WebHub:
             except Exception:
                 pass
         self.append_line("master", "── terminated ──")
+        STATE.record_restart("interrupted", "terminated by user")
 
 
 HUB = WebHub()
@@ -880,6 +891,18 @@ def index() -> str:
 @app.get("/api/status")
 def api_status() -> dict:
     return {"statuses": HUB.statuses, "running": HUB.running, "workspace": str(HUB.workspace)}
+
+
+@app.get("/api/state")
+def api_state() -> dict:
+    """Return the current state.md checkpoint (None when missing/corrupt)."""
+    return {"checkpoint": STATE.load()}
+
+
+@app.post("/api/state/refresh")
+def api_state_refresh() -> dict:
+    """Re-read state.md from disk and return the fresh checkpoint."""
+    return {"checkpoint": STATE.load()}
 
 
 @app.get("/api/catalog")

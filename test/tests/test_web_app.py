@@ -931,6 +931,120 @@ class StateTrackerTestCase(unittest.TestCase):
         self.assertEqual(tracker.path, Path(web_app.PROJECT_ROOT) / "state.md")
 
 
+class StateEndpointTestCase(unittest.TestCase):
+    """GET /api/state + POST /api/state/refresh expose STATE.load()."""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(web_app.app)
+        self._orig_state = web_app.STATE
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.STATE = web_app.StateTracker(path=Path(self._tmp.name) / "state.md")
+
+    def tearDown(self):
+        web_app.STATE = self._orig_state
+        self._tmp.cleanup()
+
+    def test_state_endpoint_checkpoint_null_on_missing_file(self):
+        res = self.client.get("/api/state")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {"checkpoint": None})
+
+    def test_state_endpoint_returns_populated_checkpoint(self):
+        web_app.STATE.update(phase="running", last_run={"prompt": "hello", "started": "t0"})
+        res = self.client.get("/api/state")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["checkpoint"]
+        self.assertEqual(data["phase"], "running")
+        self.assertEqual(data["last_run"], {"prompt": "hello", "started": "t0"})
+
+    def test_state_refresh_reloads_from_disk(self):
+        web_app.STATE.update(phase="idle")
+        state_path = web_app.STATE.path
+        text = state_path.read_text(encoding="utf-8").replace(
+            "## Phase\nidle", "## Phase\nrunning"
+        )
+        state_path.write_text(text, encoding="utf-8")
+        res = self.client.post("/api/state/refresh")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["checkpoint"]["phase"], "running")
+
+
+class _FakeProc:
+    """Minimal stand-in for subprocess.Popen in _run_agent tests."""
+
+    def __init__(self, lines=(), returncode=0):
+        self.stdout = list(lines)
+        self._rc = returncode
+
+    def wait(self):
+        return self._rc
+
+
+class RunStateWiringTestCase(unittest.TestCase):
+    """HUB.run/_run_agent/terminate_all write state.md via STATE."""
+
+    def setUp(self):
+        self._orig_state = web_app.STATE
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.STATE = web_app.StateTracker(path=Path(self._tmp.name) / "state.md")
+        self.hub = web_app.WebHub()
+
+    def tearDown(self):
+        web_app.STATE = self._orig_state
+        self._tmp.cleanup()
+
+    def test_run_records_pruned_prompt_in_state(self):
+        raw = "line one\n\n\n\nline two"
+        pruned = web_app.prune_prompt(raw)
+        self.assertNotEqual(pruned, raw)
+        with mock.patch("threading.Thread") as thread_mock:
+            self.hub.run(raw, {})
+        data = web_app.STATE.load()
+        self.assertIsNotNone(data)
+        self.assertEqual(data["phase"], "running")
+        self.assertEqual(data["last_run"]["prompt"], pruned)
+        self.assertTrue(thread_mock.called)
+
+    def test_run_keeps_original_in_master_dispatches_pruned(self):
+        raw = "line one\n\n\n\nline two"
+        pruned = web_app.prune_prompt(raw)
+        with mock.patch("threading.Thread") as thread_mock:
+            self.hub.run(raw, {})
+        self.assertTrue(any(f"▶ {raw}" in line for line in self.hub.buffers["master"]))
+        for call in thread_mock.call_args_list:
+            self.assertEqual(call.kwargs["args"][3], pruned)
+
+    def test_run_agent_records_finish_ok(self):
+        proc = _FakeProc(returncode=0)
+        with mock.patch("web_app._opencode_command", return_value="opencode"), \
+             mock.patch("web_app.subprocess.Popen", return_value=proc):
+            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+        data = web_app.STATE.load()
+        self.assertIn("m1: ok", data["completed"])
+
+    def test_run_agent_records_finish_failed(self):
+        proc = _FakeProc(returncode=3)
+        with mock.patch("web_app._opencode_command", return_value="opencode"), \
+             mock.patch("web_app.subprocess.Popen", return_value=proc):
+            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+        data = web_app.STATE.load()
+        self.assertIn("m1: failed", data["completed"])
+
+    def test_run_agent_records_finish_failed_on_exception(self):
+        with mock.patch("web_app._opencode_command", return_value=None):
+            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+        data = web_app.STATE.load()
+        self.assertIn("m1: failed", data["completed"])
+
+    def test_terminate_all_records_interruption(self):
+        self.hub.terminate_all()
+        data = web_app.STATE.load()
+        self.assertIsNotNone(data)
+        self.assertTrue(any("interrupted" in entry for entry in data["restart_log"]))
+
+
 class WindowLauncherTestCase(unittest.TestCase):
     """Window launcher helpers: _find_edge, _wait_for_server, _launch_window."""
 
