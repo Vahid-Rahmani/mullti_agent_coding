@@ -25,6 +25,24 @@ class BuildChildCmdTestCase(unittest.TestCase):
         )
 
 
+class MainCliTestCase(unittest.TestCase):
+    """supervisor.main accepts launcher passthrough flags (--no-browser)."""
+
+    def test_main_accepts_no_browser_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = json.dumps([sys.executable, "-c", "pass"])
+            rc = supervisor.main(
+                [
+                    "--port", "8501",
+                    "--no-browser",
+                    "--child-cmd", child,
+                    "--cwd", tmp,
+                    "--poll", "0.01",
+                ]
+            )
+        self.assertEqual(rc, 0)
+
+
 class DecideRelaunchTestCase(unittest.TestCase):
     """_decide_relaunch: marker parse, verify-on-marker, no-relaunch on failure."""
 
@@ -193,6 +211,23 @@ class AppendStateDecisionTestCase(unittest.TestCase):
         supervisor.append_state_decision(self.state_path, "rollback: compatibility")
         state = web_app.StateTracker(path=self.state_path).load()
         self.assertTrue(any("rollback: compatibility" in d for d in state["decisions"]))
+
+
+class MainArgparseTestCase(unittest.TestCase):
+    """main() accepts launcher passthrough args (--port, --no-browser)."""
+
+    def test_main_accepts_no_browser_and_passes_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(supervisor, "run_supervisor", return_value=0) as run:
+                code = supervisor.main(["--port", "8599", "--no-browser", "--cwd", tmp])
+            self.assertEqual(code, 0)
+            self.assertTrue(run.called)
+            kwargs = run.call_args.kwargs
+            self.assertEqual(Path(kwargs["cwd"]), Path(tmp).resolve())
+            child_cmd = " ".join(kwargs["child_cmd"])
+            self.assertIn("--port", child_cmd)
+            self.assertIn("8599", child_cmd)
+            self.assertIn("--no-browser", child_cmd)
 
 
 if __name__ == "__main__":
