@@ -984,7 +984,8 @@ PAGE_HTML = r"""<!DOCTYPE html>
         <div class="grid grid-cols-2 gap-2">
           <input id="pName" placeholder="name (e.g. openrouter)" class="text-xs rounded px-2 py-1.5">
           <input id="pURL" placeholder="base URL (optional)" class="text-xs rounded px-2 py-1.5">
-          <input id="pNpm" placeholder="adapter (default @ai-sdk/openai-compatible)" class="text-xs rounded px-2 py-1.5 col-span-2">
+          <input id="pEnvVar" placeholder="env var for API key (optional)" class="text-xs rounded px-2 py-1.5">
+          <input id="pNpm" placeholder="adapter (default @ai-sdk/openai-compatible)" class="text-xs rounded px-2 py-1.5">
           <input id="pModels" placeholder="models, comma separated (e.g. openrouter/auto, deepseek/deepseek-chat)" class="text-xs rounded px-2 py-1.5 col-span-2">
         </div>
         <button id="btnAddProvider" class="mt-3 px-4 py-1.5 rounded-lg bg-accent text-bg text-sm font-semibold">Add provider</button>
@@ -1406,6 +1407,59 @@ async function loadProviders() {
   wrap.appendChild(addProviderTile());
 }
 
+const VERIFY_ERROR_LBL = {
+  invalid_key: "Invalid API key",
+  not_compatible: "Not OpenAI-compatible",
+  rate_limited: "Rate limited",
+  unreachable: "Provider unreachable",
+  error: "Error",
+};
+
+function verifyErrorChip(status, error) {
+  const lbl = VERIFY_ERROR_LBL[status] || "Error";
+  return `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold badge-needs-setup">${lbl}</span> <span class="text-xs text-muted">${esc(error || "")}</span>`;
+}
+
+function modelLimitRow(m, lim) {
+  lim = lim || {};
+  const row = document.createElement("div");
+  row.className = "flex items-center gap-2 mb-1";
+  row.dataset.model = m;
+  row.innerHTML = `
+    <span class="font-mono text-xs flex-1 truncate" title="${esc(m)}">${esc(m)}</span>
+    <input data-ctx value="${lim.context || ""}" placeholder="—" title="Context Window" class="w-24 text-right rounded px-1 py-1 text-xs">
+    <input data-out value="${lim.output || ""}" placeholder="—" title="Max Output Tokens" class="w-24 text-right rounded px-1 py-1 text-xs">
+    <button data-rm class="text-muted hover:text-danger text-xs w-6" title="remove">✕</button>`;
+  row.querySelector("[data-rm]").addEventListener("click", () => row.remove());
+  return row;
+}
+
+function renderModelLimits(models, limits) {
+  const wrap = $("modelLimits");
+  wrap.innerHTML = "";
+  const header = document.createElement("div");
+  header.className = "flex items-center gap-2 mb-1 text-[10px] text-muted uppercase tracking-wider";
+  header.innerHTML = `<span class="flex-1">Model</span><span class="w-24 text-right">Context Window</span><span class="w-24 text-right">Max Output Tokens</span><span class="w-6"></span>`;
+  wrap.appendChild(header);
+  if (!models.length) {
+    const empty = document.createElement("div");
+    empty.className = "text-xs text-muted mb-1";
+    empty.textContent = "No models yet — verify & discover, or add one below.";
+    wrap.appendChild(empty);
+  }
+  for (const m of models) wrap.appendChild(modelLimitRow(m, (limits || {})[m]));
+  const addRow = document.createElement("div");
+  addRow.className = "flex items-center gap-2";
+  addRow.innerHTML = `<input id="newModel" placeholder="add model id" class="flex-1 text-xs rounded px-2 py-1.5"><button id="btnAddModel" class="px-2 py-1 rounded border border-edge text-xs text-muted hover:text-txt">add</button>`;
+  wrap.appendChild(addRow);
+  $("btnAddModel").addEventListener("click", () => {
+    const v = $("newModel").value.trim();
+    if (!v) return;
+    $("newModel").value = "";
+    wrap.insertBefore(modelLimitRow(v, {}), addRow);
+  });
+}
+
 function openProviderDetail(p) {
   $("providerMatrix").classList.add("hidden");
   $("addProviderForm").classList.add("hidden");
@@ -1422,31 +1476,158 @@ function openProviderDetail(p) {
         <button class="px-2 py-0.5 text-xs rounded border border-edge text-muted hover:text-txt" data-del="${esc(p.name)}">delete</button>
       </div>
       <div class="text-[10px] text-muted font-mono mb-2">${esc(p.npm || "—")}</div>
-      <input data-url data-name="${esc(p.name)}" value="${esc(p.baseURL)}" placeholder="base URL" class="w-full text-xs rounded px-2 py-1.5 mb-2">
-      <input data-models data-name="${esc(p.name)}" value="${esc(p.models.join(", "))}" placeholder="models, comma separated" class="w-full text-xs rounded px-2 py-1.5 mb-2">
-      <button class="px-2 py-0.5 text-xs rounded bg-accent text-bg font-semibold" data-save="${esc(p.name)}">save</button>`;
+      <input data-url value="${esc(p.baseURL)}" placeholder="base URL" class="w-full text-xs rounded px-2 py-1.5 mb-2">
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <input data-envvar value="${esc(p.envVar || "")}" placeholder="env var for API key (optional)" class="text-xs rounded px-2 py-1.5">
+        <input data-apikey type="password" placeholder="API key (verify only, never saved)" class="text-xs rounded px-2 py-1.5">
+      </div>
+      <div class="flex items-center gap-2 mb-2">
+        <button id="btnVerify" class="px-3 py-1.5 rounded-lg bg-accent text-bg text-xs font-semibold">Verify &amp; discover</button>
+        <span id="verifySpinner" class="hidden text-xs text-muted">checking…</span>
+      </div>
+      <div id="verifyResult" class="mb-2"></div>
+      <div id="discoveredModels" class="hidden mb-2"></div>
+      <div id="modelLimits" class="mb-2"></div>
+      <div class="flex items-center gap-2">
+        <button id="btnSaveDetail" class="px-3 py-1.5 rounded-lg bg-accent text-bg text-xs font-semibold">save</button>
+        <span id="detailMsg" class="text-xs ml-1"></span>
+      </div>
+    </div>`;
+  renderModelLimits(p.models || [], p.limits || {});
+
   detail.querySelector("[data-del]").addEventListener("click", async () => {
     if (!confirm(`Delete provider '${p.name}'?`)) return;
     await fetch("/api/providers/" + encodeURIComponent(p.name), { method: "DELETE" });
     closeProviderDetail();
     loadProviders();
   });
-  detail.querySelector("[data-save]").addEventListener("click", async () => {
-    const url = detail.querySelector("[data-url]").value;
-    const models = detail.querySelector("[data-models]").value.split(",").map(s => s.trim()).filter(Boolean);
-    await fetch("/api/providers/" + encodeURIComponent(p.name), {
+
+  $("btnVerify").addEventListener("click", async () => {
+    const btn = $("btnVerify");
+    const spinner = $("verifySpinner");
+    const result = $("verifyResult");
+    const discovered = $("discoveredModels");
+    btn.disabled = true;
+    spinner.classList.remove("hidden");
+    result.innerHTML = "";
+    discovered.classList.add("hidden");
+    discovered.innerHTML = "";
+    const body = {
+      providerName: p.name,
+      baseURL: detail.querySelector("[data-url]").value.trim(),
+      envVar: detail.querySelector("[data-envvar]").value.trim() || null,
+      apiKey: detail.querySelector("[data-apikey]").value || null,
+    };
+    try {
+      const res = await fetch("/api/providers/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        result.innerHTML = `<span class="text-xs text-danger">${esc(data.detail || "verify failed")}</span>`;
+      } else if (data.ok) {
+        renderDiscovered(data.models, result);
+      } else {
+        result.innerHTML = verifyErrorChip(data.status, data.error);
+      }
+    } catch (err) {
+      result.innerHTML = `<span class="text-xs text-danger">verify error: ${esc(String(err))}</span>`;
+    } finally {
+      btn.disabled = false;
+      spinner.classList.add("hidden");
+    }
+  });
+
+  function renderDiscovered(models, result) {
+    const wrap = $("discoveredModels");
+    wrap.classList.remove("hidden");
+    wrap.innerHTML = "";
+    result.innerHTML = `<span class="text-xs text-lime">Connected — ${models.length} model(s) found</span>`;
+    if (!models.length) return;
+    const title = document.createElement("div");
+    title.className = "text-xs text-muted mb-1";
+    title.textContent = "Discovered models (select to import):";
+    wrap.appendChild(title);
+    const importBtn = document.createElement("button");
+    importBtn.id = "btnImportModels";
+    importBtn.className = "mt-2 px-3 py-1 rounded-lg bg-accent text-bg text-xs font-semibold";
+    importBtn.textContent = "Import models";
+    importBtn.disabled = true;
+    for (const m of models) {
+      const label = document.createElement("label");
+      label.className = "flex items-center gap-2 text-xs py-0.5 cursor-pointer";
+      label.innerHTML = `<input type="checkbox" data-disc="${esc(m)}" class="accent-accent"> <span class="font-mono">${esc(m)}</span>`;
+      label.querySelector("input").addEventListener("change", () => {
+        const n = wrap.querySelectorAll("input[type=checkbox]:checked").length;
+        importBtn.textContent = n ? `Import ${n} models` : "Import models";
+        importBtn.disabled = !n;
+      });
+      wrap.appendChild(label);
+    }
+    importBtn.addEventListener("click", async () => {
+      const checked = [...wrap.querySelectorAll("input[type=checkbox]:checked")].map(c => c.dataset.disc);
+      if (!checked.length) return;
+      if (!confirm(`Import ${checked.length} model(s) into '${p.name}'?`)) return;
+      const res = await fetch("/api/providers/" + encodeURIComponent(p.name) + "/import-models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ models: checked }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        result.innerHTML = `<span class="text-xs text-danger">${esc(data.detail || "import failed")}</span>`;
+        return;
+      }
+      result.innerHTML = `<span class="text-xs text-lime">Imported ${data.imported} model(s)</span>`;
+      refreshProviderDetail(p.name);
+    });
+    wrap.appendChild(importBtn);
+  }
+
+  $("btnSaveDetail").addEventListener("click", async () => {
+    const url = detail.querySelector("[data-url]").value.trim();
+    const envVar = detail.querySelector("[data-envvar]").value.trim();
+    const models = [];
+    const limits = {};
+    $("modelLimits").querySelectorAll("[data-model]").forEach(row => {
+      const m = row.dataset.model;
+      if (!m || models.includes(m)) return;
+      models.push(m);
+      const lim = {};
+      const ctx = parseInt(row.querySelector("[data-ctx]").value, 10);
+      const out = parseInt(row.querySelector("[data-out]").value, 10);
+      if (ctx) lim.context = ctx;
+      if (out) lim.output = out;
+      if (Object.keys(lim).length) limits[m] = lim;
+    });
+    const res = await fetch("/api/providers/" + encodeURIComponent(p.name), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ baseURL: url, models }),
+      body: JSON.stringify({ baseURL: url, envVar, models, limits }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      $("detailMsg").textContent = "error: " + (data.detail || res.status);
+      return;
+    }
     closeProviderDetail();
     loadProviders();
     loadCatalog();
   });
+
   detail.querySelector("#btnBackDetail").addEventListener("click", () => {
     closeProviderDetail();
     loadProviders();
   });
+}
+
+async function refreshProviderDetail(name) {
+  const res = await fetch("/api/providers");
+  const list = await res.json();
+  const p = list.find(x => x.name === name);
+  if (p) openProviderDetail(p);
 }
 
 function closeProviderDetail() {
@@ -1468,17 +1649,18 @@ $("btnCancelAdd").addEventListener("click", () => {
 $("btnAddProvider").addEventListener("click", async () => {
   const name = $("pName").value.trim();
   const baseURL = $("pURL").value.trim();
+  const envVar = $("pEnvVar").value.trim();
   const npm = $("pNpm").value.trim();
   const models = $("pModels").value.split(",").map(s => s.trim()).filter(Boolean);
   if (!name) { $("providerMsg").textContent = "name required"; return; }
   const res = await fetch("/api/providers", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, baseURL, npm, models }),
+    body: JSON.stringify({ name, baseURL, envVar, npm, models }),
   });
   $("providerMsg").textContent = res.ok ? "added ✓" : "error: " + (await res.text());
   if (res.ok) {
-    $("pName").value = $("pURL").value = $("pNpm").value = $("pModels").value = "";
+    $("pName").value = $("pURL").value = $("pEnvVar").value = $("pNpm").value = $("pModels").value = "";
     $("addProviderForm").classList.add("hidden");
     $("providerMatrix").classList.remove("hidden");
     loadProviders();

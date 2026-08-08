@@ -549,6 +549,22 @@ class EndpointTestCase(unittest.TestCase):
         self.assertIn("chip-env", res.text)
         self.assertIn("chip-none", res.text)
 
+    def test_index_serves_provider_detail_ui(self):
+        """Detail modal renders verify/discover, import, env var, and limits UI."""
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("Verify &amp; discover", res.text)
+        self.assertIn("Import models", res.text)
+        self.assertIn("Max Output Tokens", res.text)
+        self.assertIn("Context Window", res.text)
+        self.assertIn("env var", res.text)
+        self.assertIn('type="password"', res.text)
+        # typed verify errors are surfaced to the user
+        self.assertIn("Invalid API key", res.text)
+        self.assertIn("Provider unreachable", res.text)
+        # onboarding form collects an env var name too
+        self.assertIn("pEnvVar", res.text)
+
     def test_catalog_endpoint(self):
         res = self.client.get("/api/catalog")
         self.assertEqual(res.status_code, 200)
