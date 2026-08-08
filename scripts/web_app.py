@@ -62,6 +62,9 @@ from unified_app import (
     prune_prompt,
 )
 
+# Self-evolution engine (pure stdlib; no web_app dependency).
+from self_evolve import Proposal, SelfEvolveEngine, detect_optimization_loops
+
 # --------------------------------------------------------------------------- config
 
 DEFAULT_PORT = 8501
@@ -576,6 +579,15 @@ class StateTracker:
 
 STATE = StateTracker()
 
+# --------------------------------------------------------------------------- self-evolve engine
+
+# Gatekeeper for self-modification flows. record_decision resolves STATE at
+# call time so tests that swap web_app.STATE keep working.
+SELF_EVOLVE_ENGINE = SelfEvolveEngine(
+    project_root=PROJECT_ROOT,
+    record_decision=lambda text: STATE.record_decision(text),
+)
+
 # --------------------------------------------------------------------------- opencode.json provider CRUD
 
 
@@ -878,6 +890,16 @@ class WorkspaceIn(BaseModel):
     path: str
 
 
+class SelfEvolveRequest(BaseModel):
+    prompt: str = ""
+    mode: str = "explicit"  # explicit | detect
+    overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class ApproveProposalRequest(BaseModel):
+    overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
 # --------------------------------------------------------------------------- app
 
 app = FastAPI(title="MultiAgentCoding Web UI", docs_url=None, redoc_url=None)
@@ -926,6 +948,107 @@ def api_clear() -> dict:
 def api_terminate() -> dict:
     HUB.terminate_all()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- self-evolve endpoints
+
+
+def _proposal_to_dict(proposal: Proposal) -> dict:
+    return {
+        "id": proposal.id,
+        "agent": proposal.agent,
+        "signature": proposal.signature,
+        "count": proposal.count,
+        "suggestion": proposal.suggestion,
+    }
+
+
+def _after_self_evolve_run(prompt: str, overrides: dict) -> None:
+    """Wait for the dispatched swarm run, then verify and write the restart marker.
+
+    Runs on a daemon thread so the endpoint never blocks the SSE/run loop.
+    On verification failure the restart is recorded in state.md and no
+    marker is written (the supervisor must not relaunch on a bad build).
+    """
+    while HUB.running > 0:
+        time.sleep(0.2)
+    result = SELF_EVOLVE_ENGINE.verify()
+    if result["ok"]:
+        SELF_EVOLVE_ENGINE.write_restart_marker(
+            payload={
+                "source": "self-evolve",
+                "prompt": prompt,
+                "ok": True,
+                "verified": True,
+            }
+        )
+    else:
+        STATE.record_restart("verify", "failed: " + "; ".join(result.get("errors") or []))
+
+
+def _spawn_self_evolve_watcher(prompt: str, overrides: dict) -> None:
+    """Start the verify+marker watcher on a daemon thread (patchable in tests)."""
+    threading.Thread(
+        target=_after_self_evolve_run,
+        args=(prompt, overrides),
+        name="self-evolve-watcher",
+        daemon=True,
+    ).start()
+
+
+def _dispatch_self_evolve(prompt: str, overrides: dict, label: str) -> None:
+    """Append a master log line, dispatch the swarm, and schedule verify+marker."""
+    HUB.append_line("master", f"▶ self-evolve ({label}): {prompt}")
+    HUB.run(prompt, overrides)
+    _spawn_self_evolve_watcher(prompt, overrides)
+
+
+@app.post("/api/self-evolve")
+def api_self_evolve(req: SelfEvolveRequest) -> dict:
+    """Self-modification endpoint.
+
+    ``mode=explicit`` records a checkpoint decision, dispatches the swarm,
+    then (on a watcher thread) verifies the repo and writes the restart
+    marker on success. ``mode=detect`` only returns optimization-loop
+    proposals — it never dispatches.
+    """
+    if req.mode == "detect":
+        return {
+            "ok": True,
+            "mode": "detect",
+            "proposals": [_proposal_to_dict(p) for p in detect_optimization_loops()],
+        }
+    if req.mode != "explicit":
+        raise HTTPException(status_code=400, detail="mode must be 'explicit' or 'detect'")
+    if not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt must not be empty.")
+    checkpoint = SELF_EVOLVE_ENGINE.checkpoint(req.prompt)
+    _dispatch_self_evolve(req.prompt, req.overrides, "explicit")
+    return {"ok": True, "mode": "explicit", "checkpoint": checkpoint}
+
+
+@app.get("/api/optimization-proposals")
+def api_optimization_proposals() -> dict:
+    """Return detected optimization-loop proposals (detection never dispatches)."""
+    return {
+        "ok": True,
+        "proposals": [_proposal_to_dict(p) for p in detect_optimization_loops()],
+    }
+
+
+@app.post("/api/optimization-proposals/{proposal_id}/approve")
+def api_optimization_proposals_approve(proposal_id: str, req: ApproveProposalRequest) -> dict:
+    """Approve one proposal: record the decision in state.md and dispatch the
+    swarm with the proposal's suggestion as the prompt."""
+    proposal = next(
+        (p for p in detect_optimization_loops() if p.id == proposal_id), None
+    )
+    if proposal is None:
+        raise HTTPException(status_code=404, detail=f"Proposal '{proposal_id}' not found.")
+    decision = f"approved optimization proposal {proposal.id}: {proposal.suggestion}"
+    STATE.record_decision(decision)
+    _dispatch_self_evolve(proposal.suggestion, req.overrides, f"approved {proposal.id}")
+    return {"ok": True, "approved": proposal.id, "decision": decision}
 
 
 @app.post("/api/workspace")

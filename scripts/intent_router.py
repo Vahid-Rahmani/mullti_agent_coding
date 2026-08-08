@@ -98,6 +98,12 @@ DEFAULT_RULES: list[Rule] = [
         ],
     ),
     Rule(
+        "self-evolve",
+        "subset",
+        ["m4", "m6", "m7"],
+        ["upgrade", "self-evolve", "self-heal", "evolve", "heal"],
+    ),
+    Rule(
         "analyze",
         "subset",
         ["m2", "m1"],

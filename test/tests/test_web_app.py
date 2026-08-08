@@ -1045,6 +1045,166 @@ class RunStateWiringTestCase(unittest.TestCase):
         self.assertTrue(any("interrupted" in entry for entry in data["restart_log"]))
 
 
+class SelfEvolveEndpointTestCase(unittest.TestCase):
+    """POST /api/self-evolve (explicit|detect) + optimization-proposals endpoints."""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(web_app.app)
+        self._orig_state = web_app.STATE
+        self._orig_engine = web_app.SELF_EVOLVE_ENGINE
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.STATE = web_app.StateTracker(path=Path(self._tmp.name) / "state.md")
+        self.engine = web_app.SelfEvolveEngine(
+            project_root=Path(self._tmp.name),
+            record_decision=lambda text: web_app.STATE.record_decision(text),
+        )
+        web_app.SELF_EVOLVE_ENGINE = self.engine
+
+    def tearDown(self):
+        web_app.STATE = self._orig_state
+        web_app.SELF_EVOLVE_ENGINE = self._orig_engine
+        self._tmp.cleanup()
+
+    def _proposal(self):
+        return web_app.Proposal(
+            id="m4:Traceback",
+            agent="m4",
+            signature="Traceback",
+            count=3,
+            suggestion="Review m4 for repeated 'Traceback' failures (3 occurrences) before the next self-evolve run.",
+        )
+
+    def test_self_evolve_explicit_checkpoints_dispatches_and_schedules_verify(self):
+        with mock.patch.object(web_app.HUB, "run") as hub_run, \
+             mock.patch.object(web_app, "_spawn_self_evolve_watcher") as spawn_mock:
+            res = self.client.post(
+                "/api/self-evolve",
+                json={"prompt": "upgrade the control plane", "mode": "explicit"},
+            )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["mode"], "explicit")
+        self.assertEqual(data["checkpoint"]["prompt"], "upgrade the control plane")
+        # checkpoint recorded a decision in state.md
+        state = web_app.STATE.load()
+        self.assertTrue(
+            any("self-evolve checkpoint" in d and "upgrade the control plane" in d for d in state["decisions"])
+        )
+        # master log line + swarm dispatch
+        self.assertTrue(any("self-evolve" in line for line in web_app.HUB.buffers["master"]))
+        hub_run.assert_called_once()
+        self.assertEqual(hub_run.call_args.args[0], "upgrade the control plane")
+        # verify+marker watcher is scheduled (not run inline)
+        spawn_mock.assert_called_once()
+        self.assertEqual(spawn_mock.call_args.args[0], "upgrade the control plane")
+
+    def test_self_evolve_detect_returns_proposals_without_dispatch(self):
+        proposal = self._proposal()
+        with mock.patch.object(web_app, "detect_optimization_loops", return_value=[proposal]), \
+             mock.patch.object(web_app.HUB, "run") as hub_run:
+            res = self.client.post("/api/self-evolve", json={"mode": "detect"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["mode"], "detect")
+        self.assertEqual(len(data["proposals"]), 1)
+        self.assertEqual(data["proposals"][0]["id"], "m4:Traceback")
+        self.assertEqual(data["proposals"][0]["suggestion"], proposal.suggestion)
+        hub_run.assert_not_called()
+
+    def test_self_evolve_explicit_empty_prompt_400(self):
+        with mock.patch.object(web_app.HUB, "run") as hub_run:
+            res = self.client.post(
+                "/api/self-evolve", json={"prompt": "   ", "mode": "explicit"}
+            )
+        self.assertEqual(res.status_code, 400)
+        hub_run.assert_not_called()
+
+    def test_self_evolve_invalid_mode_400(self):
+        res = self.client.post("/api/self-evolve", json={"prompt": "x", "mode": "nope"})
+        self.assertEqual(res.status_code, 400)
+
+    def test_optimization_proposals_endpoint(self):
+        proposal = self._proposal()
+        with mock.patch.object(web_app, "detect_optimization_loops", return_value=[proposal]):
+            res = self.client.get("/api/optimization-proposals")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(len(data["proposals"]), 1)
+        self.assertEqual(data["proposals"][0]["id"], "m4:Traceback")
+        self.assertEqual(data["proposals"][0]["agent"], "m4")
+        self.assertEqual(data["proposals"][0]["count"], 3)
+
+    def test_approve_marks_decision_and_dispatches_suggestion(self):
+        proposal = self._proposal()
+        with mock.patch.object(web_app, "detect_optimization_loops", return_value=[proposal]), \
+             mock.patch.object(web_app.HUB, "run") as hub_run, \
+             mock.patch.object(web_app, "_spawn_self_evolve_watcher") as spawn_mock:
+            res = self.client.post(
+                "/api/optimization-proposals/m4:Traceback/approve",
+                json={},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["approved"], "m4:Traceback")
+        state = web_app.STATE.load()
+        self.assertTrue(
+            any("approved optimization proposal" in d and "m4:Traceback" in d for d in state["decisions"])
+        )
+        hub_run.assert_called_once()
+        self.assertEqual(hub_run.call_args.args[0], proposal.suggestion)
+        spawn_mock.assert_called_once()
+        self.assertEqual(spawn_mock.call_args.args[0], proposal.suggestion)
+
+    def test_approve_unknown_proposal_404(self):
+        with mock.patch.object(web_app, "detect_optimization_loops", return_value=[]):
+            res = self.client.post("/api/optimization-proposals/nope/approve", json={})
+        self.assertEqual(res.status_code, 404)
+
+
+class SelfEvolveWatcherTestCase(unittest.TestCase):
+    """_after_self_evolve_run verifies then writes the restart marker (or records failure)."""
+
+    def setUp(self):
+        self._orig_state = web_app.STATE
+        self._orig_engine = web_app.SELF_EVOLVE_ENGINE
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.STATE = web_app.StateTracker(path=Path(self._tmp.name) / "state.md")
+        self.engine = mock.MagicMock()
+        web_app.SELF_EVOLVE_ENGINE = self.engine
+
+    def tearDown(self):
+        web_app.STATE = self._orig_state
+        web_app.SELF_EVOLVE_ENGINE = self._orig_engine
+        self._tmp.cleanup()
+
+    def test_watcher_verifies_and_writes_marker_on_success(self):
+        self.engine.verify.return_value = {"ok": True, "stdout": "OK", "errors": []}
+        with mock.patch.object(web_app.HUB, "running", 0):
+            web_app._after_self_evolve_run("upgrade the control plane", {})
+        self.engine.verify.assert_called_once()
+        self.engine.write_restart_marker.assert_called_once()
+        payload = self.engine.write_restart_marker.call_args.kwargs["payload"]
+        self.assertEqual(payload["prompt"], "upgrade the control plane")
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["verified"])
+
+    def test_watcher_records_failure_without_marker(self):
+        self.engine.verify.return_value = {
+            "ok": False,
+            "stdout": "",
+            "errors": ["py_compile scripts/web_app.py failed"],
+        }
+        with mock.patch.object(web_app.HUB, "running", 0):
+            web_app._after_self_evolve_run("upgrade", {})
+        self.engine.write_restart_marker.assert_not_called()
+        state = web_app.STATE.load()
+        self.assertTrue(
+            any("verify" in e and "py_compile" in e for e in state["restart_log"])
+        )
+
+
 class WindowLauncherTestCase(unittest.TestCase):
     """Window launcher helpers: _find_edge, _wait_for_server, _launch_window."""
 
