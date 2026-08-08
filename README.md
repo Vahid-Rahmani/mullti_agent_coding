@@ -126,10 +126,8 @@ Now `myagent` launches the workspace GUI targeting the folder you run it from.
 ├── AGENTS.md              # Agent roles, workflow, fallback policy, conventions
 ├── opencode.json          # Agent definitions, models, providers, permissions
 ├── launch_agents.bat      # 7-window inbox launcher
-├── launch_web.bat         # Web UI launcher (browser-based workspace)
 ├── scripts/
-│   ├── unified_app.py     # AI Agent Workspace GUI (single window, desktop)
-│   ├── web_app.py         # AI Agent Workspace Web UI (browser, Dyad-style)
+│   ├── unified_app.py     # AI Agent Workspace GUI (single window)
 │   └── run_agent_worker.ps1  # Inbox-polling worker for the 7-window launcher
 ├── knowledge/             # Swarm memory (ADRs, lessons, metrics)
 ├── .opencode/             # opencode plugins/config (e.g. model fallback)
