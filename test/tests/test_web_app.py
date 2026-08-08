@@ -840,6 +840,97 @@ class ImportModelsEndpointTestCase(unittest.TestCase):
         self.assertEqual(res.json()["imported"], 0)
 
 
+class StateTrackerTestCase(unittest.TestCase):
+    """StateTracker reads/writes workspace-root state.md (sections format)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self._tmp.name) / "state.md"
+        self.tracker = web_app.StateTracker(path=self.path)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_load_missing_returns_none(self):
+        self.assertIsNone(self.tracker.load())
+
+    def test_load_corrupt_returns_none(self):
+        self.path.write_text("this is not a state file\nno sections here\n", encoding="utf-8")
+        self.assertIsNone(self.tracker.load())
+
+    def test_update_roundtrip(self):
+        self.tracker.update(phase="running", last_run={"prompt": "hello", "started": "now"})
+        data = self.tracker.load()
+        self.assertIsNotNone(data)
+        self.assertEqual(data["phase"], "running")
+        self.assertEqual(data["last_run"], {"prompt": "hello", "started": "now"})
+
+    def test_update_merges_existing_fields(self):
+        self.tracker.update(phase="running")
+        self.tracker.update(decisions=["first"])
+        data = self.tracker.load()
+        self.assertEqual(data["phase"], "running")
+        self.assertEqual(data["decisions"], ["first"])
+
+    def test_record_run_sets_phase_and_last_run(self):
+        self.tracker.record_run("prompt text", "2026-01-01T00:00:00")
+        data = self.tracker.load()
+        self.assertEqual(data["phase"], "running")
+        self.assertEqual(data["last_run"], {"prompt": "prompt text", "started": "2026-01-01T00:00:00"})
+
+    def test_record_run_multiline_prompt_roundtrips(self):
+        self.tracker.record_run("line one\nline two", "t0")
+        data = self.tracker.load()
+        self.assertEqual(data["last_run"]["prompt"], "line one\nline two")
+
+    def test_record_finish_appends_completed(self):
+        self.tracker.record_finish("m1", True)
+        self.tracker.record_finish("m2", False)
+        data = self.tracker.load()
+        self.assertIn("m1: ok", data["completed"])
+        self.assertIn("m2: failed", data["completed"])
+
+    def test_compression_evicts_old_completed(self):
+        for i in range(25):
+            self.tracker.record_finish(f"m{i}", True)
+        data = self.tracker.load()
+        self.assertLessEqual(len(data["completed"]), web_app.StateTracker.MAX_COMPLETED + 1)
+        self.assertTrue(any("compressed" in entry for entry in data["completed"]))
+        self.assertIn("m24: ok", data["completed"])
+
+    def test_record_decision_appends(self):
+        self.tracker.record_decision("use fastapi")
+        self.tracker.record_decision("keep state.md in workspace root")
+        data = self.tracker.load()
+        self.assertEqual(
+            data["decisions"], ["use fastapi", "keep state.md in workspace root"]
+        )
+
+    def test_pending_modification_roundtrip(self):
+        self.tracker.record_pending_modification("patch scripts/unified_app.py")
+        data = self.tracker.load()
+        self.assertEqual(data["pending_modification"], "patch scripts/unified_app.py")
+        self.tracker.clear_pending_modification()
+        data = self.tracker.load()
+        self.assertIsNone(data["pending_modification"])
+
+    def test_restart_log_recording(self):
+        self.tracker.record_restart("requested", "reason: upgrade")
+        self.tracker.record_restart("verify", "failed")
+        data = self.tracker.load()
+        self.assertIn("requested: reason: upgrade", data["restart_log"])
+        self.assertIn("verify: failed", data["restart_log"])
+
+    def test_write_is_atomic_leaves_no_temp_files(self):
+        self.tracker.update(phase="idle")
+        leftovers = list(Path(self._tmp.name).glob("*.tmp"))
+        self.assertEqual(leftovers, [])
+
+    def test_path_defaults_to_workspace_root_state_md(self):
+        tracker = web_app.StateTracker()
+        self.assertEqual(tracker.path, Path(web_app.PROJECT_ROOT) / "state.md")
+
+
 class WindowLauncherTestCase(unittest.TestCase):
     """Window launcher helpers: _find_edge, _wait_for_server, _launch_window."""
 
