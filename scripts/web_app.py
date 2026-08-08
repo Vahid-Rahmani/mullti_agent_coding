@@ -1221,90 +1221,122 @@ PAGE_HTML = r"""<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
+  /* ---- typography scale: base 16px, small = 13px+ (no more 9-11px) ---- */
+  html { font-size: 16px; }
   html, body { height: 100%; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: #293548; border-radius: 4px; }
+  body { font-size: 15px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2c3a52; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #384a66; }
   ::-webkit-scrollbar-track { background: transparent; }
-  .card { background: #0F172A; border: 1px solid #293548; border-radius: 12px; }
-  .dot { width: 9px; height: 9px; border-radius: 9999px; display: inline-block; }
-  .dot-idle { background: #475569; }
-  .dot-thinking { background: #38BDF8; animation: pulse 1s infinite; }
-  .dot-active { background: #A3E635; animation: pulse 1s infinite; }
-  .dot-error { background: #F87171; }
+  .card { background: #0F172A; border: 1px solid #293548; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,0.28); }
+  .dot { width: 10px; height: 10px; border-radius: 9999px; display: inline-block; }
+  .dot-idle { background: #64748B; }
+  .dot-thinking { background: #38BDF8; animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(56,189,248,0.7); }
+  .dot-active { background: #A3E635; animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(163,230,53,0.7); }
+  .dot-error { background: #F87171; box-shadow: 0 0 8px rgba(248,113,113,0.6); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
-  .acc { border: 1px solid #293548; border-radius: 10px; overflow: hidden; }
+  .acc { border: 1px solid #293548; border-radius: 12px; overflow: hidden; }
   .acc-head { cursor: pointer; user-select: none; }
   .acc-body { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
-  .acc.open .acc-body { max-height: 520px; overflow: auto; }
-  select, textarea { background: #0B0E14; border: 1px solid #293548; color: #E2E8F0; }
-  select:focus, textarea:focus { outline: none; border-color: #38BDF8; }
+  .acc.open .acc-body { max-height: 560px; overflow: auto; }
+  select, textarea, input:not([type="checkbox"]) { background: #0B0E14; border: 1px solid #293548; color: #E2E8F0; }
+  select:focus, textarea:focus { outline: none; border-color: #38BDF8; box-shadow: 0 0 0 3px rgba(56,189,248,0.15); }
   /* API & Models Manager modal inputs: dark grey fields, crisp text, muted placeholders */
-  #settings input {
+  #settings input:not([type="checkbox"]) {
     background: #1E293B;
     border: 1px solid #334155;
     color: #F8FAFC;
-    padding: 6px 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
   }
   #settings input::placeholder { color: #94A3B8; }
-  #settings input:focus { outline: none; border-color: #38BDF8; }
+  #settings input:focus { outline: none; border-color: #38BDF8; box-shadow: 0 0 0 3px rgba(56,189,248,0.15); }
   /* provider matrix status badges + source chips */
-  .badge-ready { background: rgba(74, 222, 128, 0.15); color: #4ADE80; border: 1px solid rgba(74, 222, 128, 0.4); }
-  .badge-needs-setup { background: rgba(251, 191, 36, 0.15); color: #FBBF24; border: 1px solid rgba(251, 191, 36, 0.4); }
-  .badge-local { background: rgba(148, 163, 184, 0.15); color: #94A3B8; border: 1px solid rgba(148, 163, 184, 0.4); }
-  .chip-auth { background: rgba(56, 189, 248, 0.15); color: #38BDF8; }
-  .chip-env { background: rgba(167, 139, 250, 0.15); color: #A78BFA; }
-  .chip-none { background: rgba(148, 163, 184, 0.15); color: #94A3B8; }
-  pre.codeblock { font-family: "JetBrains Mono", monospace; font-size: 12px; line-height: 1.6; }
+  .badge-ready { background: rgba(74, 222, 128, 0.16); color: #4ADE80; border: 1px solid rgba(74, 222, 128, 0.45); }
+  .badge-needs-setup { background: rgba(251, 191, 36, 0.16); color: #FBBF24; border: 1px solid rgba(251, 191, 36, 0.45); }
+  .badge-local { background: rgba(148, 163, 184, 0.16); color: #94A3B8; border: 1px solid rgba(148, 163, 184, 0.45); }
+  .chip-auth { background: rgba(56, 189, 248, 0.16); color: #38BDF8; }
+  .chip-env { background: rgba(167, 139, 250, 0.16); color: #A78BFA; }
+  .chip-none { background: rgba(148, 163, 184, 0.16); color: #94A3B8; }
+  pre.codeblock { font-family: "JetBrains Mono", monospace; font-size: 13px; line-height: 1.7; }
+  /* --- polished interactive primitives --- */
+  .btn { transition: all 0.15s ease; }
+  .btn:hover { transform: translateY(-1px); }
+  .nav-btn.active { background: #1E293B; color: #E2E8F0; box-shadow: inset 0 0 0 1px #38BDF8; }
+  .pill { transition: all 0.15s ease; }
+  .pill:hover { transform: translateY(-1px); border-color: #38BDF8; color: #E2E8F0; }
+  .console-tab { transition: all 0.15s ease; }
+  .console-tab.active { background: #1E293B; color: #38BDF8; border-color: #38BDF8; }
+  /* single-window: stack the terminal console under the chat on narrow screens */
+  @media (max-width: 900px) {
+    #console { width: 100% !important; border-left: none !important; border-top: 1px solid #293548; }
+  }
 </style>
 </head>
 <body class="bg-bg text-txt font-sans h-screen overflow-hidden flex flex-col">
 
 <!-- top bar -->
 <div class="flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-panel">
-  <button id="btnSidebar" class="text-muted hover:text-txt text-lg leading-none w-7 h-7 rounded hover:bg-panel2 transition" title="Toggle sidebar">☰</button>
-  <div class="flex-1 text-sm text-muted truncate">
-    <span class="text-txt font-semibold">MultiAgentCoding</span>
+  <button id="btnSidebar" class="btn text-muted text-xl leading-none w-9 h-9 rounded-lg hover:bg-panel2 transition" title="Toggle sidebar">☰</button>
+  <div class="flex-1 text-sm text-muted truncate min-w-0">
+    <span class="text-txt font-semibold text-[15px]">MultiAgentCoding</span>
     <span class="mx-2 text-edge">|</span>
-    <span id="lblWorkspace" class="font-mono text-xs">workspace: …</span>
+    <span id="lblWorkspace" class="font-mono text-[13px]">workspace: …</span>
   </div>
-  <button id="btnWorkspace" class="text-xs px-2.5 py-1 rounded border border-edge text-muted hover:text-txt hover:border-accent transition">Change…</button>
-  <button id="btnClear" class="text-xs px-2.5 py-1 rounded border border-edge text-muted hover:text-txt transition">Clear</button>
-  <button id="btnStop" class="text-xs px-2.5 py-1 rounded border border-edge text-danger hover:text-txt transition">Stop</button>
+  <button id="btnWorkspace" class="btn text-[13px] px-3 py-1.5 rounded-lg border border-edge text-muted hover:text-txt hover:border-accent transition">Change…</button>
+  <button id="btnClear" class="btn text-[13px] px-3 py-1.5 rounded-lg border border-edge text-muted hover:text-txt transition">Clear</button>
+  <button id="btnStop" class="btn text-[13px] px-3 py-1.5 rounded-lg border border-edge text-danger hover:text-txt transition">Stop</button>
 </div>
 
 <div class="flex flex-1 min-h-0">
 
   <!-- left icon sidebar -->
-  <aside id="sidebar" class="w-14 shrink-0 border-r border-edge bg-panel flex flex-col items-center py-3 gap-1 transition-all duration-200 overflow-hidden">
-    <button data-tab="master" class="nav-btn w-10 h-10 rounded-lg text-lg text-muted hover:text-txt hover:bg-panel2 transition" title="Master Console">⌂</button>
+  <aside id="sidebar" class="w-14 shrink-0 border-r border-edge bg-panel flex flex-col items-center py-3 gap-1.5 transition-all duration-200 overflow-hidden">
+    <button data-tab="master" class="nav-btn w-11 h-11 rounded-xl text-lg text-muted hover:text-txt hover:bg-panel2 transition flex items-center justify-center" title="Master Console">⌂</button>
     <div class="w-8 border-t border-edge my-1"></div>
-    <div id="agentNav" class="flex flex-col items-center gap-1"></div>
+    <div id="agentNav" class="flex flex-col items-center gap-1.5"></div>
     <div class="flex-1"></div>
     <div class="w-8 border-t border-edge my-1"></div>
-    <button data-tab="settings" class="nav-btn w-10 h-10 rounded-lg text-lg text-muted hover:text-txt hover:bg-panel2 transition" title="API & Models">⚙</button>
+    <button data-tab="settings" class="nav-btn w-11 h-11 rounded-xl text-lg text-muted hover:text-txt hover:bg-panel2 transition flex items-center justify-center" title="API & Models">⚙</button>
   </aside>
 
   <!-- center workplane -->
   <main class="flex-1 flex flex-col min-w-0">
 
     <!-- tab header: cascading model/mode dropdowns + status dot -->
-    <div class="flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-panel">
-      <span id="lblTab" class="font-semibold text-sm">Master Console</span>
+    <div class="flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-panel flex-wrap">
+      <span id="lblTab" class="font-semibold text-[15px]">Master Console</span>
       <span id="tabDot" class="dot dot-idle"></span>
       <div class="flex-1"></div>
-      <label class="text-xs text-muted">Model</label>
-      <select id="selModel" class="text-xs rounded px-2 py-1.5 w-56"></select>
-      <label class="text-xs text-muted ml-2">Mode</label>
-      <select id="selMode" class="text-xs rounded px-2 py-1.5 w-44"></select>
+      <label class="text-[13px] text-muted">Model</label>
+      <select id="selModel" class="text-[13px] rounded-lg px-2.5 py-2 w-64"></select>
+      <label class="text-[13px] text-muted ml-2">Mode</label>
+      <select id="selMode" class="text-[13px] rounded-lg px-2.5 py-2 w-48"></select>
     </div>
 
-    <!-- chat messages -->
-    <div id="chat" class="flex-1 overflow-y-auto px-4 py-4 space-y-4"></div>
+    <!-- chat + streaming console: one unified column (no dead zones) -->
+    <div class="flex flex-1 min-h-0">
+      <!-- chat messages -->
+      <div id="chat" class="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-w-0"></div>
+
+      <!-- streaming terminal console, docked inside the main workplane -->
+      <div id="console" class="w-[24rem] shrink-0 border-l border-edge bg-panel flex flex-col min-w-0">
+        <div class="px-3 py-2 border-b border-edge flex items-center gap-2 flex-wrap">
+          <span class="text-[13px] font-semibold text-muted">Terminal Logs</span>
+          <span id="canvasTag" class="font-mono text-accent text-[13px]">m1</span>
+          <div class="flex-1"></div>
+          <div id="consoleTabs" class="flex items-center gap-1"></div>
+        </div>
+        <div id="canvasOut" class="flex-1 min-h-0 m-2 overflow-auto rounded-lg bg-bg border border-edge p-2.5 font-mono text-[13px] text-txt leading-relaxed"></div>
+      </div>
+    </div>
 
     <!-- quick action pills + input -->
-    <div class="border-t border-edge bg-panel px-4 pt-2 pb-3">
-      <div class="flex items-center gap-2 mb-2" id="quickActions">
-        <span class="text-xs text-muted">Quick actions:</span>
+    <div class="border-t border-edge bg-panel px-4 pt-2.5 pb-3">
+      <div class="flex items-center gap-2 flex-wrap mb-2" id="quickActions">
+        <span class="text-[13px] text-muted">Quick actions:</span>
         <button data-pill="Plan the next implementation step for the current project." class="pill">Plan</button>
         <button data-pill="Build / implement the next planned task for the current project." class="pill">Build</button>
         <button data-pill="Review the latest changes in the current project." class="pill">Review</button>
