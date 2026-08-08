@@ -840,5 +840,62 @@ class ImportModelsEndpointTestCase(unittest.TestCase):
         self.assertEqual(res.json()["imported"], 0)
 
 
+class WindowLauncherTestCase(unittest.TestCase):
+    """Window launcher helpers: _find_edge, _wait_for_server, _launch_window."""
+
+    def test_find_edge_returns_path(self):
+        expected = os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe")
+        with mock.patch("os.path.isfile", return_value=True):
+            self.assertEqual(web_app._find_edge(), expected)
+
+    def test_find_edge_none_when_absent(self):
+        with mock.patch("os.path.isfile", return_value=False):
+            self.assertIsNone(web_app._find_edge())
+
+    def test_wait_for_server_ok(self):
+        resp = mock.MagicMock()
+        resp.status = 200
+        resp.__enter__.return_value = resp
+        with mock.patch("urllib.request.urlopen", return_value=resp) as urlopen:
+            self.assertTrue(web_app._wait_for_server("http://x", timeout=1))
+        urlopen.assert_called_once_with("http://x", timeout=1)
+
+    def test_wait_for_server_timeout(self):
+        with mock.patch("urllib.request.urlopen", side_effect=URLError("down")):
+            self.assertFalse(web_app._wait_for_server("http://x", timeout=1))
+
+    def _import_without_webview(self, name, *args, **kwargs):
+        if name == "webview":
+            raise ImportError("no pywebview installed")
+        return __import__(name, *args, **kwargs)
+
+    def test_launch_window_pywebview(self):
+        fake_webview = mock.MagicMock()
+
+        def fake_import(name, *args, **kwargs):
+            if name == "webview":
+                return fake_webview
+            return __import__(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=fake_import):
+            self.assertTrue(web_app._launch_window("http://x"))
+        fake_webview.create_window.assert_called_once_with("MultiAgentCoding", "http://x")
+        fake_webview.start.assert_called_once_with()
+
+    def test_launch_window_edge_fallback(self):
+        with mock.patch("builtins.__import__", side_effect=self._import_without_webview), \
+             mock.patch.object(web_app, "_find_edge", return_value=r"C:\edge.exe"), \
+             mock.patch("subprocess.run") as run:
+            self.assertTrue(web_app._launch_window("http://x"))
+        run.assert_called_once_with([r"C:\edge.exe", "--app", "http://x"], check=False)
+
+    def test_launch_window_browser_fallback(self):
+        with mock.patch("builtins.__import__", side_effect=self._import_without_webview), \
+             mock.patch.object(web_app, "_find_edge", return_value=None), \
+             mock.patch("webbrowser.open") as open_browser:
+            self.assertTrue(web_app._launch_window("http://x"))
+        open_browser.assert_called_once_with("http://x")
+
+
 if __name__ == "__main__":
     unittest.main()
