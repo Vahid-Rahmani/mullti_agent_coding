@@ -35,6 +35,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.error
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -450,6 +452,54 @@ def delete_provider(name: str) -> dict:
     return {"ok": True, "name": name}
 
 
+def _extract_model_ids(payload: dict) -> list[str]:
+    """Pull model IDs from an OpenAI-compatible ``/models`` response.
+
+    Accepts ``{"data": [{"id": ...}]}`` (OpenAI style) or ``{"models": [...]}``
+    where entries are strings or ``{"id": ...}`` dicts. Unknown shapes -> [].
+    """
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get("data")
+    if raw is None:
+        raw = payload.get("models")
+    if not isinstance(raw, list):
+        return []
+    ids = []
+    for entry in raw:
+        if isinstance(entry, str) and entry:
+            ids.append(entry)
+        elif isinstance(entry, dict) and entry.get("id"):
+            ids.append(entry["id"])
+    return ids
+
+
+def discover_models(base_url: str, api_key: str | None) -> dict:
+    """Query ``GET {base_url}/models`` with a Bearer key (6s timeout).
+
+    Returns ``{ok, models, status, error}``. ``status`` is ``ok`` or a typed
+    error: invalid_key (401/403), not_compatible (404/405), rate_limited
+    (429), unreachable (timeout/connection). The key is only used in-memory
+    for the request; it is never persisted or logged.
+    """
+    url = base_url.rstrip("/") + "/models"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return {"ok": False, "models": [], "status": "invalid_key", "error": f"Invalid API key (HTTP {exc.code})."}
+        if exc.code in (404, 405):
+            return {"ok": False, "models": [], "status": "not_compatible", "error": f"Endpoint not found (HTTP {exc.code}) — provider may not be OpenAI-compatible."}
+        if exc.code == 429:
+            return {"ok": False, "models": [], "status": "rate_limited", "error": "Rate limited (HTTP 429)."}
+        return {"ok": False, "models": [], "status": "error", "error": f"HTTP {exc.code}."}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {"ok": False, "models": [], "status": "unreachable", "error": f"Provider unreachable: {exc}"}
+    return {"ok": True, "models": _extract_model_ids(payload), "status": "ok", "error": None}
+
+
 def build_catalog() -> dict:
     """Model + mode options for the cascading dropdowns.
 
@@ -494,6 +544,17 @@ class ProviderPatch(BaseModel):
     npm: str | None = None
     baseURL: str | None = None
     models: list[str] | None = None
+
+
+class VerifyRequest(BaseModel):
+    providerName: str
+    baseURL: str
+    envVar: str | None = None
+    apiKey: str | None = None  # in-memory only; never persisted or echoed
+
+
+class ImportModelsRequest(BaseModel):
+    models: list[str] = Field(default_factory=list)
 
 
 class WorkspaceIn(BaseModel):
@@ -565,6 +626,45 @@ def api_providers_update(name: str, body: ProviderPatch) -> dict:
 @app.delete("/api/providers/{name}")
 def api_providers_delete(name: str) -> dict:
     return delete_provider(name)
+
+
+@app.post("/api/providers/verify")
+def api_providers_verify(body: VerifyRequest) -> dict:
+    """Resolve a key (env/auth or the in-memory one) and discover models.
+
+    The key is used only for the request; it is never persisted or echoed.
+    """
+    key, _ = resolve_api_key(body.providerName, body.envVar)
+    if not key:
+        key = body.apiKey
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No API key for provider '{body.providerName}'. "
+                f"Set {body.envVar or 'an env var'} or pass a key to verify."
+            ),
+        )
+    return discover_models(body.baseURL, key)
+
+
+@app.post("/api/providers/{name}/import-models")
+def api_providers_import_models(name: str, body: ImportModelsRequest) -> dict:
+    """Add discovered model IDs to the provider block with default names."""
+    config = _load_config()
+    providers = config.setdefault("provider", {})
+    if name not in providers:
+        raise HTTPException(status_code=404, detail=f"Provider '{name}' not found.")
+    models = providers[name].setdefault("models", {})
+    imported = 0
+    for model_id in body.models:
+        model_id = model_id.strip()
+        if not model_id or model_id in models:
+            continue
+        models[model_id] = {"name": model_id}
+        imported += 1
+    _write_config(config)
+    return {"ok": True, "name": name, "imported": imported, "models": sorted(models.keys())}
 
 
 @app.get("/api/stream")
