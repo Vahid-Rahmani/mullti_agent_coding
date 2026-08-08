@@ -128,6 +128,38 @@ class ClassifyTestCase(unittest.TestCase):
         self.assertEqual(classify("Describe something completely unrelated").confidence, 0.2)
 
 
+class SelfEvolveIntentTestCase(unittest.TestCase):
+    """self-evolve route classifies upgrade/self-evolve/self-heal/evolve/heal."""
+
+    def test_upgrade_routes_to_self_evolve(self):
+        route = classify("upgrade the control plane")
+        self.assertEqual(route.intent, "self-evolve")
+        self.assertEqual(route.strategy, "subset")
+        self.assertEqual(route.agents, ["m4", "m6", "m7"])
+
+    def test_self_evolve_keyword(self):
+        route = classify("self-evolve the system")
+        self.assertEqual(route.intent, "self-evolve")
+        self.assertEqual(route.agents, ["m4", "m6", "m7"])
+
+    def test_self_heal_keyword(self):
+        route = classify("self-heal the broken workflow")
+        self.assertEqual(route.intent, "self-evolve")
+
+    def test_evolve_keyword(self):
+        route = classify("evolve the agent definitions")
+        self.assertEqual(route.intent, "self-evolve")
+
+    def test_heal_keyword(self):
+        route = classify("heal the project")
+        self.assertEqual(route.intent, "self-evolve")
+
+    def test_unrelated_prompt_falls_back_to_pipeline(self):
+        route = classify("Describe something completely unrelated")
+        self.assertEqual(route.intent, "pipeline")
+        self.assertEqual(route.strategy, "pipeline")
+
+
 class GreetingConstantsTestCase(unittest.TestCase):
     def test_greeting_agent(self):
         self.assertEqual(GREETING_AGENT, "analyst")
