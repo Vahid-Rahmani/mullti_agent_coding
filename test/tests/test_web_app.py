@@ -1,11 +1,14 @@
 """Unit tests for scripts/web_app.py (Dyad-style web UI)."""
 
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+from urllib.error import HTTPError, URLError
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
@@ -296,6 +299,245 @@ class EndpointTestCase(unittest.TestCase):
     def test_run_requires_prompt(self):
         res = self.client.post("/api/run", json={"prompt": "   "})
         self.assertEqual(res.status_code, 400)
+
+
+class ModelDiscoveryTestCase(unittest.TestCase):
+    """discover_models queries GET {base_url}/models with a Bearer key.
+
+    urllib is mocked; no network calls happen in these tests.
+    """
+
+    def _mock_response(self, payload):
+        resp = mock.MagicMock()
+        resp.read.return_value = json.dumps(payload).encode("utf-8")
+        resp.__enter__.return_value = resp
+        return resp
+
+    def _mock_http_error(self, code):
+        return HTTPError(f"https://api.example.com/v1/models", code, "err", {}, io.BytesIO(b""))
+
+    def test_success_returns_model_ids(self):
+        resp = self._mock_response({"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]})
+        with mock.patch("urllib.request.urlopen", return_value=resp) as urlopen:
+            result = web_app.discover_models("https://api.example.com/v1", "sk-test")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["models"], ["gpt-4o", "gpt-4o-mini"])
+        self.assertEqual(result["status"], "ok")
+        self.assertIsNone(result["error"])
+        # Bearer header, 6s timeout, URL is {base_url}/models
+        req = urlopen.call_args[0][0]
+        self.assertEqual(req.full_url, "https://api.example.com/v1/models")
+        self.assertEqual(req.get_header("Authorization"), "Bearer sk-test")
+        self.assertEqual(urlopen.call_args.kwargs.get("timeout"), 6)
+
+    def test_success_models_key_variant(self):
+        resp = self._mock_response({"models": ["qwen2.5-coder:7b"]})
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            result = web_app.discover_models("http://localhost:11434/v1", "sk-test")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["models"], ["qwen2.5-coder:7b"])
+
+    def test_401_invalid_key(self):
+        with mock.patch("urllib.request.urlopen", side_effect=self._mock_http_error(401)):
+            result = web_app.discover_models("https://api.example.com/v1", "sk-bad")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "invalid_key")
+        self.assertEqual(result["models"], [])
+        self.assertIsNotNone(result["error"])
+
+    def test_403_invalid_key(self):
+        with mock.patch("urllib.request.urlopen", side_effect=self._mock_http_error(403)):
+            result = web_app.discover_models("https://api.example.com/v1", "sk-bad")
+        self.assertEqual(result["status"], "invalid_key")
+
+    def test_404_not_compatible(self):
+        with mock.patch("urllib.request.urlopen", side_effect=self._mock_http_error(404)):
+            result = web_app.discover_models("https://api.example.com/v1", "sk-test")
+        self.assertEqual(result["status"], "not_compatible")
+
+    def test_405_not_compatible(self):
+        with mock.patch("urllib.request.urlopen", side_effect=self._mock_http_error(405)):
+            result = web_app.discover_models("https://api.example.com/v1", "sk-test")
+        self.assertEqual(result["status"], "not_compatible")
+
+    def test_429_rate_limited(self):
+        with mock.patch("urllib.request.urlopen", side_effect=self._mock_http_error(429)):
+            result = web_app.discover_models("https://api.example.com/v1", "sk-test")
+        self.assertEqual(result["status"], "rate_limited")
+
+    def test_timeout_unreachable(self):
+        with mock.patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+            result = web_app.discover_models("https://api.example.com/v1", "sk-test")
+        self.assertEqual(result["status"], "unreachable")
+
+    def test_connection_error_unreachable(self):
+        with mock.patch("urllib.request.urlopen", side_effect=URLError("connection refused")):
+            result = web_app.discover_models("https://api.example.com/v1", "sk-test")
+        self.assertEqual(result["status"], "unreachable")
+
+
+class VerifyRequestModelTestCase(unittest.TestCase):
+    """VerifyRequest / ImportModelsRequest pydantic shapes."""
+
+    def test_verify_request_optional_fields(self):
+        req = web_app.VerifyRequest(providerName="openai", baseURL="https://api.openai.com/v1")
+        self.assertEqual(req.providerName, "openai")
+        self.assertEqual(req.baseURL, "https://api.openai.com/v1")
+        self.assertIsNone(req.envVar)
+        self.assertIsNone(req.apiKey)
+
+    def test_verify_request_with_key_and_env_var(self):
+        req = web_app.VerifyRequest(
+            providerName="custom", baseURL="https://api.example.com/v1",
+            envVar="MY_KEY", apiKey="sk-inmem",
+        )
+        self.assertEqual(req.envVar, "MY_KEY")
+        self.assertEqual(req.apiKey, "sk-inmem")
+
+    def test_import_models_request(self):
+        req = web_app.ImportModelsRequest(models=["gpt-4o", "gpt-4o-mini"])
+        self.assertEqual(req.models, ["gpt-4o", "gpt-4o-mini"])
+
+
+class VerifyEndpointTestCase(unittest.TestCase):
+    """POST /api/providers/verify resolves a key and returns discovered models."""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(web_app.app)
+        self._orig_auth = web_app.AUTH_PATH
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.AUTH_PATH = Path(self._tmp.name) / "auth.json"
+        self._saved_env = {}
+        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MY_CUSTOM_KEY"):
+            self._saved_env[name] = os.environ.get(name)
+            os.environ.pop(name, None)
+
+    def tearDown(self):
+        web_app.AUTH_PATH = self._orig_auth
+        for name, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        self._tmp.cleanup()
+
+    def _mock_response(self, payload):
+        resp = mock.MagicMock()
+        resp.read.return_value = json.dumps(payload).encode("utf-8")
+        resp.__enter__.return_value = resp
+        return resp
+
+    def test_verify_with_provided_key(self):
+        resp = self._mock_response({"data": [{"id": "gpt-4o"}]})
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            res = self.client.post(
+                "/api/providers/verify",
+                json={"providerName": "custom", "baseURL": "https://api.example.com/v1", "apiKey": "sk-inmem"},
+            )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["models"], ["gpt-4o"])
+        # the in-memory key must never be echoed in the response
+        self.assertNotIn("sk-inmem", res.text)
+
+    def test_verify_resolves_key_from_auth(self):
+        web_app.AUTH_PATH.write_text(
+            json.dumps({"openai": {"type": "api", "key": "sk-auth"}}), encoding="utf-8"
+        )
+        resp = self._mock_response({"data": [{"id": "gpt-4o"}]})
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            res = self.client.post(
+                "/api/providers/verify",
+                json={"providerName": "openai", "baseURL": "https://api.openai.com/v1"},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["models"], ["gpt-4o"])
+
+    def test_verify_no_key_returns_400(self):
+        res = self.client.post(
+            "/api/providers/verify",
+            json={"providerName": "openai", "baseURL": "https://api.openai.com/v1"},
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_verify_typed_error_passthrough(self):
+        err = HTTPError("https://api.example.com/v1/models", 401, "Unauthorized", {}, io.BytesIO(b""))
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            res = self.client.post(
+                "/api/providers/verify",
+                json={"providerName": "custom", "baseURL": "https://api.example.com/v1", "apiKey": "sk-bad"},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["status"], "invalid_key")
+
+
+class ImportModelsEndpointTestCase(unittest.TestCase):
+    """POST /api/providers/{name}/import-models adds model IDs with default names."""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(web_app.app)
+        self._orig_config = web_app.CONFIG_PATH
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.CONFIG_PATH = Path(self._tmp.name) / "opencode.json"
+        web_app.CONFIG_PATH.write_text(
+            json.dumps(
+                {
+                    "provider": {
+                        "mulerouter": {
+                            "npm": "@ai-sdk/openai-compatible",
+                            "options": {"baseURL": "https://api.mulerouter.ai/vendors/openai/v1"},
+                            "models": {"gpt-5.5": {"name": "gpt-5.5"}},
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        web_app.CONFIG_PATH = self._orig_config
+        self._tmp.cleanup()
+
+    def _read(self):
+        return json.loads(web_app.CONFIG_PATH.read_text(encoding="utf-8"))
+
+    def test_import_adds_models_with_default_names(self):
+        res = self.client.post(
+            "/api/providers/mulerouter/import-models",
+            json={"models": ["gpt-5.4-mini", "qwen3-max"]},
+        )
+        self.assertEqual(res.status_code, 200)
+        config = self._read()
+        models = config["provider"]["mulerouter"]["models"]
+        self.assertEqual(models["gpt-5.4-mini"], {"name": "gpt-5.4-mini"})
+        self.assertEqual(models["qwen3-max"], {"name": "qwen3-max"})
+        # existing model preserved
+        self.assertIn("gpt-5.5", models)
+
+    def test_import_dedupes_on_reimport(self):
+        self.client.post("/api/providers/mulerouter/import-models", json={"models": ["gpt-5.4-mini"]})
+        res = self.client.post(
+            "/api/providers/mulerouter/import-models", json={"models": ["gpt-5.4-mini"]}
+        )
+        self.assertEqual(res.status_code, 200)
+        config = self._read()
+        models = config["provider"]["mulerouter"]["models"]
+        self.assertEqual(len(models), 2)  # gpt-5.5 + gpt-5.4-mini, no duplicates
+        self.assertEqual(res.json()["imported"], 0)  # nothing new on re-import
+
+    def test_import_unknown_provider_404(self):
+        res = self.client.post("/api/providers/nope/import-models", json={"models": ["x"]})
+        self.assertEqual(res.status_code, 404)
+
+    def test_import_empty_models_ok(self):
+        res = self.client.post("/api/providers/mulerouter/import-models", json={"models": []})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["imported"], 0)
 
 
 if __name__ == "__main__":
