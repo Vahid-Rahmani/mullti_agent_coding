@@ -111,6 +111,14 @@ def _effective_env_var(name: str, env_var: str | None) -> str | None:
     return provider.get("envVar") if provider else None
 
 
+def _options_env_var(options: dict) -> str | None:
+    """Extract the env var name from an ``{env:VAR}`` apiKey reference."""
+    api_key = options.get("apiKey", "")
+    if isinstance(api_key, str) and api_key.startswith("{env:") and api_key.endswith("}"):
+        return api_key[len("{env:"):-1]
+    return None
+
+
 def _is_local_base_url(base_url: str | None) -> bool:
     """True when the base URL points at a local host (no API key required)."""
     if not base_url:
@@ -392,41 +400,82 @@ def _write_config(config: dict) -> None:
         raise
 
 
+def _apply_limits(models_block: dict, limits: dict | None) -> None:
+    """Write ``limit: {context, output}`` under each model that has one."""
+    if not limits:
+        return
+    for model_id, limit in limits.items():
+        if model_id in models_block and isinstance(limit, dict):
+            models_block[model_id]["limit"] = limit
+
+
 def list_providers() -> list[dict]:
     config = _load_config()
     providers = config.get("provider", {})
     result = []
     for name, block in providers.items():
         options = block.get("options", {})
+        env_var = _options_env_var(options)
+        status = provider_status(name, env_var, options.get("baseURL"))
+        models_block = block.get("models", {})
+        limits = {
+            model_id: model["limit"]
+            for model_id, model in models_block.items()
+            if isinstance(model, dict) and isinstance(model.get("limit"), dict)
+        }
         result.append(
             {
                 "name": name,
                 "npm": block.get("npm", ""),
                 "baseURL": options.get("baseURL", ""),
-                "models": sorted(block.get("models", {}).keys()),
+                "models": sorted(models_block.keys()),
+                "status": status["status"],
+                "statusSource": status["source"],
+                "envVar": status["envVar"],
+                "isBuiltin": _builtin_provider(name) is not None,
+                "limits": limits,
             }
         )
     return result
 
 
-def add_provider(name: str, npm: str, base_url: str, models: list[str]) -> dict:
+def add_provider(
+    name: str,
+    npm: str,
+    base_url: str,
+    models: list[str],
+    env_var: str | None = None,
+    limits: dict[str, dict[str, int]] | None = None,
+) -> dict:
     name = name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Provider name must not be empty.")
     config = _load_config()
     if name in config.get("provider", {}):
         raise HTTPException(status_code=409, detail=f"Provider '{name}' already exists.")
+    options: dict = {"baseURL": base_url} if base_url else {}
+    if env_var:
+        options["apiKey"] = f"{{env:{env_var}}}"
+    models_block = {m: {"name": m} for m in models if m.strip()}
+    _apply_limits(models_block, limits)
     config.setdefault("provider", {})[name] = {
         "npm": npm or "@ai-sdk/openai-compatible",
         "name": name,
-        "options": {"baseURL": base_url} if base_url else {},
-        "models": {m: {"name": m} for m in models if m.strip()},
+        "options": options,
+        "models": models_block,
     }
     _write_config(config)
     return {"ok": True, "name": name}
 
 
-def update_provider(name: str, npm: str | None, base_url: str | None, models: list[str] | None) -> dict:
+def update_provider(
+    name: str,
+    npm: str | None,
+    base_url: str | None,
+    models: list[str] | None,
+    env_var: str | None = None,
+    limits: dict[str, dict[str, int]] | None = None,
+) -> dict:
     config = _load_config()
     providers = config.setdefault("provider", {})
     if name not in providers:
@@ -436,8 +485,16 @@ def update_provider(name: str, npm: str | None, base_url: str | None, models: li
         block["npm"] = npm or "@ai-sdk/openai-compatible"
     if base_url is not None:
         block.setdefault("options", {})["baseURL"] = base_url
+    if env_var is not None:
+        options = block.setdefault("options", {})
+        if env_var.strip():
+            options["apiKey"] = f"{{env:{env_var.strip()}}}"
+        else:
+            options.pop("apiKey", None)
     if models is not None:
         block["models"] = {m: {"name": m} for m in models if m.strip()}
+    if limits is not None:
+        _apply_limits(block.setdefault("models", {}), limits)
     _write_config(config)
     return {"ok": True, "name": name}
 
@@ -450,6 +507,57 @@ def delete_provider(name: str) -> dict:
     del providers[name]
     _write_config(config)
     return {"ok": True, "name": name}
+
+
+def provider_matrix() -> list[dict]:
+    """Merge built-ins, detected auth.json keys, and custom providers.
+
+    Built-in rows get their status from auth/env; custom provider rows (from
+    opencode.json) override built-in defaults when names collide.
+    """
+    rows: dict[str, dict] = {}
+    for provider in BUILTIN_PROVIDERS:
+        name = provider["id"]
+        status = provider_status(name, None, provider["baseURL"])
+        rows[name] = {
+            "name": name,
+            "npm": provider["npm"],
+            "baseURL": provider["baseURL"],
+            "models": [],
+            "status": status["status"],
+            "statusSource": status["source"],
+            "envVar": status["envVar"],
+            "isBuiltin": True,
+            "limits": {},
+        }
+    for name in _auth_store():
+        if name in rows:
+            continue
+        status = provider_status(name)
+        rows[name] = {
+            "name": name,
+            "npm": "",
+            "baseURL": "",
+            "models": [],
+            "status": status["status"],
+            "statusSource": status["source"],
+            "envVar": status["envVar"],
+            "isBuiltin": False,
+            "limits": {},
+        }
+    for row in list_providers():
+        name = row["name"]
+        if name in rows:
+            merged = dict(row)
+            merged["isBuiltin"] = rows[name]["isBuiltin"]
+            if not merged.get("npm"):
+                merged["npm"] = rows[name]["npm"]
+            if not merged.get("baseURL"):
+                merged["baseURL"] = rows[name]["baseURL"]
+            rows[name] = merged
+        else:
+            rows[name] = row
+    return list(rows.values())
 
 
 def _extract_model_ids(payload: dict) -> list[str]:
@@ -538,12 +646,16 @@ class ProviderIn(BaseModel):
     npm: str = ""
     baseURL: str = ""
     models: list[str] = Field(default_factory=list)
+    envVar: str | None = None
+    limits: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 class ProviderPatch(BaseModel):
     npm: str | None = None
     baseURL: str | None = None
     models: list[str] | None = None
+    envVar: str | None = None
+    limits: dict[str, dict[str, int]] | None = None
 
 
 class VerifyRequest(BaseModel):
@@ -610,17 +722,17 @@ def api_workspace(req: WorkspaceIn) -> dict:
 
 @app.get("/api/providers")
 def api_providers() -> list[dict]:
-    return list_providers()
+    return provider_matrix()
 
 
 @app.post("/api/providers", status_code=201)
 def api_providers_add(body: ProviderIn) -> dict:
-    return add_provider(body.name, body.npm, body.baseURL, body.models)
+    return add_provider(body.name, body.npm, body.baseURL, body.models, body.envVar, body.limits)
 
 
 @app.put("/api/providers/{name}")
 def api_providers_update(name: str, body: ProviderPatch) -> dict:
-    return update_provider(name, body.npm, body.baseURL, body.models)
+    return update_provider(name, body.npm, body.baseURL, body.models, body.envVar, body.limits)
 
 
 @app.delete("/api/providers/{name}")

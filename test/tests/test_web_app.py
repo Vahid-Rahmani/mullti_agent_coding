@@ -111,6 +111,262 @@ class ProviderCrudTestCase(unittest.TestCase):
             web_app.delete_provider("nope")
 
 
+class ProviderModelTestCase(unittest.TestCase):
+    """ProviderIn / ProviderPatch accept env_var + per-model limits."""
+
+    def test_provider_in_accepts_env_var_and_limits(self):
+        req = web_app.ProviderIn(
+            name="openrouter",
+            npm="@ai-sdk/openai-compatible",
+            baseURL="https://openrouter.ai/api/v1",
+            models=["openrouter/auto"],
+            envVar="OPENROUTER_API_KEY",
+            limits={"openrouter/auto": {"context": 200000, "output": 4096}},
+        )
+        self.assertEqual(req.envVar, "OPENROUTER_API_KEY")
+        self.assertEqual(req.limits["openrouter/auto"]["context"], 200000)
+        self.assertEqual(req.limits["openrouter/auto"]["output"], 4096)
+
+    def test_provider_in_defaults(self):
+        req = web_app.ProviderIn(name="ollama")
+        self.assertIsNone(req.envVar)
+        self.assertEqual(req.limits, {})
+
+    def test_provider_patch_optional_fields(self):
+        patch = web_app.ProviderPatch()
+        self.assertIsNone(patch.npm)
+        self.assertIsNone(patch.baseURL)
+        self.assertIsNone(patch.models)
+        self.assertIsNone(patch.envVar)
+        self.assertIsNone(patch.limits)
+
+    def test_provider_patch_accepts_env_var_and_limits(self):
+        patch = web_app.ProviderPatch(
+            envVar="MY_KEY", limits={"gpt-4o": {"context": 128000, "output": 8192}}
+        )
+        self.assertEqual(patch.envVar, "MY_KEY")
+        self.assertEqual(patch.limits["gpt-4o"]["context"], 128000)
+
+
+class ExtendedProviderCrudTestCase(unittest.TestCase):
+    """env_var + per-model limits round-trip through a temp opencode.json.
+
+    The env var is stored as an ``{env:VAR}`` reference in options.apiKey;
+    the actual secret is never written to disk.
+    """
+
+    def setUp(self):
+        self._orig_config = web_app.CONFIG_PATH
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.CONFIG_PATH = Path(self._tmp.name) / "opencode.json"
+        web_app.CONFIG_PATH.write_text(
+            json.dumps({"default_agent": "build", "provider": {}}), encoding="utf-8"
+        )
+
+    def tearDown(self):
+        web_app.CONFIG_PATH = self._orig_config
+        self._tmp.cleanup()
+
+    def _read(self):
+        return json.loads(web_app.CONFIG_PATH.read_text(encoding="utf-8"))
+
+    def test_add_provider_env_var_writes_reference_not_secret(self):
+        web_app.add_provider(
+            "openrouter",
+            "@ai-sdk/openai-compatible",
+            "https://openrouter.ai/api/v1",
+            ["openrouter/auto"],
+            env_var="OPENROUTER_API_KEY",
+        )
+        config = self._read()
+        options = config["provider"]["openrouter"]["options"]
+        self.assertEqual(options["apiKey"], "{env:OPENROUTER_API_KEY}")
+        # the actual secret must never be stored anywhere in the config
+        self.assertNotIn("sk-", json.dumps(config))
+
+    def test_add_provider_limits_roundtrip(self):
+        web_app.add_provider(
+            "openrouter",
+            "@ai-sdk/openai-compatible",
+            "https://openrouter.ai/api/v1",
+            ["openrouter/auto", "deepseek/deepseek-chat"],
+            limits={"openrouter/auto": {"context": 200000, "output": 4096}},
+        )
+        config = self._read()
+        models = config["provider"]["openrouter"]["models"]
+        self.assertEqual(
+            models["openrouter/auto"]["limit"], {"context": 200000, "output": 4096}
+        )
+        # model without a limit has no limit key
+        self.assertNotIn("limit", models["deepseek/deepseek-chat"])
+
+    def test_update_provider_env_var_and_limits(self):
+        web_app.add_provider(
+            "openrouter", "@ai-sdk/openai-compatible", "https://openrouter.ai/api/v1", ["openrouter/auto"]
+        )
+        web_app.update_provider(
+            "openrouter",
+            None,
+            None,
+            None,
+            env_var="OPENROUTER_API_KEY",
+            limits={"openrouter/auto": {"context": 200000, "output": 4096}},
+        )
+        config = self._read()
+        options = config["provider"]["openrouter"]["options"]
+        self.assertEqual(options["apiKey"], "{env:OPENROUTER_API_KEY}")
+        self.assertEqual(
+            config["provider"]["openrouter"]["models"]["openrouter/auto"]["limit"],
+            {"context": 200000, "output": 4096},
+        )
+
+    def test_update_provider_empty_env_var_clears_reference(self):
+        web_app.add_provider(
+            "openrouter", "@ai-sdk/openai-compatible", "https://openrouter.ai/api/v1", ["openrouter/auto"],
+            env_var="OPENROUTER_API_KEY",
+        )
+        web_app.update_provider("openrouter", None, None, None, env_var="")
+        config = self._read()
+        self.assertNotIn("apiKey", config["provider"]["openrouter"].get("options", {}))
+
+    def test_list_providers_includes_status_fields(self):
+        web_app.add_provider(
+            "openrouter", "@ai-sdk/openai-compatible", "https://openrouter.ai/api/v1", ["openrouter/auto"],
+            env_var="OPENROUTER_API_KEY",
+            limits={"openrouter/auto": {"context": 200000, "output": 4096}},
+        )
+        row = web_app.list_providers()[0]
+        self.assertIn("status", row)
+        self.assertIn("statusSource", row)
+        self.assertIn("envVar", row)
+        self.assertIn("isBuiltin", row)
+        self.assertIn("limits", row)
+        self.assertEqual(row["envVar"], "OPENROUTER_API_KEY")
+        self.assertFalse(row["isBuiltin"])
+        self.assertEqual(row["limits"]["openrouter/auto"]["context"], 200000)
+        self.assertEqual(row["models"], ["openrouter/auto"])
+
+    def test_add_provider_endpoint_env_var_and_limits(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(web_app.app)
+        res = client.post(
+            "/api/providers",
+            json={
+                "name": "openrouter",
+                "npm": "@ai-sdk/openai-compatible",
+                "baseURL": "https://openrouter.ai/api/v1",
+                "models": ["openrouter/auto"],
+                "envVar": "OPENROUTER_API_KEY",
+                "limits": {"openrouter/auto": {"context": 200000, "output": 4096}},
+            },
+        )
+        self.assertEqual(res.status_code, 201)
+        config = self._read()
+        self.assertEqual(
+            config["provider"]["openrouter"]["options"]["apiKey"], "{env:OPENROUTER_API_KEY}"
+        )
+        self.assertEqual(
+            config["provider"]["openrouter"]["models"]["openrouter/auto"]["limit"],
+            {"context": 200000, "output": 4096},
+        )
+
+    def test_update_provider_endpoint_env_var_and_limits(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(web_app.app)
+        web_app.add_provider(
+            "openrouter", "@ai-sdk/openai-compatible", "https://openrouter.ai/api/v1", ["openrouter/auto"]
+        )
+        res = client.put(
+            "/api/providers/openrouter",
+            json={
+                "envVar": "OPENROUTER_API_KEY",
+                "limits": {"openrouter/auto": {"context": 200000, "output": 4096}},
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        config = self._read()
+        self.assertEqual(
+            config["provider"]["openrouter"]["options"]["apiKey"], "{env:OPENROUTER_API_KEY}"
+        )
+        self.assertEqual(
+            config["provider"]["openrouter"]["models"]["openrouter/auto"]["limit"],
+            {"context": 200000, "output": 4096},
+        )
+
+
+class ProviderMatrixTestCase(unittest.TestCase):
+    """provider_matrix merges built-ins + detected auth keys + custom providers."""
+
+    def setUp(self):
+        self._orig_config = web_app.CONFIG_PATH
+        self._orig_auth = web_app.AUTH_PATH
+        self._tmp = tempfile.TemporaryDirectory()
+        web_app.CONFIG_PATH = Path(self._tmp.name) / "opencode.json"
+        web_app.AUTH_PATH = Path(self._tmp.name) / "auth.json"
+        web_app.CONFIG_PATH.write_text(json.dumps({"provider": {}}), encoding="utf-8")
+        self._saved_env = {}
+        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MY_CUSTOM_KEY"):
+            self._saved_env[name] = os.environ.get(name)
+            os.environ.pop(name, None)
+
+    def tearDown(self):
+        web_app.CONFIG_PATH = self._orig_config
+        web_app.AUTH_PATH = self._orig_auth
+        for name, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        self._tmp.cleanup()
+
+    def test_matrix_includes_builtins_with_status(self):
+        rows = web_app.provider_matrix()
+        names = {r["name"] for r in rows}
+        self.assertIn("openai", names)
+        self.assertIn("anthropic", names)
+        self.assertIn("google", names)
+        openai = next(r for r in rows if r["name"] == "openai")
+        self.assertTrue(openai["isBuiltin"])
+        self.assertEqual(openai["status"], "needs-setup")
+        self.assertEqual(openai["statusSource"], "none")
+        self.assertEqual(openai["envVar"], "OPENAI_API_KEY")
+
+    def test_matrix_includes_detected_auth_keys(self):
+        web_app.AUTH_PATH.write_text(
+            json.dumps({"mulerouter": {"type": "api", "key": "sk-test"}}), encoding="utf-8"
+        )
+        rows = web_app.provider_matrix()
+        names = {r["name"] for r in rows}
+        self.assertIn("mulerouter", names)
+        row = next(r for r in rows if r["name"] == "mulerouter")
+        self.assertEqual(row["status"], "ready")
+        self.assertEqual(row["statusSource"], "auth")
+        self.assertFalse(row["isBuiltin"])
+
+    def test_matrix_includes_custom_providers(self):
+        web_app.add_provider(
+            "openrouter", "@ai-sdk/openai-compatible", "https://openrouter.ai/api/v1", ["openrouter/auto"]
+        )
+        rows = web_app.provider_matrix()
+        names = {r["name"] for r in rows}
+        self.assertIn("openrouter", names)
+        row = next(r for r in rows if r["name"] == "openrouter")
+        self.assertEqual(row["models"], ["openrouter/auto"])
+        self.assertFalse(row["isBuiltin"])
+
+    def test_matrix_custom_overrides_builtin(self):
+        web_app.add_provider(
+            "openai", "@ai-sdk/openai", "https://custom.openai.example/v1", ["gpt-4o"]
+        )
+        rows = web_app.provider_matrix()
+        row = next(r for r in rows if r["name"] == "openai")
+        self.assertEqual(row["baseURL"], "https://custom.openai.example/v1")
+        self.assertEqual(row["models"], ["gpt-4o"])
+        self.assertTrue(row["isBuiltin"])
+
+
 class ProviderStatusTestCase(unittest.TestCase):
     """provider_status / resolve_api_key / _auth_store read auth.json + env vars.
 
@@ -295,6 +551,21 @@ class EndpointTestCase(unittest.TestCase):
         res = self.client.get("/api/providers")
         self.assertEqual(res.status_code, 200)
         self.assertIsInstance(res.json(), list)
+
+    def test_providers_endpoint_returns_matrix_with_builtins(self):
+        res = self.client.get("/api/providers")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        names = {r["name"] for r in data}
+        self.assertIn("openai", names)
+        self.assertIn("anthropic", names)
+        self.assertIn("google", names)
+        for row in data:
+            self.assertIn("status", row)
+            self.assertIn("statusSource", row)
+            self.assertIn("envVar", row)
+            self.assertIn("isBuiltin", row)
+            self.assertIn("limits", row)
 
     def test_run_requires_prompt(self):
         res = self.client.post("/api/run", json={"prompt": "   "})
