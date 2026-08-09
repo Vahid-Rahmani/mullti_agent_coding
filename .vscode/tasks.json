@@ -97,9 +97,9 @@
             "problemMatcher": []
         },
         {
-            "label": "Launch Web UI",
+            "label": "Launch ZOVA Retro Terminal",
             "type": "shell",
-            "command": "python ${workspaceFolder}/scripts/supervisor.py --port 8501 --no-browser --watch",
+            "command": "python ${workspaceFolder}/scripts/terminal_app.py",
             "presentation": {
                 "panel": "new",
                 "group": "agents",

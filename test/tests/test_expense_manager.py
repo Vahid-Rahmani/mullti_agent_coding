@@ -2,9 +2,13 @@
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from datetime import datetime
+
+# The module under test lives one directory up (test/), not in test/tests/.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from expense_manager import ExpenseManager
 

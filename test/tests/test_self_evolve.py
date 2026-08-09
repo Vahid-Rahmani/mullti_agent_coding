@@ -136,7 +136,7 @@ class AllowPathTestCase(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_allow_inside_root(self):
-        self.assertTrue(self.engine.allow_path(self.root / "scripts" / "web_app.py"))
+        self.assertTrue(self.engine.allow_path(self.root / "scripts" / "terminal_app.py"))
 
     def test_allow_root_itself(self):
         self.assertTrue(self.engine.allow_path(self.root))

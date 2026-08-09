@@ -20,11 +20,20 @@ set "ROLE[7]=Reviewer"
 
 set "SMOKE="
 set "DRY="
+set "NO_SWARM="
+set "STALE_ARG="
+set "NEXT_IS_STALE="
 for %%A in (%*) do (
     if /i "%%~A"=="--help" goto :usage
     if /i "%%~A"=="-h" goto :usage
     if /i "%%~A"=="--smoke" set "SMOKE=1"
     if /i "%%~A"=="--dry" set "DRY=1"
+    if /i "%%~A"=="--no-swarm" set "NO_SWARM=1"
+    if defined NEXT_IS_STALE (
+        set "STALE_ARG=-StaleSeconds %%~A"
+        set "NEXT_IS_STALE="
+    )
+    if /i "%%~A"=="--stale" set "NEXT_IS_STALE=1"
 )
 
 if defined SMOKE (
@@ -38,10 +47,17 @@ if defined SMOKE (
 ) else (
     echo [launch_agents] Launching 7 agent windows. Drop a task into _inbox\^<agent^>.task to run it.
 )
+if defined NO_SWARM (
+    echo [launch_agents] Swarm role-swapping DISABLED ^(--no-swarm^). Workers handle their own inbox only.
+) else (
+    echo [launch_agents] Swarm mode ON: idle workers rotate into Swarm Helper roles and take over lagging peers.
+)
 
 for /L %%i in (1,1,7) do (
     set "extra="
     if defined SMOKE set "extra=-Smoke"
+    if defined NO_SWARM set "extra=!extra! -NoSwarm"
+    if defined STALE_ARG set "extra=!extra! %STALE_ARG%"
     if defined DRY (
         echo [dry] start "M%%i - !ROLE[%%i]!" powershell -NoProfile -ExecutionPolicy Bypass -NoExit -File "%~dp0scripts\run_agent_worker.ps1" -Agent "!AGENT[%%i]!" -Title "M%%i - !ROLE[%%i]!" -Slot %%i !extra!
     ) else (
@@ -52,9 +68,11 @@ echo [launch_agents] Done. Windows auto-position in a 4x2 grid (M1-M4 top, M5-M7
 exit /b 0
 
 :usage
-echo Usage: launch_agents.bat [--smoke^|--dry]
+echo Usage: launch_agents.bat [--smoke^|--dry] [--no-swarm] [--stale N]
 echo.
 echo   (no args)   Launch 7 agent windows (M1-M7) that poll _inbox\^<agent^>.task
 echo   --smoke     Seed 7 SMOKE tasks, launch windows in -Smoke mode (each runs one task, then exits)
 echo   --dry       Print the start commands without launching windows
+echo   --no-swarm  Disable Dynamic Swarm Role-Swapping (workers never help lagging peers)
+echo   --stale N   Treat a peer's task as lagging after N seconds unclaimed (default 20)
 exit /b 0
