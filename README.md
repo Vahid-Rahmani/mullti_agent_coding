@@ -3,7 +3,7 @@
 A self-evolving multi-agent coding system. This repository is the **control
 plane** that defines the agents, skills, configuration, and memory used to drive
 software projects. It ships two ways to interact with the agent swarm: a
-7-window inbox launcher and a single-window AI Agent Workspace GUI.
+retro-CRT **ZOVA terminal** and a 7-window inbox launcher.
 
 ---
 
@@ -30,76 +30,95 @@ All agents use **free** models (no paid credits required). See
 
 ## Quick Start
 
-### 1. AI Agent Workspace GUI (recommended)
+### 1. ZOVA Retro Terminal (recommended)
 
-A single-window dashboard with a workspace header, live agent status badges,
-tabbed per-agent consoles, and an interactive command bar.
+The interactive terminal UI. Full-screen retro-CRT styling on a solid black
+background: a bold pixel-art **ZOVA** banner, a live directory status
+indicator, a **tab bar** (MASTER + one tab per agent), a model status bar, a
+per-tab scrollable console, and a rounded prompt box at the bottom for typing
+coding tasks or slash commands.
 
-```bash
-python scripts/unified_app.py
-```
+**Tabbed agent workspace** — the seven agents each get their own dedicated
+tab (M1 System Architect … M7 Reviewer) inside the single unified window, so
+they operate independently. `F1`–`F7` select an agent tab, `F8` selects
+MASTER (all agents), `Ctrl+T` cycles tabs, or use `/tab <tag>`. A task typed
+on an agent tab dispatches to that agent only; on the MASTER tab it goes to
+all agents (or the `/agents` filter). Each tab has its own console showing
+only that agent's output.
 
-Or, from anywhere on Windows (after setup):
-
-```bash
-myagent
-```
-
-**Features:**
-- **Workspace header** — shows the current target path (`📂 Workspace: …`) with a
-  **Change Directory…** button so agents work in whatever folder you choose.
-- **Status dashboard** — live badges for M1–M7 (⚪ Idle / 🟡 Thinking / 🟢 Active /
-  🔴 Error); click a badge to jump to that agent's tab.
-- **Tabbed consoles** — a `💬 Master Console` plus one tab per agent; each agent's
-  output (ANSI-stripped) streams into its own tab.
-- **Control bar** — prompt entry + **RUN COMMAND**, **CLEAR LOGS**, an
-  **Auto-scroll** toggle, and quick-action shortcuts (Analyze / Plan / Implement /
-  Test / Review).
-- **Workspace-aware** — agents run `opencode run --agent <agent> --auto "<prompt>"`
-  with the current workspace as their working directory.
-
-> `--auto` auto-approves tool permissions (bash/file ops) so agents can act
-> without interactive approval. (`opencode run` has no `--yes`/`-y` flag.)
-
-### 2. Web UI (browser-based, Dyad-style)
-
-A modern browser-based workspace with an icon sidebar, center chat workplane,
-live Code + Terminal canvas, and a ⚙ API & Models manager.
+**Strict color scheme** — the UI uses exactly four colors and nothing else:
+white for regular text, orange for important details & keywords, grey for
+selected text & background highlights, and neon-green (phosphor green) for
+special highlights (banner, status notifications) on the solid black background.
 
 ```bash
-python scripts/web_app.py          # starts server, opens the browser
-launch_web.bat                     # same, Windows launcher
-python scripts/web_app.py --no-browser --port 8501   # headless
+python scripts/terminal_app.py     # full-screen retro terminal
+launch_terminal.bat                # same, in a new window
+python scripts/terminal_app.py --smoke   # headless build check
 ```
 
 **Features:**
-- **Left icon sidebar** — collapsible navigation for Master Console, M1–M7, ⚙ Settings.
-- **Center workplane** — chat interface per tab, cascading Model/Mode dropdowns,
-  collapsible "Thoughts & process" accordions, quick-action pills (Plan / Build / Review).
-- **Live Canvas (right)** — real-time Code output (syntax-highlighted) and Terminal logs.
-- **⚙ API & Models Manager** — add/edit/delete providers and models in
-  `opencode.json` (atomic writes, `.bak` backup). Keys stay in
-  `~/.local/share/opencode/auth.json` — never stored here.
+- **Pixel-art ZOVA banner** — block-glyph banner in bold neon green.
+- **Directory indicator** — `▶ DIR: <path>` under the banner; change it with
+  `/cd <path>` so agents work in any folder.
+- **Agent tabs** — live M1–M7 status per tab (● idle / ◐ thinking / ● active /
+  ✕ error); the active tab is bracket-highlighted in neon, inactive tabs
+  render grey, busy/error states orange.
+- **Model status bar** — active tab / model / mode / dispatch target /
+  running count, embedded in the rounded prompt box's top border.
+- **Rounded prompt box** — Enter submits, Ctrl+J inserts a newline,
+  Ctrl+C clears the input (press again to quit), PageUp/PageDown scrolls the
+  active tab's console, `/` starts a command with tab completion.
+- **Workspace-aware** — agents run `opencode run --agent <agent> --auto
+  "<prompt>"` with the current workspace as their working directory.
+  `--auto` auto-approves tool permissions (`opencode run` has no `--yes`/`-y`).
 
-### 7-Window Inbox Launcher
+**Slash commands:** `/tab [tag]`, `/help`, `/cd <path>`, `/model [name]`,
+`/mode [name]`, `/agents [tags]`, `/status`, `/clear`, `/stop`, `/swarm`,
+`/proposals`, `/evolve <prompt>`, `/quit`.
 
-Runs the seven roles side by side, each listening for tasks in its own inbox.
+### 2. 7-Window Inbox Launcher
+
+Runs the seven roles side by side, each listening for tasks in its own inbox,
+with **Dynamic Swarm Role-Swapping & Peer-Assistance** built in.
 
 ```bat
-launch_agents.bat            # launch all 7 agent windows
+launch_agents.bat            # launch all 7 agent windows (swarm mode ON)
 launch_agents.bat --smoke    # seed SMOKE tasks and run once
 launch_agents.bat --dry      # print the launch commands only
+launch_agents.bat --no-swarm # disable helper rotation
+launch_agents.bat --stale N  # treat a peer's task as lagging after N s (default 20)
 ```
 
 Drop a single-line task into `_inbox/<agent>.task` (e.g. `_inbox/analyst.task`).
 The agent's window polls the inbox, runs the task, appends output to
 `_logs/<agent>.log`, and moves the consumed task to `_inbox/done/`.
 
+**Swarm protocol** (implemented in `scripts/swarm.py` + `scripts/run_agent_worker.ps1`):
+
+1. **Role rotation on completion** — after finishing its own task, an idle
+   worker scans `_inbox/` for *lagging peers* (tasks unclaimed for
+   `--stale N` seconds). It atomically claims one and executes it with the
+   peer's own agent identity (`--agent <peer>`), logging into the peer's
+   `_logs/<peer>.log`.
+2. **Dynamic tab renaming** — the window title updates in real time to show
+   the cooperative role, e.g. `M3 - Planner` → `M3-Helper->M1`, and the live
+   role is persisted per slot in `_logs/swarm/m<slot>.json` so any UI can
+   reflect it.
+3. **Inter-agent learning & feedback loop** — every run (own or assisted)
+   appends a JSONL record to `_logs/swarm_feedback.jsonl` (who, mode, ok,
+   duration). Before each run the worker injects a "swarm brief" built from
+   recent records + live helpers into the prompt, so agents share context
+   across execution cycles.
+
+Disable rotation with `--no-swarm`; skip the brief injection by passing
+`-NoBrief` to `scripts/run_agent_worker.ps1` directly.
+
 ---
 
 ## Installing the `myagent` Command (Windows)
 
-Make the workspace GUI globally runnable from any folder:
+Make the ZOVA terminal globally runnable from any folder:
 
 1. Find the Python Scripts directory:
    ```bat
@@ -108,14 +127,14 @@ Make the workspace GUI globally runnable from any folder:
 2. Create `myagent.bat` in that directory with:
    ```bat
    @echo off
-   python "C:\absolute\path\to\scripts\unified_app.py" %*
+   python "C:\absolute\path\to\scripts\terminal_app.py" %*
    ```
 3. Verify it is recognized:
    ```bat
    where myagent
    ```
 
-Now `myagent` launches the workspace GUI targeting the folder you run it from.
+Now `myagent` launches the retro terminal targeting the folder you run it from.
 
 ---
 
@@ -131,7 +150,7 @@ Now `myagent` launches the workspace GUI targeting the folder you run it from.
 │   └── run_agent_worker.ps1  # Inbox-polling worker for the 7-window launcher
 ├── knowledge/             # Swarm memory (ADRs, lessons, metrics)
 ├── .opencode/             # opencode plugins/config (e.g. model fallback)
-└── .vscode/               # VS Code tasks (Launch All Agents)
+└── .vscode/               # VS Code tasks (Launch All Agents / Retro Terminal)
 ```
 
 ---

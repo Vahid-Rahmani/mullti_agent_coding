@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Workspace root = the directory the launcher was launched from (mirrors
-# scripts/unified_app.py so the engine targets the repo it runs in).
+# scripts/terminal_app.py so the engine targets the repo it runs in).
 PROJECT_ROOT = Path(os.getcwd())
 
 # Regex patterns for repeated failures scanned in agent logs.
@@ -107,7 +107,7 @@ class SelfEvolveEngine:
             Path(project_root) if project_root is not None else PROJECT_ROOT
         )
         # Optional callable(text) mirroring StateTracker.record_decision; kept
-        # injectable so this module stays importable without web_app.
+        # injectable so this module stays importable without a UI layer.
         self.record_decision = record_decision
 
     def allow_path(self, p: str | os.PathLike) -> bool:
@@ -200,8 +200,8 @@ class SelfEvolveEngine:
     ) -> Path:
         """Atomically write the JSON restart marker (default ``_logs/restart.ctl``).
 
-        Mirrors the atomic temp-file + ``os.replace`` pattern from web_app.py.
-        Returns the marker path.
+        Mirrors the atomic temp-file + ``os.replace`` pattern used across the
+        control plane. Returns the marker path.
         """
         path = (
             Path(control_path)

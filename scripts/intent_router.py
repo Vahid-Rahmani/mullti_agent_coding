@@ -1,4 +1,4 @@
-"""Intent routing for the MultiAgentCoding web UI.
+"""Intent routing for the MultiAgentCoding control plane.
 
 Pure-Python keyword/regex classifier that maps a user prompt to a ``Route``
 (intent + agent subset) and appends every routing decision to a JSONL log.
@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Workspace root = the directory the launcher was launched from (mirrors
-# scripts/unified_app.py so the routing log lands in the repo's _logs/).
+# scripts/terminal_app.py so the routing log lands in the repo's _logs/).
 PROJECT_ROOT = Path(os.getcwd())
 
 # Agent tags referenced by routes (order matches opencode.json agents).
