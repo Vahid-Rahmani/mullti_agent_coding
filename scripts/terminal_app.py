@@ -7,11 +7,10 @@ replaces the browser workspace (``web_app.py``) and the desktop GUI
 
 Look & feel (strict palette, per spec — these four colors are the only ones
 used anywhere in the UI):
-  * white       standard code & regular text
+  * white       standard code, active highlights, and primary text
   * orange      important details & keywords (tag prefixes, errors)
-  * grey        selected text / background highlights
-  * neon green  special highlights (key banners, status notifications) on a
-                solid black background
+  * light neutral grey  framing, muted states, and panel borders on black
+
 
 Layout (single unified window with per-agent tabs):
   * an ASCII pixel-art ``ZOVA`` banner pinned at the top,
@@ -20,6 +19,8 @@ Layout (single unified window with per-agent tabs):
     console so agents operate independently; F1..F7 select an agent tab,
     F8 selects MASTER, Ctrl+T cycles tabs, or use ``/tab <tag>``,
   * a model status bar (active tab / model / mode / running count),
+  * shared bordered output panels in every agent tab for thinking, todo/tasks,
+    and execution/code activity,
   * an interactive rounded prompt box at the bottom for typing coding tasks
     or slash commands.
 
@@ -206,6 +207,87 @@ def _build_run_command(
         cmd.append("--")
     cmd.append(prompt)
     return cmd
+
+
+# --------------------------------------------------------------------------- progress telemetry
+
+# The CLI stream does not currently expose provider token counters or a known
+# task-total. Keep the visual telemetry deterministic and transparent: output
+# progress follows the run lifecycle, while token usage is estimated from
+# streamed characters against a nominal context budget.
+TOKEN_CONTEXT_WINDOW = 8192
+_TOKEN_CHARS_PER_TOKEN = 4
+WORKING_LABEL = "working..."
+_PROGRESS_BAR_WIDTH = 24
+
+
+def _estimate_token_percent(prompt: str, output: list[str] | tuple[str, ...]) -> int:
+    """Estimate prompt+stream token usage as a bounded percentage."""
+    chars = len(prompt) + sum(len(line) for line in output)
+    tokens = chars / _TOKEN_CHARS_PER_TOKEN
+    return max(0, min(100, round(tokens / TOKEN_CONTEXT_WINDOW * 100)))
+
+
+def _progress_bar_fragments(percent: int, width: int = _PROGRESS_BAR_WIDTH) -> list[tuple[str, str]]:
+    """Render a percentage inside a compact retro progress bar."""
+    percent = max(0, min(100, int(percent)))
+    label = f" {percent:3d}% "
+    slots = max(4, width - len(label) - 2)
+    filled = round(slots * percent / 100)
+    empty = slots - filled
+    return [
+        (f"bold {NEON}", "[" + "█" * filled),
+        (f"bold {NEON}", label),
+        ("class:retro.muted", "░" * empty + "]"),
+    ]
+
+
+def _working_fragments(now: float | None = None) -> list[tuple[str, str]]:
+    """Render a left-to-right pulsing/chasing ``working...`` label.
+
+    The neutral ZOVA palette supplies the fade steps: muted grey -> white ->
+    light grey -> muted grey. ``now`` is injectable for deterministic
+    tests; production uses the monotonic clock and the poller's redraw loop.
+    """
+    travel = max(1, len(WORKING_LABEL) * 2 - 2)
+    phase = int((time.monotonic() if now is None else now) * 10) % travel
+    head = phase if phase < len(WORKING_LABEL) else travel - phase
+    fragments: list[tuple[str, str]] = []
+    for index, char in enumerate(WORKING_LABEL):
+        distance = abs(index - head)
+        if distance == 0:
+            style = f"bold {WHITE}"
+        elif distance == 1:
+            style = f"bold {GREY}"
+        elif distance == 2:
+            style = f"bold {GREY}"
+        else:
+            style = "class:retro.muted"
+        fragments.append((style, char))
+    return fragments
+
+
+def _agent_progress_fragments(
+    statuses: dict[str, str],
+    progress: dict[str, int] | None = None,
+    token_usage: dict[str, int] | None = None,
+    current_tab: str = "master",
+) -> list[tuple[str, str]]:
+    """Render active-agent progress rows and token lines for all tabs."""
+    progress = progress or {}
+    token_usage = token_usage or {}
+    fragments: list[tuple[str, str]] = []
+    for tag, name, _agent in AGENTS:
+        if statuses.get(tag, STATUS_IDLE) not in (STATUS_THINKING, STATUS_ACTIVE):
+            continue
+        label_style = f"bold {NEON}" if tag == current_tab else "class:retro.muted"
+        fragments.append((label_style, f"{tag.upper()} {name}  "))
+        fragments.extend(_progress_bar_fragments(progress.get(tag, 0)))
+        fragments.append(("class:retro.console", "  "))
+        fragments.extend(_working_fragments())
+        fragments.append(("class:retro.console", "\n"))
+        fragments.append(("class:retro.muted", f"    Token: {token_usage.get(tag, 0)}% Used (approx.)\n"))
+    return fragments
 
 
 # --------------------------------------------------------------------------- state tracker
@@ -410,6 +492,9 @@ class RunHub:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.statuses: dict[str, str] = {tag: STATUS_IDLE for tag, _, _ in AGENTS}
+        self.progress: dict[str, int] = {tag: 0 for tag, _, _ in AGENTS}
+        self.token_usage: dict[str, int] = {tag: 0 for tag, _, _ in AGENTS}
+        self.prompts: dict[str, str] = {tag: "" for tag, _, _ in AGENTS}
         self.buffers: dict[str, list[str]] = {tag: [] for tag, _, _ in AGENTS}
         self.buffers["master"] = []
         self.events: list[dict] = []  # {"seq", "tag", "kind", "text"}
@@ -428,22 +513,42 @@ class RunHub:
     def set_status(self, tag: str, status: str) -> None:
         with self.lock:
             self.statuses[tag] = status
+            if status == STATUS_THINKING:
+                self.progress[tag] = max(self.progress.get(tag, 0), 8)
+            elif status == STATUS_ACTIVE:
+                self.progress[tag] = max(self.progress.get(tag, 0), 18)
+            elif status == STATUS_IDLE:
+                self.progress[tag] = 100
         self._emit(tag, "status", status)
 
     def append_line(self, tag: str, text: str) -> None:
         with self.lock:
             self.buffers[tag].append(text)
+            output_lines = len(self.buffers[tag])
+            # No task-total is available from the CLI, so show steady
+            # lifecycle progress without falsely claiming exact completion.
+            self.progress[tag] = min(92, max(self.progress.get(tag, 0), 18 + output_lines * 3))
+            self.token_usage[tag] = _estimate_token_percent(
+                self.prompts.get(tag, ""), self.buffers[tag]
+            )
         self._emit(tag, "line", text)
 
     def append_error(self, tag: str, text: str) -> None:
         with self.lock:
             self.buffers[tag].append(text)
+            self.token_usage[tag] = _estimate_token_percent(
+                self.prompts.get(tag, ""), self.buffers[tag]
+            )
         self._emit(tag, "error", text)
 
     def clear(self) -> None:
         with self.lock:
             for buf in self.buffers.values():
                 buf.clear()
+            for tag, _name, _agent in AGENTS:
+                self.progress[tag] = 0
+                self.token_usage[tag] = 0
+                self.prompts[tag] = ""
         self._emit("master", "line", "── logs cleared ──")
 
     # ------------------------------------------------------------ running
@@ -491,7 +596,14 @@ class RunHub:
         STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
         with self.lock:
             self.running += len(targets)
+            for tag, _name, _agent in targets:
+                self.progress[tag] = 5
+                self.token_usage[tag] = _estimate_token_percent(prompt, [])
+                self.prompts[tag] = pruned
         for tag, _name, agent in targets:
+            # A run separator resets the visible block context for this agent
+            # and makes consecutive runs easy to scan in every tab.
+            self._emit(tag, "run", _run_header(prompt, tag.upper()))
             model, mode = self.resolve(tag, overrides)
             self.set_status(tag, STATUS_THINKING)
             threading.Thread(
@@ -748,12 +860,13 @@ BANNER = [
     "╚═══════╝ ╚═══════╝   ╚═══╝   ╚═╝   ╚═╝",
 ]
 
-# ZOVA strict palette — the ONLY colors used anywhere in the UI.
-WHITE = "#ffffff"      # standard code & regular text
-ORANGE = "#ff8c00"     # important details & keywords
-GREY = "#9a9a9a"       # selected text / background highlights (muted)
+# ZOVA neutral palette — white is the primary highlight and grey frames the UI.
+WHITE = "#ffffff"      # primary text and active highlights
+ORANGE = "#ff8c00"     # errors and secondary warning keywords
+GREY = "#c4c8cc"       # light neutral borders and muted text
 GREY_BG = "#333333"    # background highlight (input box)
-NEON = "#33ff33"       # phosphor-green special highlights (banners, status)
+# Kept as a compatibility alias for existing helper names; no green is used.
+NEON = WHITE
 BLACK = "#000000"      # solid background
 
 STATUS_SYMBOL = {
@@ -769,12 +882,10 @@ def _tag_style(tag: str) -> str:
     return f"bold {ORANGE}"
 
 
-def _banner_fragments() -> list[tuple[str, str]]:
-    """Banner as (style, text) fragments (rows joined with newlines).
-
-    A flat fragment list renders as a single line in prompt_toolkit, so the
-    rows must be explicitly joined with ``\n``.
-    """
+def _banner_fragments(visible: bool = True) -> list[tuple[str, str]]:
+    """Banner fragments, or an empty frame after the first submission."""
+    if not visible:
+        return []
     return [("class:retro.banner", "\n".join(BANNER))]
 
 
@@ -813,8 +924,8 @@ def _dashboard_fragments(
     """Tab bar row: MASTER + M1..M7 with live status (strict ZOVA palette).
 
     Each tab shows its status symbol (grey idle / orange busy-or-error /
-    neon active) and label. The active tab is highlighted: bracket-wrapped
-    and bold neon. Other tabs render grey-ish labels with status-colored
+    white active) and label. The active tab is highlighted: bracket-wrapped
+    and bold white. Other tabs render grey-ish labels with status-colored
     symbols.
     """
     fragments: list[tuple[str, str]] = []
@@ -825,7 +936,7 @@ def _dashboard_fragments(
         label = "MASTER" if tag == "master" else f"{tag.upper()} {name}"
         if active:
             # keep the status symbol's own color inside the bracket; the
-            # label is the neon highlight
+            # label is the white highlight
             fragments.append((f"bold {NEON}", " ["))
             fragments.append((color, f"{symbol} "))
             fragments.append((f"bold {NEON}", f"{label}] "))
@@ -835,23 +946,174 @@ def _dashboard_fragments(
     return fragments
 
 
-def _console_fragments(lines: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Render console lines (tag, text) into styled fragments (strict palette).
+# Structured output panels. The stream remains stored as the compatible
+# ``(tag, text)`` tuples; classification is presentation-only and shared by
+# MASTER plus every M1..M7 tab.
+RUN_HEADER_PREFIX = "──── RUN "
+_RUN_HEADER_MAX_PROMPT = 60
 
-    Each agent line carries exactly one tag prefix (``[m4]``, orange) — line
-    text never contains an embedded ``[m4 Backend Dev]`` prefix, so double
-    tags never appear. MASTER chrome lines (prompt echoes, command replies)
-    start clean with no prefix. Error lines are orange; all other text is
-    white.
+
+def _run_header(prompt: str, label: str) -> str:
+    """Build a compact visible separator for one agent run."""
+    display = " ".join(_sanitize_prompt(prompt).split())
+    if len(display) > _RUN_HEADER_MAX_PROMPT:
+        display = display[:_RUN_HEADER_MAX_PROMPT] + "…"
+    return f"{RUN_HEADER_PREFIX}{label}: {display} ────"
+
+
+BLOCK_THINKING = "thinking"
+BLOCK_TODO = "todo"
+BLOCK_EXECUTION = "execution"
+_BLOCK_LABELS = {
+    BLOCK_THINKING: "THINKING",
+    BLOCK_TODO: "TODO / TASKS",
+    BLOCK_EXECUTION: "EXECUTION / CODE",
+}
+_BLOCK_PANEL_STYLES = {
+    BLOCK_THINKING: f"bold {GREY}",
+    BLOCK_TODO: f"bold {GREY}",
+    BLOCK_EXECUTION: f"bold {GREY}",
+}
+_BLOCK_PANEL_WIDTH = 64
+
+
+def _classify_block(text: str, active: str = BLOCK_EXECUTION) -> tuple[str, str]:
+    """Classify visible agent output without inferring hidden reasoning.
+
+    ``active`` is scoped by agent in ``_panel_groups``. This keeps interleaved
+    M1..M7 streams independent while allowing headings and markdown checkboxes
+    to keep subsequent lines in the same panel.
+    """
+    stripped = text.strip()
+    upper = stripped.upper()
+    if text.startswith("──── RUN "):
+        return BLOCK_EXECUTION, BLOCK_EXECUTION
+
+    if upper.startswith(("</THINK", "</THOUGHT", "</REASON")):
+        return BLOCK_THINKING, BLOCK_EXECUTION
+    if upper.startswith(("<THINK", "THINKING:", "THOUGHT:", "REASONING:")) or upper in {
+        "THINKING", "THOUGHTS", "REASONING"
+    }:
+        return BLOCK_THINKING, BLOCK_THINKING
+
+    todo_heading = upper.startswith((
+        "TODO:", "TASK:", "TASKS:", "PLAN:", "CHECKLIST:",
+        "## TODO", "## TASK", "## PLAN", "### TODO", "### TASK",
+    )) or upper in {"TODO", "TASKS", "PLAN", "CHECKLIST"}
+    todo_item = bool(re.match(r"^(?:[-*+]\s+)?\[[ X✓✗~-]\]\s+", stripped, re.IGNORECASE))
+    if todo_heading or todo_item:
+        return BLOCK_TODO, BLOCK_TODO
+    if active == BLOCK_TODO and bool(re.match(r"^(?:[-*+]\s+|\d+[.)]\s+)", stripped)):
+        return BLOCK_TODO, BLOCK_TODO
+
+    execution = (
+        upper.startswith((
+            "EXECUTION:", "CODE:", "OUTPUT:", "COMMAND:", "CMD:",
+            "FILE:", "FILES:", "CHANGES:", "PATCH:", "DIFF:",
+            "IMPLEMENTATION:", "RESULT:", "RUNNING:", "WRITING:",
+            "EDITED:", "CREATED:", "UPDATED:", "TEST:", "TESTS:",
+        ))
+        or stripped.startswith(("```", "diff --", "+++ ", "--- ", "$ ", ">>> "))
+        or bool(re.match(r"^(?:M|A|D|R)\s+.+", stripped))
+    )
+    if execution:
+        return BLOCK_EXECUTION, BLOCK_EXECUTION
+    if active == BLOCK_THINKING and stripped:
+        return BLOCK_THINKING, BLOCK_THINKING
+    return BLOCK_EXECUTION, BLOCK_EXECUTION
+
+
+def _block_states(lines: list[tuple[str, str]]) -> dict[str, str]:
+    """Infer each agent's current block state from a history prefix."""
+    states: dict[str, str] = {}
+    for tag, text in lines:
+        _kind, states[tag] = _classify_block(text, states.get(tag, BLOCK_EXECUTION))
+    return states
+
+
+def _panel_groups(
+    lines: list[tuple[str, str]],
+    initial_states: dict[str, str] | None = None,
+) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Group adjacent output by agent/category, preserving hidden context."""
+    states = dict(initial_states or {})
+    groups: list[tuple[str, list[tuple[str, str]]]] = []
+    for tag, text in lines:
+        if text.startswith(RUN_HEADER_PREFIX):
+            states[tag] = BLOCK_EXECUTION
+            groups.append((f"{tag}:header", [(tag, text)]))
+            continue
+        kind, next_state = _classify_block(text, states.get(tag, BLOCK_EXECUTION))
+        states[tag] = next_state
+        key = f"{tag}:{kind}"
+        if groups and groups[-1][0] == key:
+            groups[-1][1].append((tag, text))
+        else:
+            groups.append((key, [(tag, text)]))
+    return groups
+
+
+def _panel_border(kind: str, opening: bool) -> tuple[str, str]:
+    """Return a uniformly sized light-grey border for a categorized panel."""
+    style = f"bold {GREY}"
+    if opening:
+        prefix = f"╭─ {_BLOCK_LABELS[kind]} "
+        dashes = max(1, _BLOCK_PANEL_WIDTH - len(prefix) - 1)
+        return style, prefix + "─" * dashes + "╮\n"
+    return style, "╰" + "─" * (_BLOCK_PANEL_WIDTH - 2) + "╯\n"
+
+
+def _content_style(kind: str, text: str) -> str:
+    """Style panel content, emphasizing completed/pending todo states."""
+    if text.startswith("ERROR"):
+        return f"bold {ORANGE}"
+    if kind == BLOCK_TODO:
+        marker = re.match(r"^(?:[-*+]\s+)?\[([ X✓✗~-])\]", text.strip(), re.IGNORECASE)
+        if marker:
+            state = marker.group(1).lower()
+            if state in {"x", "✓"}:
+                return f"bold {NEON}"
+            if state in {"~", "-"}:
+                return f"bold {GREY}"
+            return f"bold {ORANGE}"
+        return f"bold {ORANGE}"
+    return "class:retro.console"
+
+
+def _console_fragments(
+    lines: list[tuple[str, str]],
+    prefix: bool = True,
+    initial_states: dict[str, str] | None = None,
+) -> list[tuple[str, str]]:
+    """Render all tabs through the same categorized bordered-panel renderer.
+
+    MASTER keeps its legacy plain command chrome; agent output is wrapped in
+    THINKING, TODO / TASKS, or EXECUTION / CODE panels. ``prefix=False`` is
+    used by M1..M7 because the tab bar already identifies the agent.
     """
     fragments: list[tuple[str, str]] = []
-    for tag, text in lines:
-        if tag and tag != "master":
-            fragments.append((_tag_style(tag), f"[{tag}] "))
-        if text.startswith("ERROR"):
-            fragments.append((f"bold {ORANGE}", text + "\n"))
-        else:
-            fragments.append(("class:retro.console", text + "\n"))
+    for group_key, group in _panel_groups(lines, initial_states):
+        tag, kind = group_key.split(":", 1)
+        if kind == "header":
+            fragments.extend((f"bold {WHITE}", text + "\n") for _, text in group)
+            continue
+        if tag == "master":
+            for line_tag, text in group:
+                fragments.append((_content_style(kind, text), text + "\n"))
+            continue
+
+        style, border = _panel_border(kind, True)
+        fragments.append((style, border))
+        for line_tag, text in group:
+            content: list[tuple[str, str]] = []
+            if prefix and line_tag and line_tag != "master":
+                content.append((_tag_style(line_tag), f"[{line_tag}] "))
+            content.append((_content_style(kind, text), text))
+            fragments.append((style, "│ "))
+            fragments.extend(content)
+            fragments.append((style, " │\n"))
+        style, border = _panel_border(kind, False)
+        fragments.append((style, border))
     return fragments
 
 
@@ -1028,8 +1290,10 @@ class RetroTerminalApp:
             self.set_tab(self._prev_tab_tag())
 
         banner_window = Window(
-            content=FormattedTextControl(_banner_fragments),
-            height=len(BANNER),
+            content=FormattedTextControl(
+                lambda: _banner_fragments(self.banner_visible)
+            ),
+            height=lambda: len(BANNER) if self.banner_visible else 0,
             style="class:retro.banner",
             always_hide_cursor=True,
             dont_extend_height=True,
@@ -1046,6 +1310,21 @@ class RetroTerminalApp:
             height=Dimension(min=1, max=2),
             wrap_lines=True,
             style="class:retro.dash",
+            always_hide_cursor=True,
+            dont_extend_height=True,
+        )
+        self.progress_window = Window(
+            content=FormattedTextControl(
+                lambda: _agent_progress_fragments(
+                    self.hub.statuses,
+                    self.hub.progress,
+                    self.hub.token_usage,
+                    self.current_tab,
+                )
+            ),
+            height=Dimension(min=0, max=max(1, len(AGENTS) * 2)),
+            wrap_lines=True,
+            style="class:retro.progress",
             always_hide_cursor=True,
             dont_extend_height=True,
         )
@@ -1082,6 +1361,7 @@ class RetroTerminalApp:
                 banner_window,
                 dir_window,
                 self.tab_window,
+                self.progress_window,
                 self.console_window,
                 box,
             ]
@@ -1090,16 +1370,20 @@ class RetroTerminalApp:
         self.key_bindings = kb
         self._style_dict = {
             "retro": f"bg:{BLACK} fg:{WHITE}",
-            "retro.banner": f"bold bg:{BLACK} fg:{NEON}",
-            "retro.dir": f"bold bg:{BLACK} fg:{NEON}",
+            "retro.banner": f"bold bg:{BLACK} fg:{WHITE}",
+            "retro.dir": f"bold bg:{BLACK} fg:{GREY}",
             "retro.dash": f"bg:{BLACK} fg:{WHITE}",
+            "retro.progress": f"bg:{BLACK} fg:{WHITE}",
             "retro.muted": f"bg:{BLACK} fg:{GREY}",
             "retro.console": f"bg:{BLACK} fg:{WHITE}",
-            "retro.model": f"bold bg:{BLACK} fg:{NEON}",
-            "retro.box": f"bg:{BLACK} fg:{NEON}",
-            "retro.input": f"bg:{GREY_BG} fg:{WHITE}",
+            "retro.model": f"bold bg:{BLACK} fg:{WHITE}",
+            "retro.box": f"bg:{BLACK} fg:{GREY}",
+            # Explicit bold white keeps the command prompt bright even when
+            # the terminal's default input style is dimmed.
+            "retro.input": f"bg:{GREY_BG} fg:{WHITE} bold",
         }
         self._application = None
+        self.banner_visible = True
 
     # ------------------------------------------------------------------ tabs
 
@@ -1145,7 +1429,15 @@ class RetroTerminalApp:
         scroll = self.tab_scroll.get(self.current_tab, 0)
         tail = min(len(source), self.CONSOLE_TAIL)
         start = max(0, len(source) - tail - scroll)
-        return _console_fragments(source[start:])
+        # Agent tabs use the same panel markup as MASTER, but omit repeated
+        # agent prefixes because the active tab already identifies the agent.
+        history_prefix = source[:start]
+        initial_states = _block_states(history_prefix)
+        return _console_fragments(
+            source[start:],
+            prefix=self.current_tab == "master",
+            initial_states=initial_states,
+        )
 
     def _drain(self) -> None:
         """Pull new hub events into the consoles (call from the UI thread).
@@ -1222,6 +1514,7 @@ class RetroTerminalApp:
         stripped = text.strip()
         if not stripped:
             return
+        self.banner_visible = False
         self._echo(f"▸ {stripped}")
         self._handle_input(stripped)
 
@@ -1234,6 +1527,9 @@ class RetroTerminalApp:
         stripped = text.strip()
         if not stripped:
             return
+        # Direct callers/tests and future input paths get the same lifecycle
+        # behavior as the Buffer accept handler.
+        self.banner_visible = False
         cmd = parse_command(stripped)
         if cmd is None:
             if self.current_tab == "master":
