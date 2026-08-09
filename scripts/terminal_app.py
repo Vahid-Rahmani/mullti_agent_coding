@@ -491,12 +491,12 @@ class RunHub:
         STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
         with self.lock:
             self.running += len(targets)
-        for tag, name, agent in targets:
+        for tag, _name, agent in targets:
             model, mode = self.resolve(tag, overrides)
             self.set_status(tag, STATUS_THINKING)
             threading.Thread(
                 target=self._run_agent,
-                args=(tag, name, agent, pruned, model, mode),
+                args=(tag, agent, pruned, model, mode),
                 name=f"term-{tag}",
                 daemon=True,
             ).start()
@@ -505,7 +505,6 @@ class RunHub:
     def _run_agent(
         self,
         tag: str,
-        name: str,
         agent: str,
         prompt: str,
         model: str | None,

@@ -332,7 +332,7 @@ class RunStateWiringTestCase(unittest.TestCase):
             self.hub.run(raw, {})
         self.assertTrue(any(f"▶ {raw}" in line for line in self.hub.buffers["master"]))
         for call in thread_mock.call_args_list:
-            self.assertEqual(call.kwargs["args"][3], pruned)
+            self.assertEqual(call.kwargs["args"][2], pruned)
 
     def test_run_agents_filter_restricts_dispatch(self):
         with mock.patch("terminal_app.threading.Thread") as thread_mock:
@@ -354,10 +354,10 @@ class RunStateWiringTestCase(unittest.TestCase):
             call.kwargs["args"][0]: call.kwargs["args"] for call in thread_mock.call_args_list
         }
         # m1 uses its own override; m4 inherits the master override
-        self.assertEqual(args_by_tag["m1"][4], "opencode/deepseek-v4-flash-free")
-        self.assertEqual(args_by_tag["m1"][5], "architect")
-        self.assertEqual(args_by_tag["m4"][4], "opencode/big-pickle")
-        self.assertEqual(args_by_tag["m4"][5], "plan")
+        self.assertEqual(args_by_tag["m1"][3], "opencode/deepseek-v4-flash-free")
+        self.assertEqual(args_by_tag["m1"][4], "architect")
+        self.assertEqual(args_by_tag["m4"][3], "opencode/big-pickle")
+        self.assertEqual(args_by_tag["m4"][4], "plan")
 
     def test_run_empty_prompt_returns_error(self):
         self.assertEqual(self.hub.run("   ", {}), "Prompt must not be empty.")
@@ -370,7 +370,7 @@ class RunStateWiringTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=0)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: ok", data["completed"])
 
@@ -378,13 +378,13 @@ class RunStateWiringTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=3)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: failed", data["completed"])
 
     def test_run_agent_records_finish_failed_on_exception(self):
         with mock.patch("terminal_app._opencode_command", return_value=None):
-            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: failed", data["completed"])
 
@@ -393,7 +393,7 @@ class RunStateWiringTestCase(unittest.TestCase):
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc) as popen:
             self.hub._run_agent(
-                "m1", "System Architect", "system-architect",
+                "m1", "system-architect",
                 "- Peer-Assistance handoff", None, None,
             )
         cmd = popen.call_args.args[0]
@@ -716,7 +716,7 @@ class CleanLinePrefixTestCase(unittest.TestCase):
         proc = _FakeProc(lines=["hello from opencode", "second line"], returncode=0)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "Backend Dev", "backend-dev", "prompt", None, None)
+            self.hub._run_agent("m4", "backend-dev", "prompt", None, None)
         # raw streamed lines, no embedded "[m4 Backend Dev]" prefix
         self.assertEqual(
             self.hub.buffers["m4"], ["hello from opencode", "second line"]
@@ -727,7 +727,7 @@ class CleanLinePrefixTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=3)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "Backend Dev", "backend-dev", "prompt", None, None)
+            self.hub._run_agent("m4", "backend-dev", "prompt", None, None)
         err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
         self.assertEqual(err_lines[-1], "exit code 3")
         self.assertFalse(any("Backend Dev]" in text for text in err_lines))
