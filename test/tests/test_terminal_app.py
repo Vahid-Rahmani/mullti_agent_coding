@@ -28,7 +28,8 @@ from terminal_app import (
     RetroTerminalApp,
     RunHub,
     StateTracker,
-    _agent_progress_fragments,
+    _loading_bar_fragments,
+    _weighted_progress,
     _build_run_command,
     _classify_block,
     _console_fragments,
@@ -37,6 +38,7 @@ from terminal_app import (
     _dashboard_fragments,
     _dir_line,
     _model_bar,
+    _model_bar_fragments,
     _progress_bar_fragments,
     _sanitize_prompt,
     _estimate_token_percent,
@@ -439,30 +441,30 @@ class BannerTestCase(unittest.TestCase):
 class StrictPaletteTestCase(unittest.TestCase):
     """The UI uses exactly the four spec colors (no rainbow themes)."""
 
-    def test_palette_constants_match_spec(self):
-        self.assertEqual(terminal_app.WHITE, "#ffffff")   # standard text
-        self.assertEqual(terminal_app.ORANGE, "#ff8c00")  # keywords/important
-        self.assertEqual(terminal_app.GREY, "#c4c8cc")    # neutral highlights
-        self.assertEqual(terminal_app.NEON, terminal_app.WHITE) # compatibility alias, no green
-        self.assertNotIn("#33ff33", terminal_app.NEON)
+    def test_palette_matches_git_inspired_spec(self):
+        self.assertEqual(terminal_app.BLACK, "#0d1117")   # charcoal background
+        self.assertEqual(terminal_app.GREY, "#c9d1d9")    # general text/logs
+        self.assertEqual(terminal_app.WHITE, "#ffffff")   # panels and controls
+        self.assertEqual(terminal_app.ORANGE, "#f85149")  # tab outlines
+        self.assertNotIn("#39ff14", terminal_app.NEON)
 
     def test_no_legacy_rainbow_constants(self):
         for name in ("TAG_COLORS", "NEON_BRIGHT", "NEON_DIM", "AMBER", "RED", "BOX"):
             self.assertFalse(hasattr(terminal_app, name), f"legacy {name} must be gone")
 
-    def test_status_symbols_use_only_spec_colors(self):
-        allowed = {terminal_app.GREY, terminal_app.ORANGE, terminal_app.NEON}
+    def test_status_symbols_use_only_git_palette_colors(self):
+        allowed = {terminal_app.GREY, terminal_app.ORANGE, terminal_app.WHITE}
         for _symbol, color in terminal_app.STATUS_SYMBOL.values():
             self.assertIn(color, allowed)
 
-    def test_tag_style_is_orange(self):
-        self.assertIn(terminal_app.ORANGE, terminal_app._tag_style("m4"))
+    def test_tag_style_uses_light_grey(self):
+        self.assertIn(terminal_app.GREY, terminal_app._tag_style("m4"))
 
-    def test_console_error_lines_are_orange_regular_white(self):
-        frags = terminal_app._console_fragments([("m4", "ERROR: boom"), ("m4", "ok line")])
+    def test_console_error_lines_keep_general_grey_and_panel_white(self):
+        frags = terminal_app._console_fragments([("master", "ERROR: boom"), ("m4", "ok line")])
         styles = [style for style, _ in frags]
-        self.assertTrue(any(terminal_app.ORANGE in s for s in styles))
         self.assertTrue(any("retro.console" in s for s in styles))
+        self.assertTrue(any("retro.panel.content" in s for s in styles))
 
 
 class ProgressRenderTestCase(unittest.TestCase):
@@ -482,23 +484,67 @@ class ProgressRenderTestCase(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertGreaterEqual(len({style for style, _text in first}), 3)
 
-    def test_active_agent_has_progress_working_and_token_line(self):
-        frags = _agent_progress_fragments(
+    def test_active_agent_uses_one_unified_loading_bar(self):
+        frags = _loading_bar_fragments(
             {"m4": terminal_app.STATUS_ACTIVE},
             {"m4": 45},
             {"m4": 32},
             current_tab="m4",
+            now=0.0,
+            width=100,
         )
-        joined = "".join(text for _style, text in frags)
-        self.assertIn("M4 Backend Dev", joined)
+        joined = "".join(text for _style, text, *rest in frags)
+        self.assertIn("LOADING │ M4 Backend Dev", joined)
         self.assertIn("45%", joined)
         self.assertIn("working...", joined)
         self.assertIn("Token: 32% Used", joined)
-        self.assertIn("approx.", joined)
+        self.assertEqual(joined.count("LOADING │"), 1)
 
-    def test_idle_agents_do_not_show_loading_rows(self):
-        frags = _agent_progress_fragments({tag: terminal_app.STATUS_IDLE for tag, _name, _agent in AGENTS})
-        self.assertEqual(frags, [])
+    def test_idle_active_tab_keeps_the_fixed_loading_slot_quiet(self):
+        frags = _loading_bar_fragments(
+            {tag: terminal_app.STATUS_IDLE for tag, _name, _agent in AGENTS},
+            current_tab="m4",
+            width=100,
+        )
+        joined = "".join(text for _style, text, *rest in frags)
+        self.assertIn("LOADING │ M4 Backend Dev", joined)
+        self.assertIn("0%", joined)
+        self.assertIn("idle", joined)
+        self.assertEqual(joined.count("LOADING │"), 1)
+
+    def test_master_loading_bar_aggregates_weighted_active_tasks(self):
+        statuses = {"m1": terminal_app.STATUS_ACTIVE, "m4": terminal_app.STATUS_ACTIVE}
+        progress = {"m1": 20, "m4": 80}
+        weights = {"m1": 1.0, "m4": 3.0}
+        self.assertEqual(_weighted_progress(statuses, progress, ["m1", "m4"], weights), 65)
+        joined = "".join(
+            text for _style, text, *rest in _loading_bar_fragments(
+                statuses, progress, {"m1": 10, "m4": 50}, "master",
+                session_tags={"m1", "m4"}, weights=weights, now=0.0, width=120,
+            )
+        )
+        self.assertIn("MASTER / ALL AGENTS", joined)
+        self.assertIn("65%", joined)
+        self.assertIn("Token: 40% Used", joined)
+
+    def test_master_completion_retains_finished_task_weight(self):
+        statuses = {"m1": terminal_app.STATUS_IDLE, "m4": terminal_app.STATUS_ACTIVE}
+        progress = {"m1": 100, "m4": 50}
+        self.assertEqual(_weighted_progress(statuses, progress, ["m1", "m4"]), 75)
+
+    def test_run_hub_exposes_thread_safe_master_aggregate(self):
+        hub = RunHub()
+        with hub.lock:
+            hub.session_tags = {"m1", "m4"}
+            hub.statuses["m1"] = terminal_app.STATUS_ACTIVE
+            hub.statuses["m4"] = terminal_app.STATUS_ACTIVE
+            hub.progress["m1"] = 25
+            hub.progress["m4"] = 75
+            hub.progress_weights = {"m1": 1.0, "m4": 3.0}
+        self.assertEqual(hub.aggregate_progress(), 63)
+        snapshot = hub.loading_snapshot("m4")
+        self.assertEqual(snapshot["current_tab"], "m4")
+        self.assertEqual(snapshot["session_tags"], {"m1", "m4"})
 
     def test_token_estimate_is_bounded(self):
         self.assertEqual(_estimate_token_percent("a" * (8192 * 4 // 2), []), 50)
@@ -511,6 +557,27 @@ class ProgressRenderTestCase(unittest.TestCase):
         self.assertIn(f"fg:{terminal_app.WHITE}", style)
         self.assertIn("bold", style)
 
+    def test_tabs_controls_and_framing_use_requested_colors(self):
+        app = RetroTerminalApp()
+        self.assertIn(f"fg:{terminal_app.WHITE}", app._style_dict["retro.box"])
+        self.assertIn(f"fg:{terminal_app.ORANGE}", app._style_dict["retro.tab.active"])
+        self.assertIn(f"fg:{terminal_app.WHITE}", app._style_dict["retro.control"])
+        self.assertIn(f"fg:{terminal_app.WHITE}", app._style_dict["retro.panel.content"])
+
+    def test_only_one_loading_window_is_constructed(self):
+        app = RetroTerminalApp()
+        self.assertTrue(hasattr(app, "loading_window"))
+        self.assertFalse(hasattr(app, "progress_window"))
+        children = app.layout_root.content.children
+        self.assertIs(children[-2], app.loading_window)
+        self.assertIs(children[-1], app.prompt_box)
+
+    def test_lower_panel_dimensions_are_expanded(self):
+        self.assertGreaterEqual(terminal_app.INPUT_MIN_LINES, 3)
+        self.assertGreater(terminal_app.INPUT_MAX_LINES, 8)
+        self.assertGreaterEqual(terminal_app.CONSOLE_MIN_LINES, 5)
+        self.assertGreater(terminal_app.CONSOLE_PREFERRED_LINES, terminal_app.CONSOLE_MIN_LINES)
+
 
 class ChromeRenderTestCase(unittest.TestCase):
     """dir line, model bar, dashboard, console fragments."""
@@ -522,7 +589,7 @@ class ChromeRenderTestCase(unittest.TestCase):
 
     def test_model_bar_reports_model_mode_target_running(self):
         bar = _model_bar({"master": {"model": "opencode/big-pickle", "mode": "plan"}}, ["m1", "m4"])
-        self.assertIn("MODEL opencode/big-pickle", bar)
+        self.assertIn("AI MODEL opencode/big-pickle", bar)
         self.assertIn("MODE plan", bar)
         self.assertIn("TARGET m1,m4", bar)
         self.assertIn("RUN 0/7", bar)
@@ -531,6 +598,23 @@ class ChromeRenderTestCase(unittest.TestCase):
         bar = _model_bar({"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}}, None)
         self.assertIn("MODEL Auto", bar)
         self.assertIn("TARGET all", bar)
+
+    def test_model_bar_controls_are_mouse_aware(self):
+        controls = []
+        fragments = _model_bar_fragments(
+            {"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}},
+            None,
+            "master",
+            lambda kind, _event: controls.append(kind),
+        )
+        actionable = [fragment for fragment in fragments if len(fragment) == 3]
+        self.assertEqual(len(actionable), 4)
+        for fragment in actionable:
+            fragment[2](mock.Mock())
+        self.assertEqual(controls, ["tab", "model", "mode", "target"])
+        labels = "".join(fragment[1] for fragment in fragments)
+        self.assertGreaterEqual(labels.count("⟦"), 4)
+        self.assertGreaterEqual(labels.count("⟧"), 4)
 
     def test_dashboard_has_all_seven_agents(self):
         frags = _dashboard_fragments({})
@@ -542,10 +626,26 @@ class ChromeRenderTestCase(unittest.TestCase):
     def test_dashboard_maps_statuses(self):
         frags = _dashboard_fragments({"m1": "thinking", "m2": "error", "m3": "active"})
         joined = "".join(text for _, text in frags)
-        # status glyphs: thinking ◐, error ✕, active ● bright
-        self.assertIn("◐", joined)
+        # activity is intentionally represented only by the unified bar;
+        # tabs retain a neutral dot while error remains explicit.
         self.assertIn("✕", joined)
         self.assertIn("●", joined)
+
+    def test_dashboard_renders_distinct_button_cells(self):
+        frags = _dashboard_fragments({}, "m3")
+        joined = "".join(text for _, text in frags)
+        self.assertIn("⟦● M3 Planner⟧", joined)
+        self.assertIn("⟦● M1 System Architect⟧", joined)
+        self.assertIn("class:retro.tab.active", " ".join(style for style, _text in frags))
+
+    def test_dashboard_can_attach_mouse_handlers_to_each_tab(self):
+        handlers = []
+        frags = _dashboard_fragments({}, "master", lambda tag, event: handlers.append(tag))
+        self.assertEqual(len(frags), 8)
+        self.assertTrue(all(len(fragment) == 3 for fragment in frags))
+        for fragment in frags:
+            fragment[2](mock.Mock())
+        self.assertEqual(handlers, ["master", "m1", "m2", "m3", "m4", "m5", "m6", "m7"])
 
     def test_console_fragments_include_tag_and_text(self):
         frags = _console_fragments([("m4", "hello retro")])
@@ -555,8 +655,8 @@ class ChromeRenderTestCase(unittest.TestCase):
 
     def test_help_text_documents_commands(self):
         help_text = build_help_text()
-        for cmd in ("/help", "/cd", "/model", "/mode", "/agents", "/clear",
-                    "/stop", "/swarm", "/evolve", "/quit"):
+        for cmd in ("/help", "/cd", "/model", "/mode", "/prompt", "/prompts",
+                    "/agents", "/clear", "/stop", "/swarm", "/evolve", "/quit"):
             self.assertIn(cmd, help_text)
 
 
@@ -598,8 +698,76 @@ class SlashCommandTestCase(unittest.TestCase):
 
     def test_model_show_set_unknown(self):
         self.assertIn("MODEL:", self.app._cmd_model(""))
+        self.assertEqual(self.app.menu_kind, "model")
+        self.assertEqual(self.app.menu_options, MODEL_OPTIONS)
         self.assertIn("MODEL: opencode/big-pickle", self.app._cmd_model("opencode/big-pickle"))
         self.assertIn("ERROR", self.app._cmd_model("nope"))
+
+    def test_mode_bare_opens_model_specific_menu(self):
+        self.app._cmd_model("opencode/big-pickle")
+        self.app._cmd_mode("")
+        self.assertEqual(self.app.menu_kind, "mode")
+        self.assertEqual(self.app.menu_options, ["plan", "build", "analyze"])
+
+    def test_menu_selection_updates_model_mode_and_target(self):
+        self.app.open_menu("model")
+        self.app._select_menu_option("opencode/big-pickle")
+        self.assertEqual(self.app.overrides["master"]["model"], "opencode/big-pickle")
+        self.app.open_menu("mode")
+        self.app._select_menu_option("plan")
+        self.assertEqual(self.app.overrides["master"]["mode"], "plan")
+        self.app.open_menu("target")
+        self.app._select_menu_option("m4")
+        self.assertEqual(self.app.agents_filter, ["m4"])
+        self.app.open_menu("tab")
+        self.app._select_menu_option("m3")
+        self.assertEqual(self.app.current_tab, "m3")
+        self.assertIsNone(self.app.menu_kind)
+
+    def test_mouse_menu_is_anchored_and_clamped_to_trigger(self):
+        from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType, Point
+
+        self.app._screen_size = mock.Mock(return_value=(80, 24))
+        event = MouseEvent(Point(x=70, y=20), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset())
+        self.app._handle_control_mouse("model", event)
+        self.assertEqual(self.app.menu_kind, "model")
+        self.assertGreaterEqual(self.app.menu_left, 0)
+        self.assertGreaterEqual(self.app.menu_top, 0)
+        self.assertLessEqual(self.app.menu_left + self.app.menu_width, 80)
+        self.assertLessEqual(self.app.menu_top + self.app.menu_height, 24)
+        self.assertEqual(self.app.menu_float.left, self.app.menu_left)
+        self.assertEqual(self.app.menu_float.top, self.app.menu_top)
+
+    def test_clicking_outside_menu_closes_and_clears_options(self):
+        from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType, Point
+
+        self.app._screen_size = mock.Mock(return_value=(80, 24))
+        self.app.open_menu("target", event=MouseEvent(
+            Point(x=30, y=18), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()
+        ))
+        self.assertEqual(self.app.menu_kind, "target")
+        outside = MouseEvent(Point(x=0, y=0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset())
+        self.app._dismiss_mouse(outside)
+        self.assertIsNone(self.app.menu_kind)
+        self.assertEqual(self.app.menu_options, [])
+
+    def test_menu_rows_are_closed_and_white_framed(self):
+        self.app._screen_size = mock.Mock(return_value=(80, 24))
+        self.app.open_menu("mode")
+        rendered = "".join(text for _style, text, *rest in self.app._menu_fragments())
+        rows = rendered.splitlines()
+        self.assertTrue(rows[0].startswith("╭─"))
+        self.assertTrue(rows[-1].startswith("╰"))
+        self.assertTrue(all(len(row) == self.app.menu_width for row in rows))
+        styles = [fragment[0] for fragment in self.app._menu_fragments()]
+        self.assertTrue(any("retro.menu.border" in style for style in styles))
+
+    def test_explicit_target_command_menu_applies_to_that_tab(self):
+        self.app._cmd_model("m4")
+        self.assertEqual(self.app.menu_target, "m4")
+        self.app._select_menu_option("opencode/big-pickle")
+        self.assertEqual(self.app.overrides["m4"]["model"], "opencode/big-pickle")
+        self.assertEqual(self.app.overrides["master"]["model"], AUTO_MODEL)
 
     def test_mode_show_set_invalid(self):
         self.assertIn("MODE:", self.app._cmd_mode(""))
@@ -621,6 +789,22 @@ class SlashCommandTestCase(unittest.TestCase):
         status = self.app._cmd_status("")
         self.assertIn("MODEL:", status)
         self.assertIn("RUN:", status)
+
+    def test_all_agents_start_idle_and_prompts_off(self):
+        self.assertEqual(
+            {tag: self.app.hub.statuses[tag] for tag, _name, _agent in AGENTS},
+            {tag: terminal_app.STATUS_IDLE for tag, _name, _agent in AGENTS},
+        )
+        self.assertTrue(all(not value for value in self.app.system_prompts.values()))
+
+    def test_custom_specialized_prompt_lifecycle(self):
+        self.assertIn("off", self.app._cmd_prompt("m4"))
+        self.assertIn("configured", self.app._cmd_prompt("m4 review API contracts"))
+        self.assertEqual(self.app.system_prompts["m4"], "review API contracts")
+        self.assertIn("M4", self.app._cmd_prompts(""))
+        self.assertIn("on", self.app._cmd_prompts(""))
+        self.assertIn("cleared", self.app._cmd_prompt("m4 clear"))
+        self.assertEqual(self.app.system_prompts["m4"], "")
 
     def test_swarm_command_handles_missing_state(self):
         reply = _swarm_state()
@@ -877,6 +1061,25 @@ class StructuredPanelTestCase(unittest.TestCase):
         # Adjacent lines in one category intentionally share a single panel.
         self.assertEqual(keys, ["m1:thinking", "m2:execution", "m1:thinking", "m1:todo"])
 
+    def test_dynamic_panel_border_fits_requested_width(self):
+        for width in (24, 40, 80):
+            for kind in (terminal_app.BLOCK_THINKING, terminal_app.BLOCK_TODO, terminal_app.BLOCK_EXECUTION):
+                _style, opening = terminal_app._panel_border(kind, True, width)
+                _style, closing = terminal_app._panel_border(kind, False, width)
+                self.assertEqual(len(opening.splitlines()[0]), width)
+                self.assertEqual(len(closing.splitlines()[0]), width)
+
+    def test_panel_content_wraps_inside_borders(self):
+        long_text = "FILE: " + ("very-long-filename/" * 10)
+        rendered = "".join(text for _style, text in terminal_app._console_fragments(
+            [("m4", long_text)], prefix=False, width=40
+        ))
+        rows = rendered.splitlines()
+        self.assertTrue(rows)
+        self.assertTrue(all(len(row) <= 40 for row in rows))
+        self.assertIn("╭─", rendered)
+        self.assertIn("╯", rendered)
+
     def test_each_panel_has_category_border_and_content(self):
         frags = _console_fragments([
             ("m1", "Thinking:"),
@@ -971,7 +1174,7 @@ class RetroRenderTestCase(unittest.TestCase):
     def test_frame_contains_dir_and_dashboard(self):
         frame = self._render()
         self.assertIn("▶ DIR:", frame)
-        self.assertIn("◐ M1", frame)
+        self.assertIn("● M1", frame)
         self.assertIn("M7", frame)
 
     def test_frame_contains_model_bar_and_console(self):
@@ -1202,17 +1405,31 @@ class TabbedLayoutTestCase(unittest.TestCase):
     def test_model_bar_shows_active_tab(self):
         bar = _model_bar({"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}}, None, "m4")
         self.assertIn("TAB M4", bar)
+        self.assertIn("AI MODEL Auto", bar)
         self.assertIn("TARGET m4", bar)
+
+    def test_mouse_left_click_switches_tabs(self):
+        from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType, Point
+
+        event = MouseEvent(Point(x=0, y=0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset())
+        self.app._handle_tab_mouse("m4", event)
+        self.assertEqual(self.app.current_tab, "m4")
+
+    def test_mouse_non_left_click_does_not_switch_tabs(self):
+        from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType, Point
+
+        event = MouseEvent(Point(x=0, y=0), MouseEventType.MOUSE_UP, MouseButton.RIGHT, frozenset())
+        self.app._handle_tab_mouse("m4", event)
+        self.assertEqual(self.app.current_tab, "master")
 
     def test_dashboard_marks_active_tab(self):
         frags = _dashboard_fragments({}, "m3")
         joined = "".join(text for _, text in frags)
         self.assertIn("MASTER", joined)  # master tab present
         self.assertIn("m3".upper(), joined)
-        # active tab rendered with bracket highlight
-        self.assertIn("[● M3 Planner]", joined)
-        # inactive tabs not bracketed
-        self.assertNotIn("[● M1", joined)
+        # active and inactive tabs share the same crisp outlined geometry
+        self.assertIn("⟦● M3 Planner⟧", joined)
+        self.assertIn("⟦● M1 System Architect⟧", joined)
 
 
 class QueuedInput:
