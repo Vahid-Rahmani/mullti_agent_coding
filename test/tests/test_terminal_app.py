@@ -28,12 +28,19 @@ from terminal_app import (
     RetroTerminalApp,
     RunHub,
     StateTracker,
+    _agent_progress_fragments,
     _build_run_command,
+    _classify_block,
     _console_fragments,
+    _panel_groups,
+    _run_header,
     _dashboard_fragments,
     _dir_line,
     _model_bar,
+    _progress_bar_fragments,
     _sanitize_prompt,
+    _estimate_token_percent,
+    _working_fragments,
     _swarm_state,
     build_help_text,
     build_overrides_table,
@@ -332,7 +339,7 @@ class RunStateWiringTestCase(unittest.TestCase):
             self.hub.run(raw, {})
         self.assertTrue(any(f"▶ {raw}" in line for line in self.hub.buffers["master"]))
         for call in thread_mock.call_args_list:
-            self.assertEqual(call.kwargs["args"][3], pruned)
+            self.assertEqual(call.kwargs["args"][2], pruned)
 
     def test_run_agents_filter_restricts_dispatch(self):
         with mock.patch("terminal_app.threading.Thread") as thread_mock:
@@ -354,10 +361,10 @@ class RunStateWiringTestCase(unittest.TestCase):
             call.kwargs["args"][0]: call.kwargs["args"] for call in thread_mock.call_args_list
         }
         # m1 uses its own override; m4 inherits the master override
-        self.assertEqual(args_by_tag["m1"][4], "opencode/deepseek-v4-flash-free")
-        self.assertEqual(args_by_tag["m1"][5], "architect")
-        self.assertEqual(args_by_tag["m4"][4], "opencode/big-pickle")
-        self.assertEqual(args_by_tag["m4"][5], "plan")
+        self.assertEqual(args_by_tag["m1"][3], "opencode/deepseek-v4-flash-free")
+        self.assertEqual(args_by_tag["m1"][4], "architect")
+        self.assertEqual(args_by_tag["m4"][3], "opencode/big-pickle")
+        self.assertEqual(args_by_tag["m4"][4], "plan")
 
     def test_run_empty_prompt_returns_error(self):
         self.assertEqual(self.hub.run("   ", {}), "Prompt must not be empty.")
@@ -370,7 +377,7 @@ class RunStateWiringTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=0)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: ok", data["completed"])
 
@@ -378,13 +385,13 @@ class RunStateWiringTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=3)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: failed", data["completed"])
 
     def test_run_agent_records_finish_failed_on_exception(self):
         with mock.patch("terminal_app._opencode_command", return_value=None):
-            self.hub._run_agent("m1", "System Architect", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: failed", data["completed"])
 
@@ -393,7 +400,7 @@ class RunStateWiringTestCase(unittest.TestCase):
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc) as popen:
             self.hub._run_agent(
-                "m1", "System Architect", "system-architect",
+                "m1", "system-architect",
                 "- Peer-Assistance handoff", None, None,
             )
         cmd = popen.call_args.args[0]
@@ -435,8 +442,9 @@ class StrictPaletteTestCase(unittest.TestCase):
     def test_palette_constants_match_spec(self):
         self.assertEqual(terminal_app.WHITE, "#ffffff")   # standard text
         self.assertEqual(terminal_app.ORANGE, "#ff8c00")  # keywords/important
-        self.assertEqual(terminal_app.GREY, "#9a9a9a")    # highlights
-        self.assertEqual(terminal_app.NEON, "#33ff33")    # phosphor-green banners
+        self.assertEqual(terminal_app.GREY, "#c4c8cc")    # neutral highlights
+        self.assertEqual(terminal_app.NEON, terminal_app.WHITE) # compatibility alias, no green
+        self.assertNotIn("#33ff33", terminal_app.NEON)
 
     def test_no_legacy_rainbow_constants(self):
         for name in ("TAG_COLORS", "NEON_BRIGHT", "NEON_DIM", "AMBER", "RED", "BOX"):
@@ -455,6 +463,53 @@ class StrictPaletteTestCase(unittest.TestCase):
         styles = [style for style, _ in frags]
         self.assertTrue(any(terminal_app.ORANGE in s for s in styles))
         self.assertTrue(any("retro.console" in s for s in styles))
+
+
+class ProgressRenderTestCase(unittest.TestCase):
+    """Per-agent progress bars, animation, token usage, and input styling."""
+
+    def test_progress_bar_contains_percentage_inside_bar(self):
+        joined = "".join(text for _style, text in _progress_bar_fragments(45))
+        self.assertIn("45%", joined)
+        self.assertTrue(joined.startswith("["))
+        self.assertTrue(joined.endswith("]"))
+
+    def test_working_label_chases_and_changes_with_time(self):
+        first = _working_fragments(0.0)
+        second = _working_fragments(0.1)
+        self.assertEqual("".join(text for _style, text in first), "working...")
+        self.assertEqual("".join(text for _style, text in second), "working...")
+        self.assertNotEqual(first, second)
+        self.assertGreaterEqual(len({style for style, _text in first}), 3)
+
+    def test_active_agent_has_progress_working_and_token_line(self):
+        frags = _agent_progress_fragments(
+            {"m4": terminal_app.STATUS_ACTIVE},
+            {"m4": 45},
+            {"m4": 32},
+            current_tab="m4",
+        )
+        joined = "".join(text for _style, text in frags)
+        self.assertIn("M4 Backend Dev", joined)
+        self.assertIn("45%", joined)
+        self.assertIn("working...", joined)
+        self.assertIn("Token: 32% Used", joined)
+        self.assertIn("approx.", joined)
+
+    def test_idle_agents_do_not_show_loading_rows(self):
+        frags = _agent_progress_fragments({tag: terminal_app.STATUS_IDLE for tag, _name, _agent in AGENTS})
+        self.assertEqual(frags, [])
+
+    def test_token_estimate_is_bounded(self):
+        self.assertEqual(_estimate_token_percent("a" * (8192 * 4 // 2), []), 50)
+        self.assertEqual(_estimate_token_percent("a" * (8192 * 4 * 10), []), 100)
+        self.assertEqual(_estimate_token_percent("", []), 0)
+
+    def test_input_style_is_bright_white(self):
+        app = RetroTerminalApp()
+        style = app._style_dict["retro.input"]
+        self.assertIn(f"fg:{terminal_app.WHITE}", style)
+        self.assertIn("bold", style)
 
 
 class ChromeRenderTestCase(unittest.TestCase):
@@ -716,7 +771,7 @@ class CleanLinePrefixTestCase(unittest.TestCase):
         proc = _FakeProc(lines=["hello from opencode", "second line"], returncode=0)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "Backend Dev", "backend-dev", "prompt", None, None)
+            self.hub._run_agent("m4", "backend-dev", "prompt", None, None)
         # raw streamed lines, no embedded "[m4 Backend Dev]" prefix
         self.assertEqual(
             self.hub.buffers["m4"], ["hello from opencode", "second line"]
@@ -727,7 +782,7 @@ class CleanLinePrefixTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=3)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "Backend Dev", "backend-dev", "prompt", None, None)
+            self.hub._run_agent("m4", "backend-dev", "prompt", None, None)
         err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
         self.assertEqual(err_lines[-1], "exit code 3")
         self.assertFalse(any("Backend Dev]" in text for text in err_lines))
@@ -801,6 +856,64 @@ class OverridesTableTestCase(unittest.TestCase):
         self.assertIn("set", reply)
 
 
+class StructuredPanelTestCase(unittest.TestCase):
+    """Categorized panels are shared by MASTER and every M1..M7 tab."""
+
+    def test_classifies_thinking_todo_and_execution(self):
+        self.assertEqual(terminal_app._classify_block("Thinking:"), ("thinking", "thinking"))
+        self.assertEqual(terminal_app._classify_block("- [ ] add tests"), ("todo", "todo"))
+        self.assertEqual(terminal_app._classify_block("- [x] add tests"), ("todo", "todo"))
+        self.assertEqual(terminal_app._classify_block("FILE: scripts/terminal_app.py"), ("execution", "execution"))
+
+    def test_thinking_and_todo_states_are_scoped_per_agent(self):
+        groups = _panel_groups([
+            ("m1", "Thinking:"),
+            ("m2", "ordinary output"),
+            ("m1", "reasoning continues"),
+            ("m1", "TODO:"),
+            ("m1", "- [ ] write tests"),
+        ])
+        keys = [key for key, _lines in groups]
+        # Adjacent lines in one category intentionally share a single panel.
+        self.assertEqual(keys, ["m1:thinking", "m2:execution", "m1:thinking", "m1:todo"])
+
+    def test_each_panel_has_category_border_and_content(self):
+        frags = _console_fragments([
+            ("m1", "Thinking:"),
+            ("m1", "TODO:"),
+            ("m1", "COMMAND: pytest"),
+        ])
+        joined = "".join(text for _style, text in frags)
+        for label in ("THINKING", "TODO / TASKS", "EXECUTION / CODE"):
+            self.assertIn(label, joined)
+        self.assertGreaterEqual(joined.count("╭─"), 3)
+        self.assertGreaterEqual(joined.count("╯"), 3)
+
+    def test_run_header_is_a_visible_boundary(self):
+        header = _run_header("edit the widget", "M4")
+        self.assertTrue(header.startswith("──── RUN M4:"))
+        self.assertIn(header, "".join(text for _style, text in _console_fragments([("m4", header)])))
+
+    def test_scrolled_rendering_inherits_hidden_block_state(self):
+        history = [("m4", "Thinking:"), ("m4", "reasoning continues"), ("m4", "final visible thought")]
+        visible = history[-1:]
+        initial = terminal_app._block_states(history[:-1])
+        joined = "".join(text for _style, text in _console_fragments(visible, prefix=False, initial_states=initial))
+        self.assertIn("THINKING", joined)
+        self.assertNotIn("EXECUTION / CODE", joined)
+
+    def test_all_agent_tabs_use_the_same_panel_markup(self):
+        source = [("m4", "TODO:"), ("m4", "- [ ] change file")]
+        expected = "".join(text for _style, text in _console_fragments(source, prefix=False))
+        app = RetroTerminalApp()
+        app.hub.events.clear()
+        for tag, _name, _agent in AGENTS:
+            app.tab_lines[tag] = [(tag, "TODO:"), (tag, "- [ ] change file")]
+            app.set_tab(tag)
+            rendered = "".join(text for _style, text in app._console_fragments())
+            self.assertEqual(rendered, expected)
+
+
 class RetroRenderTestCase(unittest.TestCase):
     """The prompt_toolkit layout draws real frames headlessly.
 
@@ -822,7 +935,9 @@ class RetroRenderTestCase(unittest.TestCase):
 
         async def main():
             app = RetroTerminalApp()
-            app._handle_input("/model opencode/big-pickle")
+            # Seed display state without submitting a command so the initial
+            # frame still exercises the visible ZOVA banner.
+            app.overrides["master"]["model"] = "opencode/big-pickle"
             app.console_lines.append(("m4", "hello retro world"))
             app.hub.set_status("m1", "thinking")
 
@@ -841,10 +956,17 @@ class RetroRenderTestCase(unittest.TestCase):
 
         return asyncio.run(main())
 
-    def test_frame_contains_banner(self):
+    def test_frame_contains_banner_before_first_submission(self):
         frame = self._render()
         self.assertIn("████████╗ ████████╗ ██╗   ██╗ ████████╗", frame)
         self.assertIn("╚═══════╝ ╚═══════╝", frame)
+
+    def test_banner_hides_after_first_submission(self):
+        app = RetroTerminalApp()
+        self.assertTrue(app.banner_visible)
+        app._handle_input("/status")
+        self.assertFalse(app.banner_visible)
+        self.assertEqual(terminal_app._banner_fragments(app.banner_visible), [])
 
     def test_frame_contains_dir_and_dashboard(self):
         frame = self._render()

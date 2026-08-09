@@ -144,13 +144,18 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 .
 ├── AGENTS.md              # Agent roles, workflow, fallback policy, conventions
 ├── opencode.json          # Agent definitions, models, providers, permissions
-├── launch_agents.bat      # 7-window inbox launcher
+├── launch_agents.bat      # 7-window inbox launcher (swarm mode ON)
+├── launch_terminal.bat    # ZOVA retro terminal launcher
 ├── scripts/
-│   ├── unified_app.py     # AI Agent Workspace GUI (single window)
-│   └── run_agent_worker.ps1  # Inbox-polling worker for the 7-window launcher
+│   ├── terminal_app.py    # ZOVA retro terminal (full-screen interactive UI)
+│   ├── swarm.py           # Swarm coordinator (role rotation, feedback, briefs)
+│   ├── run_agent_worker.ps1  # Inbox-polling worker (Windows, 7-window launcher)
+│   ├── run_agent_worker.sh   # Inbox-polling worker (Git Bash)
+│   ├── intent_router.py   # Intent classification/routing for the swarm
+│   └── self_evolve.py     # Self-evolution engine (verify + restart marker)
 ├── knowledge/             # Swarm memory (ADRs, lessons, metrics)
 ├── .opencode/             # opencode plugins/config (e.g. model fallback)
-└── .vscode/               # VS Code tasks (Launch All Agents / Retro Terminal)
+└── .vscode/               # VS Code tasks (Launch All Agents / ZOVA Retro Terminal)
 ```
 
 ---

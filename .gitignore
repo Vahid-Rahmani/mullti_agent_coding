@@ -14,6 +14,11 @@ _inbox/
 # node
 node_modules/
 
+# python bytecode (never track compiled artifacts)
+__pycache__/
+*.pyc
+*.pyo
+
 # hive
 .hive/
 
