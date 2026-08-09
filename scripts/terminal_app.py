@@ -5,11 +5,11 @@ A full-screen, retro-CRT style terminal UI for the control-plane agents. It
 replaces the browser workspace (``web_app.py``) and the desktop GUI
 (``unified_app.py``) as the single interactive way to talk to the agent swarm.
 
-Look & feel (strict palette, per spec — these four colors are the only ones
-used anywhere in the UI):
-  * white       standard code, active highlights, and primary text
-  * orange      important details & keywords (tag prefixes, errors)
-  * light neutral grey  framing, muted states, and panel borders on black
+Look & feel (Git-inspired palette):
+  * dark charcoal  shared background (#0d1117)
+  * light grey     regular text and logs (#c9d1d9)
+  * white          panel content, borders, and bottom controls
+  * orange-red     agent tab outlines (#f85149)
 
 
 Layout (single unified window with per-agent tabs):
@@ -42,9 +42,10 @@ Slash commands (typed at the prompt):
     /tab [tag]       switch tab: master, m1..m7, 'next', 'prev'
     /help            show this help
     /cd <path>       change the agents' working directory
-    /model [t] [n]   show/set a tab's model override (t = active tab,
-                     m1..m7, master, all; n = model or 'auto')
-    /mode [t] [n]    show/set a tab's mode override (same target syntax)
+    /model [t] [n]   show/set a tab's model override; bare /model opens menu
+    /mode [t] [n]    show/set a tab's mode override; bare /mode opens menu
+    /prompt [t] [x]  set/clear a specialized system prompt for a tab
+    /prompts         list configured specialized system prompts
     /overrides       table of every tab's effective model/mode and source
     /agents [tags]   dispatch only to m1,m4 (comma list) or all
     /status          print current status line
@@ -66,6 +67,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 from pathlib import Path
@@ -267,26 +269,102 @@ def _working_fragments(now: float | None = None) -> list[tuple[str, str]]:
     return fragments
 
 
-def _agent_progress_fragments(
+DEFAULT_PROGRESS_WEIGHTS: dict[str, float] = {tag: 1.0 for tag, _name, _agent in AGENTS}
+
+
+def _weighted_progress(
+    statuses: dict[str, str],
+    progress: dict[str, int],
+    tags: set[str] | list[str] | tuple[str, ...] | None = None,
+    weights: dict[str, float] | None = None,
+    terminal_value: int | None = None,
+) -> int:
+    """Return a bounded weighted progress average for the supplied tasks.
+
+    When ``tags`` is omitted, only currently processing agents participate.
+    A supplied session set also retains completed tasks at 100%, preventing the
+    Master bar from jumping backwards when one sub-process finishes early.
+    """
+    task_tags = list(tags) if tags is not None else [
+        tag for tag, _name, _agent in AGENTS
+        if statuses.get(tag, STATUS_IDLE) in (STATUS_THINKING, STATUS_ACTIVE)
+    ]
+    if not task_tags:
+        return 0
+    weights = weights or DEFAULT_PROGRESS_WEIGHTS
+    total_weight = 0.0
+    weighted_total = 0.0
+    for tag in task_tags:
+        weight = max(0.0, float(weights.get(tag, 1.0)))
+        if not weight:
+            continue
+        value = (
+            terminal_value
+            if statuses.get(tag) == STATUS_IDLE and tags is not None and terminal_value is not None
+            else (100 if statuses.get(tag) == STATUS_IDLE and tags is not None else progress.get(tag, 0))
+        )
+        weighted_total += weight * max(0, min(100, int(value)))
+        total_weight += weight
+    if not total_weight:
+        return 0
+    return max(0, min(100, round(weighted_total / total_weight)))
+
+
+def _loading_bar_fragments(
     statuses: dict[str, str],
     progress: dict[str, int] | None = None,
     token_usage: dict[str, int] | None = None,
     current_tab: str = "master",
-) -> list[tuple[str, str]]:
-    """Render active-agent progress rows and token lines for all tabs."""
+    session_tags: set[str] | list[str] | tuple[str, ...] | None = None,
+    weights: dict[str, float] | None = None,
+    now: float | None = None,
+    width: int = 80,
+) -> list[tuple]:
+    """Render the single loading bar shown immediately above the prompt.
+
+    Agent tabs show that tab's task. MASTER shows the weighted aggregate of
+    the current run session. The inactive state still occupies this one fixed
+    row, so the prompt never moves when work starts or finishes.
+    """
     progress = progress or {}
     token_usage = token_usage or {}
-    fragments: list[tuple[str, str]] = []
-    for tag, name, _agent in AGENTS:
-        if statuses.get(tag, STATUS_IDLE) not in (STATUS_THINKING, STATUS_ACTIVE):
-            continue
-        label_style = f"bold {NEON}" if tag == current_tab else "class:retro.muted"
-        fragments.append((label_style, f"{tag.upper()} {name}  "))
-        fragments.extend(_progress_bar_fragments(progress.get(tag, 0)))
-        fragments.append(("class:retro.console", "  "))
-        fragments.extend(_working_fragments())
-        fragments.append(("class:retro.console", "\n"))
-        fragments.append(("class:retro.muted", f"    Token: {token_usage.get(tag, 0)}% Used (approx.)\n"))
+    width = max(24, int(width))
+    active_tags = [
+        tag for tag, _name, _agent in AGENTS
+        if statuses.get(tag, STATUS_IDLE) in (STATUS_THINKING, STATUS_ACTIVE)
+    ]
+    if current_tab == "master":
+        aggregate_tags = session_tags if session_tags is not None else active_tags
+        visible_tags = list(aggregate_tags or [])
+        active = bool(active_tags)
+        percent = _weighted_progress(statuses, progress, visible_tags, weights) if active else 0
+        label = "MASTER / ALL AGENTS"
+        token_percent = (
+            _weighted_progress(
+                statuses, token_usage, visible_tags, weights, terminal_value=0
+            )
+            if visible_tags else 0
+        )
+
+    else:
+        name = next((name for tag, name, _agent in AGENTS if tag == current_tab), current_tab.upper())
+        percent = max(0, min(100, int(progress.get(current_tab, 0))))
+        active = current_tab in active_tags
+        label = f"{current_tab.upper()} {name}"
+        token_percent = max(0, min(100, int(token_usage.get(current_tab, 0))))
+        if not active:
+            percent = 0
+            token_percent = 0
+
+    prefix = f" LOADING │ {label} "
+    suffix = f" │ Token: {token_percent}% Used"
+    working = _working_fragments(now) if active else [("class:retro.muted", "idle")]
+    bar_width = max(10, min(_PROGRESS_BAR_WIDTH, width - len(prefix) - len(suffix) - 12))
+    fragments: list[tuple] = [("class:retro.progress", prefix)]
+    fragments.extend(_progress_bar_fragments(percent, bar_width))
+    fragments.append(("class:retro.progress", " "))
+    fragments.extend(working)
+    fragments.append(("class:retro.progress", suffix + "\n"))
     return fragments
 
 
@@ -501,6 +579,11 @@ class RunHub:
         self.seq = 0
         self.procs: dict[str, subprocess.Popen] = {}
         self.running = 0
+        # Tags participating in the current dispatch session. Completed tasks
+        # remain in this set until the session is fully idle, allowing Master
+        # aggregation to count them as 100% instead of dropping their weight.
+        self.session_tags: set[str] = set()
+        self.progress_weights: dict[str, float] = dict(DEFAULT_PROGRESS_WEIGHTS)
         self.workspace: Path = PROJECT_ROOT
 
     # ------------------------------------------------------------ state writes
@@ -518,6 +601,10 @@ class RunHub:
             elif status == STATUS_ACTIVE:
                 self.progress[tag] = max(self.progress.get(tag, 0), 18)
             elif status == STATUS_IDLE:
+                self.progress[tag] = 100
+            elif status == STATUS_ERROR:
+                # An errored worker is terminal for aggregation purposes; the
+                # unified bar should not remain stuck on its partial value.
                 self.progress[tag] = 100
         self._emit(tag, "status", status)
 
@@ -580,6 +667,7 @@ class RunHub:
         prompt: str,
         overrides: dict[str, dict[str, str]],
         agents: list[str] | None = None,
+        system_prompts: dict[str, str] | None = None,
     ) -> str | None:
         """Spawn one worker thread per target agent.
 
@@ -594,21 +682,37 @@ class RunHub:
         self.append_line("master", f"▶ {prompt}")
         pruned = prune_prompt(prompt)
         STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
+        system_prompts = system_prompts or {}
+        dispatch_prompts: dict[str, str] = {}
         with self.lock:
+            if self.running == 0:
+                self.session_tags.clear()
+            self.session_tags.update(tag for tag, _name, _agent in targets)
             self.running += len(targets)
             for tag, _name, _agent in targets:
+                specialized = system_prompts.get(tag) or system_prompts.get("master")
+                dispatch_prompt = pruned
+                if specialized and specialized.strip():
+                    dispatch_prompt = (
+                        "[SPECIALIZED SYSTEM PROMPT]\n"
+                        + specialized.strip()
+                        + "\n\n[USER TASK]\n"
+                        + pruned
+                    )
+                dispatch_prompts[tag] = dispatch_prompt
                 self.progress[tag] = 5
-                self.token_usage[tag] = _estimate_token_percent(prompt, [])
-                self.prompts[tag] = pruned
+                self.token_usage[tag] = _estimate_token_percent(dispatch_prompt, [])
+                self.prompts[tag] = dispatch_prompt
         for tag, _name, agent in targets:
             # A run separator resets the visible block context for this agent
             # and makes consecutive runs easy to scan in every tab.
             self._emit(tag, "run", _run_header(prompt, tag.upper()))
             model, mode = self.resolve(tag, overrides)
             self.set_status(tag, STATUS_THINKING)
+            dispatch_prompt = dispatch_prompts.get(tag, pruned)
             threading.Thread(
                 target=self._run_agent,
-                args=(tag, agent, pruned, model, mode),
+                args=(tag, agent, dispatch_prompt, model, mode),
                 name=f"term-{tag}",
                 daemon=True,
             ).start()
@@ -669,6 +773,34 @@ class RunHub:
                 self.running = max(0, self.running - 1)
             STATE.record_finish(tag, ok)
 
+    def aggregate_progress(self) -> int:
+        """Return the current weighted Master progress under the hub lock."""
+        with self.lock:
+            tags = set(self.session_tags)
+            if not tags:
+                tags = {
+                    tag for tag, _name, _agent in AGENTS
+                    if self.statuses.get(tag) in (STATUS_THINKING, STATUS_ACTIVE)
+                }
+            return _weighted_progress(
+                self.statuses,
+                self.progress,
+                tags or None,
+                self.progress_weights,
+            )
+
+    def loading_snapshot(self, current_tab: str) -> dict:
+        """Copy the telemetry needed by the single loading-bar renderer."""
+        with self.lock:
+            return {
+                "statuses": dict(self.statuses),
+                "progress": dict(self.progress),
+                "token_usage": dict(self.token_usage),
+                "session_tags": set(self.session_tags),
+                "weights": dict(self.progress_weights),
+                "current_tab": current_tab,
+            }
+
     def terminate_all(self) -> None:
         with self.lock:
             procs = list(self.procs.values())
@@ -724,12 +856,16 @@ def _spawn_self_evolve_watcher(prompt: str, overrides: dict) -> None:
     ).start()
 
 
-def run_self_evolve(prompt: str, overrides: dict) -> str | None:
+def run_self_evolve(
+    prompt: str,
+    overrides: dict,
+    system_prompts: dict[str, str] | None = None,
+) -> str | None:
     """Checkpoint + dispatch a self-evolve cycle (terminal '/evolve' command)."""
     if not prompt.strip():
         return "Usage: /evolve <prompt>"
     checkpoint = SELF_EVOLVE_ENGINE.checkpoint(prompt)
-    err = HUB.run(prompt, overrides)
+    err = HUB.run(prompt, overrides, system_prompts=system_prompts)
     if err:
         return err
     _spawn_self_evolve_watcher(prompt, overrides)
@@ -771,6 +907,8 @@ def build_help_text() -> str:
         "  /model [t] [n]   show/set a tab's model override\n"
         "                   (t = active tab, m1..m7, master, all; '' -> auto)\n"
         "  /mode [t] [n]    show/set a tab's mode override (same target syntax)\n"
+        "  /prompt [t] [x]  set/clear a specialized system prompt (off by default)\n"
+        "  /prompts         list all specialized prompts and their status\n"
         "  /overrides       table of per-tab model/mode overrides\n"
         "  /agents [tags]   dispatch only to m1,m4 (comma list) or 'all'\n"
         "  /status          print current status line\n"
@@ -860,26 +998,28 @@ BANNER = [
     "╚═══════╝ ╚═══════╝   ╚═══╝   ╚═╝   ╚═╝",
 ]
 
-# ZOVA neutral palette — white is the primary highlight and grey frames the UI.
-WHITE = "#ffffff"      # primary text and active highlights
-ORANGE = "#ff8c00"     # errors and secondary warning keywords
-GREY = "#c4c8cc"       # light neutral borders and muted text
-GREY_BG = "#333333"    # background highlight (input box)
-# Kept as a compatibility alias for existing helper names; no green is used.
-NEON = WHITE
-BLACK = "#000000"      # solid background
+# GitHub-inspired ZOVA palette. Keep semantic aliases for existing helpers,
+# but do not reintroduce the previous neon-green scheme.
+BLACK = "#0d1117"      # dark charcoal/slate global background
+GREY = "#c9d1d9"       # regular text, logs, and muted status
+WHITE = "#ffffff"      # panel content, borders, and bottom controls
+ORANGE = "#f85149"     # enclosed agent-tab outlines
+NEON = GREY             # compatibility alias; intentionally not green
+GREY_BG = "#161b22"    # subtle input surface within the charcoal background
 
 STATUS_SYMBOL = {
+    # Active/thinking work intentionally shares the neutral idle glyph: the
+    # unified loading row above the prompt is the sole active-task indicator.
     STATUS_IDLE: ("●", GREY),
-    STATUS_THINKING: ("◐", ORANGE),
-    STATUS_ACTIVE: ("●", NEON),
+    STATUS_THINKING: ("●", GREY),
+    STATUS_ACTIVE: ("●", GREY),
     STATUS_ERROR: ("✕", ORANGE),
 }
 
 
 def _tag_style(tag: str) -> str:
-    """prompt_toolkit style fragment for a tag prefix (orange keyword)."""
-    return f"bold {ORANGE}"
+    """prompt_toolkit style fragment for a light-grey agent tag prefix."""
+    return f"bold {GREY}"
 
 
 def _banner_fragments(visible: bool = True) -> list[tuple[str, str]]:
@@ -899,51 +1039,135 @@ def _model_bar(
     agents_filter: list[str] | None,
     current_tab: str = "master",
 ) -> str:
-    """Model status bar text (embedded in the rounded box's top border).
+    """Plain status-bar text for compatibility and command output."""
+    return "".join(text for _style, text in _model_bar_fragments(overrides, agents_filter, current_tab))
 
-    Shows the active tab, that tab's *resolved* model/mode (tab override >
-    master override > auto), dispatch target (the active agent tab or the
-    ``/agents`` filter on MASTER), and the running count.
+
+def _model_bar_fragments(
+    overrides: dict[str, dict[str, str]],
+    agents_filter: list[str] | None,
+    current_tab: str = "master",
+    on_control_click=None,
+    compact: bool = False,
+    ultra_compact: bool = False,
+) -> list[tuple]:
+    """Render bottom chrome segments, optionally attaching mouse actions.
+
+    The full labels remain the public/helper default. The prompt frame uses a
+    compact form so every control remains visible and clickable on small
+    terminals instead of being clipped by a long model name.
     """
     model, mode = HUB.resolve(current_tab, overrides)
-    if current_tab != "master":
-        target = current_tab
-    else:
-        target = ",".join(agents_filter) if agents_filter else "all"
-    running = HUB.running
-    return (
-        f" ▍TAB {current_tab.upper()} ▍MODEL {model or AUTO_MODEL} "
-        f"▍MODE {mode or AUTO_MODE} "
-        f"▍TARGET {target} ▍RUN {running}/{len(AGENTS)} "
+    target = current_tab if current_tab != "master" else (
+        ",".join(agents_filter) if agents_filter else "all"
     )
+    running = HUB.running
+    if ultra_compact:
+        model_text = "Auto" if not model or model == AUTO_MODEL else model.split("/")[-1]
+        mode_text = "Auto" if not mode or mode == AUTO_MODE else mode
+        controls = [
+            ("tab", f"T:{current_tab.upper()}"),
+            ("model", f"M:{model_text}"),
+            ("mode", f"D:{mode_text}"),
+            ("target", f"G:{target[:8]}"),
+            ("run", f"R:{running}/{len(AGENTS)}"),
+        ]
+    elif compact:
+        model_text = "Auto" if not model or model == AUTO_MODEL else model
+        mode_text = "Auto" if mode == AUTO_MODE else (mode or AUTO_MODE)
+        controls = [
+            ("tab", f"TAB {current_tab.upper()}"),
+            ("model", f"AI MODEL {model_text}"),
+            ("mode", f"MODE {mode_text}"),
+            ("target", f"TARGET {target}"),
+            ("run", f"RUN {running}/{len(AGENTS)}"),
+        ]
+    else:
+        controls = [
+            ("tab", f"TAB {current_tab.upper()}"),
+            ("model", f"AI MODEL {model or AUTO_MODEL}"),
+            ("mode", f"MODE {mode or AUTO_MODE}"),
+            ("target", f"TARGET {target}"),
+            ("run", f"RUN {running}/{len(AGENTS)}"),
+        ]
+    fragments: list[tuple] = []
+    for index, (kind, label) in enumerate(controls):
+        if index:
+            fragments.append(("class:retro.model", " ▍"))
+        handler = None
+        if on_control_click is not None and kind in {"tab", "model", "mode", "target"}:
+            def click(event, _kind=kind):
+                on_control_click(_kind, event)
+            handler = click
+        style = "class:retro.control" if kind in {"tab", "model", "mode", "target"} else "class:retro.model"
+        if kind in {"tab", "model", "mode", "target"}:
+            # Each actionable control is a complete white-framed button;
+            # separators are intentionally outside the hit target.
+            visible = f"⟦ {label} ⟧ "
+        else:
+            visible = f"{label} "
+        if handler is None:
+            fragments.append((style, visible))
+        else:
+            fragments.append((style, visible, handler))
+    return fragments
 
 
 def _dashboard_fragments(
-    statuses: dict[str, str], current_tab: str = "master"
-) -> list[tuple[str, str]]:
-    """Tab bar row: MASTER + M1..M7 with live status (strict ZOVA palette).
+    statuses: dict[str, str],
+    current_tab: str = "master",
+    on_tab_click=None,
+    width: int | None = None,
+) -> list[tuple]:
+    """Render MASTER/M1..M7 as visibly bordered tab buttons.
 
-    Each tab shows its status symbol (grey idle / orange busy-or-error /
-    white active) and label. The active tab is highlighted: bracket-wrapped
-    and bold white. Other tabs render grey-ish labels with status-colored
-    symbols.
+    The default two-item fragments keep this helper convenient for headless
+    rendering/tests. When ``on_tab_click`` is supplied, each complete tab cell
+    gets a prompt_toolkit mouse handler as its third fragment item.
     """
-    fragments: list[tuple[str, str]] = []
+    fragments: list[tuple] = []
+    row_width = 0
     for tag, name, _agent in TABS:
         status = statuses.get(tag, STATUS_IDLE)
-        symbol, color = STATUS_SYMBOL.get(status, STATUS_SYMBOL[STATUS_IDLE])
+        symbol, _color = STATUS_SYMBOL.get(status, STATUS_SYMBOL[STATUS_IDLE])
         active = tag == current_tab
         label = "MASTER" if tag == "master" else f"{tag.upper()} {name}"
+        # Every tab gets the same crisp outline. On narrow terminals the
+        # display label is intentionally shortened rather than split halfway
+        # through a button; the full name remains available at normal widths.
+        cell = f"⟦{symbol} {label}⟧ "
+        if width is not None and len(cell.rstrip()) > max(10, width):
+            short_label = "MASTER" if tag == "master" else tag.upper()
+            cell = f"⟦{symbol} {short_label}⟧ "
         if active:
-            # keep the status symbol's own color inside the bracket; the
-            # label is the white highlight
-            fragments.append((f"bold {NEON}", " ["))
-            fragments.append((color, f"{symbol} "))
-            fragments.append((f"bold {NEON}", f"{label}] "))
+            style = "class:retro.tab.active"
         else:
-            fragments.append((color, f" {symbol} "))
-            fragments.append(("class:retro.muted", f"{label} "))
+            # Do not encode task activity in individual tabs; the fixed
+            # loading row immediately above the prompt owns that state.
+            style = "class:retro.tab.inactive"
+        if on_tab_click is None:
+            fragment = (style, cell)
+        else:
+            def click(event, _tag=tag):
+                on_tab_click(_tag, event)
+            fragment = (style, cell, click)
+        # Wrap complete cells between rows. Never let prompt_toolkit break a
+        # long agent name in the middle of an outlined tab button.
+        if width is not None:
+            if row_width and row_width + len(cell) > max(10, width):
+                fragments.append(("class:retro.dash", "\n"))
+                row_width = 0
+            row_width += len(cell)
+        fragments.append(fragment)
     return fragments
+
+
+# Lower panels are intentionally taller than the original one-line chrome, but
+# remain Dimensions so prompt_toolkit can shrink them on short terminals.
+INPUT_MIN_LINES = 3
+INPUT_MAX_LINES = 12
+CONSOLE_MIN_LINES = 5
+CONSOLE_PREFERRED_LINES = 12
 
 
 # Structured output panels. The stream remains stored as the compatible
@@ -970,11 +1194,40 @@ _BLOCK_LABELS = {
     BLOCK_EXECUTION: "EXECUTION / CODE",
 }
 _BLOCK_PANEL_STYLES = {
-    BLOCK_THINKING: f"bold {GREY}",
-    BLOCK_TODO: f"bold {GREY}",
-    BLOCK_EXECUTION: f"bold {GREY}",
+    BLOCK_THINKING: f"bold {WHITE}",
+    BLOCK_TODO: f"bold {WHITE}",
+    BLOCK_EXECUTION: f"bold {WHITE}",
 }
+# Kept as a compatibility fallback for callers that inspect the old constant;
+# actual rendering uses the current output width on every frame.
 _BLOCK_PANEL_WIDTH = 64
+_PANEL_MIN_WIDTH = 24
+_PANEL_MAX_WIDTH = 96
+
+
+def _available_columns(fallback: tuple[int, int] = (100, 30)) -> int:
+    """Return the active output width without forcing a terminal query."""
+    try:
+        from prompt_toolkit.application.current import get_app
+
+        return max(1, get_app().output.get_size().columns)
+    except Exception:  # headless tests and construction outside Application
+        try:
+            return max(1, shutil.get_terminal_size(fallback).columns)
+        except OSError:
+            return fallback[0]
+
+
+def _panel_width(width: int | None = None) -> int:
+    """Compute a bounded panel width that fits the current viewport.
+
+    An explicit width is treated as the panel's exact outer width (useful for
+    deterministic rendering/tests); an inferred viewport width leaves a small
+    safety margin for surrounding layout columns.
+    """
+    if width is not None:
+        return max(1, min(_PANEL_MAX_WIDTH, width))
+    return max(1, min(_PANEL_MAX_WIDTH, _available_columns() - 2))
 
 
 def _classify_block(text: str, active: str = BLOCK_EXECUTION) -> tuple[str, str]:
@@ -1053,37 +1306,42 @@ def _panel_groups(
     return groups
 
 
-def _panel_border(kind: str, opening: bool) -> tuple[str, str]:
-    """Return a uniformly sized light-grey border for a categorized panel."""
-    style = f"bold {GREY}"
+def _panel_border(
+    kind: str, opening: bool, width: int | None = None
+) -> tuple[str, str]:
+    """Return a solid neon border sized to the current panel viewport."""
+    panel_width = _panel_width(width)
+    style = f"bold {WHITE}"
     if opening:
-        prefix = f"╭─ {_BLOCK_LABELS[kind]} "
-        dashes = max(1, _BLOCK_PANEL_WIDTH - len(prefix) - 1)
-        return style, prefix + "─" * dashes + "╮\n"
-    return style, "╰" + "─" * (_BLOCK_PANEL_WIDTH - 2) + "╯\n"
+        label = _BLOCK_LABELS[kind]
+        # Keep the opening rule itself inside tiny viewports too. At the
+        # absolute minimum, allow a one-cell rule and omit the label rather
+        # than emitting a border wider than the requested viewport.
+        prefix = f"╭─ {label} "
+        if len(prefix) + 1 > panel_width:
+            label = {BLOCK_THINKING: "THINK", BLOCK_TODO: "TODO", BLOCK_EXECUTION: "EXEC"}[kind]
+            prefix = f"╭─ {label} "
+        if len(prefix) + 1 > panel_width:
+            prefix = "╭─ "
+        dashes = max(0, panel_width - len(prefix) - 1)
+        line = prefix + "─" * dashes + "╮"
+        return style, line[:panel_width] + "\n"
+    line = "╰" + "─" * max(0, panel_width - 2) + "╯"
+    return style, line[:panel_width] + "\n"
 
 
 def _content_style(kind: str, text: str) -> str:
     """Style panel content, emphasizing completed/pending todo states."""
-    if text.startswith("ERROR"):
-        return f"bold {ORANGE}"
-    if kind == BLOCK_TODO:
-        marker = re.match(r"^(?:[-*+]\s+)?\[([ X✓✗~-])\]", text.strip(), re.IGNORECASE)
-        if marker:
-            state = marker.group(1).lower()
-            if state in {"x", "✓"}:
-                return f"bold {NEON}"
-            if state in {"~", "-"}:
-                return f"bold {GREY}"
-            return f"bold {ORANGE}"
-        return f"bold {ORANGE}"
-    return "class:retro.console"
+    # Categorized chat/execution panels deliberately use solid white content;
+    # the surrounding general console remains the light-grey log surface.
+    return "class:retro.panel.content"
 
 
 def _console_fragments(
     lines: list[tuple[str, str]],
     prefix: bool = True,
     initial_states: dict[str, str] | None = None,
+    width: int | None = None,
 ) -> list[tuple[str, str]]:
     """Render all tabs through the same categorized bordered-panel renderer.
 
@@ -1098,21 +1356,35 @@ def _console_fragments(
             fragments.extend((f"bold {WHITE}", text + "\n") for _, text in group)
             continue
         if tag == "master":
+            # General command/log content stays Git light-grey; only the
+            # categorized agent panels below use solid white content.
             for line_tag, text in group:
-                fragments.append((_content_style(kind, text), text + "\n"))
+                fragments.append(("class:retro.console", text + "\n"))
             continue
 
-        style, border = _panel_border(kind, True)
+        panel_width = _panel_width(width)
+        style, border = _panel_border(kind, True, panel_width)
         fragments.append((style, border))
+        inner_width = max(1, panel_width - 4)
         for line_tag, text in group:
-            content: list[tuple[str, str]] = []
-            if prefix and line_tag and line_tag != "master":
-                content.append((_tag_style(line_tag), f"[{line_tag}] "))
-            content.append((_content_style(kind, text), text))
-            fragments.append((style, "│ "))
-            fragments.extend(content)
-            fragments.append((style, " │\n"))
-        style, border = _panel_border(kind, False)
+            prefix_text = f"[{line_tag}] " if prefix and line_tag and line_tag != "master" else ""
+            wrapped = textwrap.wrap(
+                text,
+                width=max(1, inner_width - len(prefix_text)),
+                replace_whitespace=False,
+                drop_whitespace=True,
+                break_long_words=True,
+                break_on_hyphens=False,
+            ) or [""]
+            for line_index, chunk in enumerate(wrapped):
+                visible_prefix = prefix_text if line_index == 0 else " " * len(prefix_text)
+                fragments.append((style, "│ "))
+                if visible_prefix:
+                    fragments.append((_tag_style(line_tag), visible_prefix))
+                fragments.append((_content_style(kind, chunk), chunk))
+                fragments.append((style, " " * max(0, inner_width - len(visible_prefix) - len(chunk))))
+                fragments.append((style, " │\n"))
+        style, border = _panel_border(kind, False, panel_width)
         fragments.append((style, border))
     return fragments
 
@@ -1140,19 +1412,59 @@ def build_rounded_box(body, title_fragments=None, width=None):
     def resolve_width() -> int:
         return width() if callable(width) else (width or 0)
 
-    def resolve_title() -> list[tuple[str, str]]:
+    def resolve_title() -> list[tuple]:
         return title_fragments() if callable(title_fragments) else (title_fragments or [])
 
-    def top_content() -> list[tuple[str, str]]:
+    def top_content() -> list[tuple]:
         w = resolve_width()
-        middle = "".join(t for _, t in resolve_title())
-        base = "╭─" + middle + "─"
-        tail = "─" * max(1, w - len(base) - 2) if w else ""
-        return [("class:retro.box", base + tail + "╮")]
+        title = resolve_title()
+        middle = "".join(fragment[1] for fragment in title)
+        # Keep the right corner aligned even when a long model name meets a
+        # narrow terminal. On truncation the title becomes display-only; at
+        # normal widths its original mouse-aware fragments are preserved.
+        if w and len(middle) > max(8, w - 6):
+            limit = max(8, w - 7)
+            compact: list[tuple] = [("class:retro.box", "╭─")]
+            remaining = limit
+            for fragment in title:
+                text = fragment[1]
+                if len(text) <= remaining:
+                    compact.append(fragment)
+                    remaining -= len(text)
+                    continue
+                if len(fragment) == 3:
+                    # Keep a clickable hit target for every control even on a
+                    # narrow terminal; the visible label is abbreviated.
+                    compact.append((fragment[0], text[:max(1, remaining)], fragment[2]))
+                    remaining = 0
+                elif remaining:
+                    compact.append((fragment[0], text[:remaining]))
+                    remaining = 0
+            # Fill the remainder so the top edge always matches the bottom
+            # edge, while retaining the clickable fragment handlers above.
+            used = sum(len(fragment[1]) for fragment in compact)
+            compact.append(("class:retro.box", "─" * max(0, w - used - 1) + "╮"))
+            # A very small output can make the fixed suffix wider than the
+            # viewport; clip the final rendered row as a last safety net.
+            total = sum(len(fragment[1]) for fragment in compact)
+            if total > w:
+                overflow = total - w
+                last_style, last_text = compact[-1]
+                compact[-1] = (last_style, last_text[:-overflow] if overflow < len(last_text) else "")
+            return compact
+        base = [("class:retro.box", "╭─")]
+        base.extend(title)
+        used = 2 + len(middle) + 1
+        tail = "─" * max(0, w - used) if w else ""
+        base.append(("class:retro.box", tail + "╮"))
+        return base
 
     def bottom_content() -> list[tuple[str, str]]:
         w = resolve_width()
-        return [("class:retro.box", "╰" + "─" * max(2, w - 2) + "╯")] if w else []
+        if not w:
+            return []
+        line = "╰" + "─" * max(0, w - 2) + "╯"
+        return [("class:retro.box", line[:w])]
 
     top = Window(
         content=FormattedTextControl(top_content),
@@ -1178,12 +1490,33 @@ class RetroTerminalApp:
 
     def __init__(self, workspace: Path | None = None) -> None:
         self.hub = HUB
+        # A newly created terminal starts with every agent visually inactive;
+        # never reset a live swarm when another view is constructed.
+        if self.hub.running == 0:
+            with self.hub.lock:
+                for tag, _name, _agent in AGENTS:
+                    self.hub.statuses[tag] = STATUS_IDLE
+                    self.hub.progress[tag] = 0
+                    self.hub.token_usage[tag] = 0
         if workspace is not None:
             self.hub.workspace = Path(workspace).expanduser().resolve()
         self.overrides: dict[str, dict[str, str]] = {
             "master": {"model": AUTO_MODEL, "mode": AUTO_MODE}
         }
+        # Specialized instructions are opt-in and empty/off for every agent
+        # at startup. They are prepended only to that agent's own dispatch.
+        self.system_prompts: dict[str, str] = {tag: "" for tag, _, _ in TABS}
         self.agents_filter: list[str] | None = None
+        self.menu_kind: str | None = None
+        self.menu_target: str | None = None
+        self.menu_options: list[str] = []
+        # Screen-space anchor and dimensions for the active dropdown. These
+        # are updated from the trigger's MouseEvent and clamped to the output
+        # rectangle so menus stay beside/above the clicked control.
+        self.menu_left = 1
+        self.menu_top = 1
+        self.menu_width = 24
+        self.menu_height = 3
         self.console_lines: list[tuple[str, str]] = []  # (tag, text) MASTER log
         self.current_tab: str = "master"
         self.tab_lines: dict[str, list[tuple[str, str]]] = {tag: [] for tag, _, _ in TABS}
@@ -1199,18 +1532,22 @@ class RetroTerminalApp:
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.layout import (
             BufferControl,
+            ConditionalContainer,
             Dimension,
+            Float,
+            FloatContainer,
             FormattedTextControl,
             HSplit,
             Layout,
             Window,
         )
+        from prompt_toolkit.filters import Condition
         from prompt_toolkit.styles import Style
 
         commands = [
-            "tab", "help", "cd", "model", "mode", "agents", "status",
-            "overrides", "clear", "stop", "swarm", "proposals", "evolve",
-            "quit", "exit",
+            "tab", "help", "cd", "model", "mode", "prompt", "prompts",
+            "agents", "status", "overrides", "clear", "stop", "swarm",
+            "proposals", "evolve", "quit", "exit",
         ]
         completer = WordCompleter(commands + MODEL_OPTIONS + [t for t, _, _ in TABS], ignore_case=True)
 
@@ -1249,6 +1586,10 @@ class RetroTerminalApp:
         @kb.add("c-d", filter=has_focus("input"))
         def _ctrl_d(event):
             event.app.exit()
+
+        @kb.add("escape")
+        def _escape(_event):
+            self.close_menu(_event)
 
         @kb.add("pageup")
         def _page_up(_event):
@@ -1306,78 +1647,142 @@ class RetroTerminalApp:
             dont_extend_height=True,
         )
         self.tab_window = Window(
-            content=FormattedTextControl(lambda: _dashboard_fragments(self.hub.statuses, self.current_tab)),
-            height=Dimension(min=1, max=2),
+            content=FormattedTextControl(
+                lambda: _dashboard_fragments(
+                    self.hub.statuses,
+                    self.current_tab,
+                    self._handle_tab_mouse,
+                    width=max(1, _available_columns() - 2),
+                )
+            ),
+            height=Dimension(min=1, preferred=2, max=len(TABS)),
             wrap_lines=True,
             style="class:retro.dash",
             always_hide_cursor=True,
             dont_extend_height=True,
         )
-        self.progress_window = Window(
+        # The only loading indicator in the UI. It is a fixed one-line slot
+        # immediately above the prompt frame; all agent tabs share this slot.
+        self.loading_window = Window(
             content=FormattedTextControl(
-                lambda: _agent_progress_fragments(
-                    self.hub.statuses,
-                    self.hub.progress,
-                    self.hub.token_usage,
-                    self.current_tab,
-                )
+                lambda: _loading_bar_fragments(**self.hub.loading_snapshot(self.current_tab), width=_available_columns())
             ),
-            height=Dimension(min=0, max=max(1, len(AGENTS) * 2)),
-            wrap_lines=True,
+            height=1,
+            wrap_lines=False,
             style="class:retro.progress",
             always_hide_cursor=True,
             dont_extend_height=True,
         )
         self.console_window = Window(
             content=FormattedTextControl(lambda: self._console_fragments()),
+            height=Dimension(min=CONSOLE_MIN_LINES, preferred=CONSOLE_PREFERRED_LINES),
             style="class:retro.console",
             always_hide_cursor=True,
             wrap_lines=True,
         )
         input_window = Window(
             content=BufferControl(buffer=self.buffer, focusable=True),
-            height=Dimension(min=1, max=8),
+            height=Dimension(min=INPUT_MIN_LINES, max=INPUT_MAX_LINES),
             wrap_lines=True,
             style="class:retro.input",
         )
 
         def _box_width() -> int:
+            """Use the active prompt_toolkit output size for aligned framing."""
             try:
-                return max(40, os.get_terminal_size().columns - 2)
-            except OSError:
-                return 100
+                from prompt_toolkit.application.current import get_app
+
+                columns = get_app().output.get_size().columns
+            except Exception:  # headless construction / no active app
+                try:
+                    columns = os.get_terminal_size().columns
+                except OSError:
+                    columns = 100
+            # Keep both corners inside the actual viewport, even for very
+            # narrow output objects used by tests or embedded terminals.
+            return max(1, columns - 2)
 
         box = build_rounded_box(
             input_window,
-            title_fragments=lambda: [(
-                "class:retro.model",
-                _model_bar(self.overrides, self.agents_filter, self.current_tab),
-            )],
+            title_fragments=lambda: _model_bar_fragments(
+                self.overrides,
+                self.agents_filter,
+                self.current_tab,
+                self._handle_control_mouse,
+                compact=_box_width() < 100,
+                ultra_compact=_box_width() < 60,
+            ),
             width=lambda: _box_width(),
         )
 
-        root = HSplit(
+        menu_window = Window(
+            content=FormattedTextControl(self._menu_fragments),
+            height=Dimension(min=0, preferred=1, max=len(TABS) + 2),
+            wrap_lines=False,
+            style="class:retro.menu",
+            always_hide_cursor=True,
+            dont_extend_height=True,
+        )
+        backdrop_window = Window(
+            content=FormattedTextControl(self._backdrop_fragments),
+            style="class:retro.backdrop",
+            always_hide_cursor=True,
+            dont_extend_height=True,
+        )
+        content = HSplit(
             [
                 banner_window,
                 dir_window,
                 self.tab_window,
-                self.progress_window,
                 self.console_window,
+                self.loading_window,
                 box,
             ]
+        )
+        self.menu_backdrop_float = Float(
+            ConditionalContainer(backdrop_window, Condition(lambda: self.menu_kind is not None)),
+            top=0,
+            left=0,
+            width=lambda: self._screen_size()[0],
+            height=lambda: self._screen_size()[1],
+            z_index=9,
+            transparent=True,
+        )
+        self.menu_float = Float(
+            ConditionalContainer(menu_window, Condition(lambda: self.menu_kind is not None)),
+            top=self.menu_top,
+            left=self.menu_left,
+            width=lambda: self.menu_width,
+            height=lambda: self.menu_height,
+            z_index=10,
+        )
+        root = FloatContainer(
+            content,
+            floats=[self.menu_backdrop_float, self.menu_float],
         )
         self.layout_root = root
         self.key_bindings = kb
         self._style_dict = {
-            "retro": f"bg:{BLACK} fg:{WHITE}",
+            "retro": f"bg:{BLACK} fg:{GREY}",
             "retro.banner": f"bold bg:{BLACK} fg:{WHITE}",
             "retro.dir": f"bold bg:{BLACK} fg:{GREY}",
-            "retro.dash": f"bg:{BLACK} fg:{WHITE}",
+            "retro.dash": f"bg:{BLACK} fg:{GREY}",
             "retro.progress": f"bg:{BLACK} fg:{WHITE}",
             "retro.muted": f"bg:{BLACK} fg:{GREY}",
-            "retro.console": f"bg:{BLACK} fg:{WHITE}",
+            "retro.console": f"bg:{BLACK} fg:{GREY}",
+            "retro.panel.content": f"bg:{BLACK} fg:{WHITE}",
             "retro.model": f"bold bg:{BLACK} fg:{WHITE}",
-            "retro.box": f"bg:{BLACK} fg:{GREY}",
+            "retro.control": f"bold bg:{BLACK} fg:{WHITE}",
+            "retro.menu": f"bold bg:{BLACK} fg:{WHITE}",
+            "retro.menu.border": f"bold bg:{BLACK} fg:{WHITE}",
+            "retro.menu.item": f"bg:{BLACK} fg:{WHITE}",
+            "retro.backdrop": f"bg:{BLACK} fg:{BLACK}",
+            "retro.box": f"bg:{BLACK} fg:{WHITE}",
+            # Tabs retain the original dark background while every outline is
+            # the requested Git-style orange-red.
+            "retro.tab.active": f"bold bg:{GREY_BG} fg:{ORANGE}",
+            "retro.tab.busy": f"bold bg:{BLACK} fg:{ORANGE}",
+            "retro.tab.inactive": f"bg:{BLACK} fg:{ORANGE}",
             # Explicit bold white keeps the command prompt bright even when
             # the terminal's default input style is dimmed.
             "retro.input": f"bg:{GREY_BG} fg:{WHITE} bold",
@@ -1391,6 +1796,167 @@ class RetroTerminalApp:
         """Switch the active tab (master or m1..m7). Unknown tags are ignored."""
         if tag in self.tab_lines:
             self.current_tab = tag
+
+    def _handle_tab_mouse(self, tag: str, event) -> None:
+        """Switch tabs after a primary mouse click on a tab cell."""
+        from prompt_toolkit.mouse_events import MouseButton, MouseEventType
+
+        if (
+            event.event_type == MouseEventType.MOUSE_UP
+            and event.button == MouseButton.LEFT
+        ):
+            self.set_tab(tag)
+            self.close_menu(event)
+
+    def _handle_control_mouse(self, kind: str, event) -> None:
+        """Open a bottom control menu anchored to the clicked control."""
+        from prompt_toolkit.mouse_events import MouseButton, MouseEventType
+
+        if event.event_type != MouseEventType.MOUSE_UP or event.button != MouseButton.LEFT:
+            return
+        self.open_menu(kind, event=event)
+        self._invalidate_ui()
+
+    def _screen_size(self) -> tuple[int, int]:
+        """Return the live output size, with a safe headless fallback."""
+        try:
+            from prompt_toolkit.application.current import get_app
+
+            size = get_app().output.get_size()
+            return max(1, size.columns), max(1, size.rows)
+        except Exception:
+            try:
+                size = shutil.get_terminal_size((100, 30))
+                return max(1, size.columns), max(1, size.lines)
+            except OSError:
+                return 100, 30
+
+    def _position_menu(self, event=None) -> None:
+        """Place the menu above its trigger and clamp it to the viewport."""
+        columns, rows = self._screen_size()
+        labels = [f"[{i + 1}] {option}" for i, option in enumerate(self.menu_options)]
+        content_width = max([len(f" {self.menu_kind or 'MENU'} OPTIONS ")] + [len(x) for x in labels])
+        self.menu_width = min(max(18, content_width + 4), max(1, columns))
+        self.menu_height = min(len(self.menu_options) + 2, max(1, rows))
+        if event is not None:
+            try:
+                anchor_x = int(event.position.x)
+                anchor_y = int(event.position.y)
+            except (AttributeError, TypeError, ValueError):
+                anchor_x, anchor_y = 1, rows - INPUT_MAX_LINES - 2
+        else:
+            anchor_x, anchor_y = 1, rows - INPUT_MAX_LINES - 2
+        # Prefer directly above the trigger; flip below if the menu would
+        # cross the top edge, then clamp both coordinates to the screen.
+        top = anchor_y - self.menu_height
+        if top < 0:
+            top = anchor_y + 1
+        self.menu_left = max(0, min(anchor_x, max(0, columns - self.menu_width)))
+        self.menu_top = max(0, min(top, max(0, rows - self.menu_height)))
+        # Float top/left are integer offsets (not reactive callables) in the
+        # installed prompt_toolkit, so update the live object on each click.
+        menu_float = getattr(self, "menu_float", None)
+        if menu_float is not None:
+            menu_float.left = self.menu_left
+            menu_float.top = self.menu_top
+
+    def _backdrop_fragments(self) -> list[tuple]:
+        """Provide a full-screen click target that dismisses open menus."""
+        if self.menu_kind is None:
+            return []
+        columns, rows = self._screen_size()
+        def dismiss(event):
+            self._dismiss_mouse(event)
+        return [("class:retro.backdrop", (" " * columns + "\n") * rows, dismiss)]
+
+    def open_menu(self, kind: str, target: str | None = None, event=None) -> None:
+        """Open a clickable model, mode, target, or tab list."""
+        self.menu_kind = kind
+        self.menu_target = target or self.current_tab
+        if kind == "model":
+            self.menu_options = list(MODEL_OPTIONS)
+        elif kind == "mode":
+            model, _mode = self.hub.resolve(self.menu_target, self.overrides)
+            self.menu_options = list(MODE_OPTIONS_BY_MODEL.get(model or AUTO_MODEL, [AUTO_MODE]))
+        elif kind == "target":
+            self.menu_options = ["all"] + [tag for tag, _name, _agent in AGENTS]
+        elif kind == "tab":
+            self.menu_options = [tag for tag, _name, _agent in TABS]
+        else:
+            self.menu_kind = None
+            self.menu_target = None
+            self.menu_options = []
+        if self.menu_kind is not None:
+            self._position_menu(event)
+
+    def _invalidate_ui(self) -> None:
+        """Refresh safely from mouse callbacks and headless unit tests."""
+        try:
+            from prompt_toolkit.application.current import get_app
+
+            get_app().invalidate()
+        except Exception:
+            pass
+
+    def _dismiss_mouse(self, event) -> None:
+        """Close an open menu when clicking ordinary content."""
+        from prompt_toolkit.mouse_events import MouseButton, MouseEventType
+
+        if event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.LEFT:
+            self.close_menu(event)
+
+    def close_menu(self, event=None) -> None:
+        """Close an open bottom menu and restore prompt focus when possible."""
+        self.menu_kind = None
+        self.menu_target = None
+        self.menu_options = []
+        try:
+            from prompt_toolkit.application.current import get_app
+
+            app = get_app()
+            app.layout.focus(self.buffer)
+            app.invalidate()
+        except Exception:
+            pass
+
+    def _menu_fragments(self) -> list[tuple]:
+        """Render a closed, bordered dropdown with clickable option rows."""
+        if not self.menu_kind:
+            return []
+        width = max(1, self.menu_width)
+        title = f" {self.menu_kind.upper()} OPTIONS "
+        inner = max(0, width - 4)
+        top_inner = max(0, width - 3)
+        top = "╭─" + title[:top_inner].ljust(top_inner, "─") + "╮"
+        bottom = "╰" + "─" * max(0, width - 2) + "╯"
+        fragments: list[tuple] = [("class:retro.menu.border", top + "\n")]
+        for index, option in enumerate(self.menu_options):
+            label = f"[{index + 1}] {option}"
+            visible = label[:inner]
+            def click(event, _option=option):
+                self._select_menu_option(_option, event)
+            fragments.append(("class:retro.menu.border", "│ "))
+            fragments.append(("class:retro.menu.item", visible.ljust(inner), click))
+            fragments.append(("class:retro.menu.border", " │\n"))
+        fragments.append(("class:retro.menu.border", bottom + "\n"))
+        return fragments
+
+    def _select_menu_option(self, option: str, event=None) -> None:
+        """Apply a dropdown choice using the same command validation rules."""
+        kind = self.menu_kind
+        if kind == "model":
+            self._set_override(self.menu_target or self.current_tab, "model", option)
+        elif kind == "mode":
+            target = self.menu_target or self.current_tab
+            model, _mode = self.hub.resolve(target, self.overrides)
+            valid = MODE_OPTIONS_BY_MODEL.get(model or AUTO_MODEL, [AUTO_MODE])
+            if option in valid:
+                self._set_override(target, "mode", option)
+        elif kind == "target":
+            self.agents_filter = None if option == "all" else [option]
+        elif kind == "tab":
+            self.set_tab(option)
+        self.close_menu(event)
 
     def _tab_order(self) -> list[str]:
         return [t for t, _, _ in TABS]
@@ -1437,6 +2003,7 @@ class RetroTerminalApp:
             source[start:],
             prefix=self.current_tab == "master",
             initial_states=initial_states,
+            width=max(1, _available_columns() - 2),
         )
 
     def _drain(self) -> None:
@@ -1488,7 +2055,7 @@ class RetroTerminalApp:
                 layout=Layout(self.layout_root, focused_element=self.buffer),
                 key_bindings=self.key_bindings,
                 full_screen=True,
-                mouse_support=False,
+                mouse_support=True,
                 style=Style.from_dict(self._style_dict),
                 erase_when_done=True,
                 input=input,
@@ -1536,7 +2103,12 @@ class RetroTerminalApp:
                 targets = self.agents_filter  # None -> all agents
             else:
                 targets = [self.current_tab]
-            err = self.hub.run(stripped, self.overrides, targets)
+            err = self.hub.run(
+                stripped,
+                self.overrides,
+                targets,
+                system_prompts=self.system_prompts,
+            )
             if err:
                 self._echo(f"ERROR: {err}")
             return
@@ -1658,7 +2230,8 @@ class RetroTerminalApp:
             self._set_override("all", "model", value)
             return f"MODEL: {value} (all tabs)"
         if not value:
-            return self._model_status_line(target)
+            self.open_menu("model", target)
+            return self._model_status_line(target) + " (menu opened)"
         if value == AUTO_MODEL or value.lower() == "auto":
             self._set_override(target, "model", AUTO_MODEL)
             return self._model_status_line(target)
@@ -1689,7 +2262,8 @@ class RetroTerminalApp:
         model, _mode = self.hub.resolve(target, self.overrides)
         modes = MODE_OPTIONS_BY_MODEL.get(model or AUTO_MODEL, [AUTO_MODE])
         if not value:
-            return self._mode_status_line(target)
+            self.open_menu("mode", target)
+            return self._mode_status_line(target) + " (menu opened)"
         if value == AUTO_MODE or value.lower() == "auto":
             self._set_override(target, "mode", AUTO_MODE)
             return self._mode_status_line(target)
@@ -1701,6 +2275,41 @@ class RetroTerminalApp:
     def _cmd_overrides(self, _arg: str) -> str:
         """/overrides — table of every tab's effective model/mode and source."""
         return build_overrides_table(self.overrides)
+
+    def _cmd_prompt(self, arg: str) -> str:
+        """/prompt [target] [text] — set or clear a specialized system prompt."""
+        target, value = self._split_override_arg(arg)
+        if target == "all":
+            targets = [tag for tag, _name, _agent in AGENTS]
+        else:
+            targets = [target]
+        if not value:
+            if target == "all":
+                configured = [
+                    f"{tag}: on" for tag, _name, _agent in AGENTS
+                    if self.system_prompts.get(tag, "")
+                ]
+                return "PROMPT (all): " + (", ".join(configured) if configured else "off")
+            return f"PROMPT ({target}): " + (self.system_prompts.get(target, "") or "off")
+        if value.lower() in {"off", "clear", "none"}:
+            for tag in targets:
+                self.system_prompts[tag] = ""
+            return f"PROMPT: cleared for {target}"
+        sanitized = _sanitize_prompt(value)
+        if not sanitized:
+            return f"ERROR: specialized prompt for {target} must not be empty"
+        for tag in targets:
+            self.system_prompts[tag] = sanitized
+        return f"PROMPT: configured for {target} ({len(sanitized)} chars)"
+
+    def _cmd_prompts(self, _arg: str) -> str:
+        """/prompts — list specialized prompts, showing inactive entries as off."""
+        lines = ["SPECIALIZED PROMPTS:"]
+        for tag, name, _agent in AGENTS:
+            text = self.system_prompts.get(tag, "")
+            preview = "off" if not text else "on — " + " ".join(text.split())[:72]
+            lines.append(f"  {tag.upper()} {name}: {preview}")
+        return "\n".join(lines)
 
     def _cmd_agents(self, arg: str) -> str:
         if not arg:
@@ -1758,7 +2367,7 @@ class RetroTerminalApp:
         return _format_proposals()
 
     def _cmd_evolve(self, arg: str) -> str:
-        err = run_self_evolve(arg, self.overrides)
+        err = run_self_evolve(arg, self.overrides, self.system_prompts)
         return err if err else "self-evolve dispatched"
 
     def _cmd_quit(self, _arg: str) -> str:
