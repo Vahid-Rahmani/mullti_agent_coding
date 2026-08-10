@@ -17,12 +17,17 @@ from unittest import mock
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
+import agent_logger
+import obsidian_auditor
+import prompt_logger
 import terminal_app
 from terminal_app import (
     AGENTS,
     AUTO_MODE,
     AUTO_MODEL,
     BANNER,
+    IMMUTABLE_TAGS,
+    M7_AUDIT_MODE,
     MODEL_OPTIONS,
     MODE_OPTIONS_BY_MODEL,
     RetroTerminalApp,
@@ -92,7 +97,7 @@ class ModeConstantsTestCase(unittest.TestCase):
     def test_ling_model_modes(self):
         self.assertEqual(
             MODE_OPTIONS_BY_MODEL["opencode/ling-3.0-tiny-free"],
-            ["review", "compact"],
+            ["obsidian-audit", "review", "compact"],
         )
 
 
@@ -532,6 +537,18 @@ class ProgressRenderTestCase(unittest.TestCase):
         progress = {"m1": 100, "m4": 50}
         self.assertEqual(_weighted_progress(statuses, progress, ["m1", "m4"]), 75)
 
+    def test_completed_master_session_renders_inactive_zero_bar(self):
+        statuses = {"m1": terminal_app.STATUS_IDLE, "m4": terminal_app.STATUS_IDLE}
+        progress = {"m1": 100, "m4": 100}
+        joined = "".join(
+            text for _style, text, *rest in _loading_bar_fragments(
+                statuses, progress, {}, "master", {"m1", "m4"}, now=0.0, width=100
+            )
+        )
+        self.assertIn("0%", joined)
+        self.assertIn("idle", joined)
+        self.assertEqual(RunHub().aggregate_progress(), 0)
+
     def test_run_hub_exposes_thread_safe_master_aggregate(self):
         hub = RunHub()
         with hub.lock:
@@ -545,6 +562,16 @@ class ProgressRenderTestCase(unittest.TestCase):
         snapshot = hub.loading_snapshot("m4")
         self.assertEqual(snapshot["current_tab"], "m4")
         self.assertEqual(snapshot["session_tags"], {"m1", "m4"})
+
+    def test_clear_drops_completed_session_telemetry(self):
+        hub = RunHub()
+        with hub.lock:
+            hub.session_tags = {"m1"}
+            hub.progress["m1"] = 100
+        hub.clear()
+        self.assertEqual(hub.session_tags, set())
+        self.assertEqual(hub.aggregate_progress(), 0)
+        self.assertTrue(all(hub.statuses[tag] == terminal_app.STATUS_IDLE for tag, _name, _agent in AGENTS))
 
     def test_token_estimate_is_bounded(self):
         self.assertEqual(_estimate_token_percent("a" * (8192 * 4 // 2), []), 50)
@@ -859,6 +886,10 @@ class PerAgentOverrideTestCase(unittest.TestCase):
     def test_model_all_sets_every_tab(self):
         self.app._cmd_model("all opencode/ling-3.0-tiny-free")
         for tag, _, _ in AGENTS:
+            if tag in IMMUTABLE_TAGS:
+                # M7 is immutable — _set_override skips it, so no override entry.
+                self.assertNotIn(tag, self.app.overrides)
+                continue
             self.assertEqual(
                 self.app.overrides[tag]["model"], "opencode/ling-3.0-tiny-free"
             )
@@ -1006,9 +1037,15 @@ class OverridesTableTestCase(unittest.TestCase):
         table = build_overrides_table({"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}})
         rows = self._rows(table)
         for label, (model, mode, src) in rows.items():
-            self.assertEqual(model, "auto")
-            self.assertEqual(mode, "auto")
-            self.assertEqual(src, "auto")
+            if label == "M7":
+                # M7 is immutable — always shows its locked model/mode.
+                self.assertEqual(model, "opencode/ling-3.0-tiny-free")
+                self.assertEqual(mode, M7_AUDIT_MODE)
+                self.assertIn(src, ("auto", "set"))
+            else:
+                self.assertEqual(model, "auto")
+                self.assertEqual(mode, "auto")
+                self.assertEqual(src, "auto")
 
     def test_explicit_tab_and_master_sources(self):
         overrides = {
@@ -1188,6 +1225,20 @@ class RetroRenderTestCase(unittest.TestCase):
         self.assertIn("╭─", frame)
         self.assertIn("╯", frame)
         self.assertIn("│", frame)
+
+    def test_frame_has_one_loading_row_immediately_above_prompt(self):
+        frame = self._render()
+        lines = frame.splitlines()
+        loading = [index for index, line in enumerate(lines) if "LOADING │" in line]
+        prompt = [index for index, line in enumerate(lines) if "TAB MASTER" in line or "TAB M4" in line]
+        self.assertEqual(len(loading), 1)
+        self.assertEqual(frame.count("working..."), 1)
+        self.assertEqual(frame.count("Token:"), 1)
+        self.assertTrue(prompt)
+        self.assertLess(loading[0], prompt[-1])
+        # Vt100_Output emits a cursor-padding blank row between fixed-height
+        # windows; there must be no other visible content in that gap.
+        self.assertTrue(all(not lines[index].strip() for index in range(loading[0] + 1, prompt[-1])))
 
     def test_frame_contains_tab_bar(self):
         frame = self._render()
@@ -1656,6 +1707,423 @@ class SelfEvolveWiringTestCase(unittest.TestCase):
         self.engine.write_restart_marker.assert_not_called()
         state = terminal_app.STATE.load()
         self.assertTrue(any("verify" in e and "exception" in e and "boom" in e for e in state["restart_log"]))
+
+
+# --------------------------------------------------------------------------- PromptLogger
+
+
+class PromptLoggerTestCase(unittest.TestCase):
+    """prompt_logger generates sequentially-named Obsidian markdown files."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.prompts_dir = Path(self._tmp.name) / "prompts"
+        self.prompts_dir.mkdir(parents=True, exist_ok=True)
+        # Reset the module-level counter so tests are independent.
+        prompt_logger._next_index = None
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_log_prompt_writes_sequentially_named_file(self):
+        path = prompt_logger.log_prompt(
+            "build the widget",
+            target_agents=["m4"],
+            prompts_dir=self.prompts_dir,
+        )
+        self.assertTrue(path.exists())
+        self.assertRegex(path.name, r"^prompt-001\.md$")
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("# Prompt Log — prompt-001", content)
+        self.assertIn("build the widget", content)
+        # Frontmatter stores the raw tag(s); check metadata presence.
+        self.assertIn('target_agent: "m4"', content)
+
+    def test_second_prompt_increments_sequence(self):
+        prompt_logger.log_prompt("first", prompts_dir=self.prompts_dir)
+        path = prompt_logger.log_prompt("second", prompts_dir=self.prompts_dir)
+        self.assertRegex(path.name, r"^prompt-002\.md$")
+
+    def test_log_prompt_all_agents_shows_master_label(self):
+        path = prompt_logger.log_prompt(
+            "global task",
+            target_agents=None,
+            active_tab="master",
+            prompts_dir=self.prompts_dir,
+        )
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("MASTER (all agents)", content)
+
+    def test_log_prompt_includes_wiki_links(self):
+        # WikiLinks are rendered by the _TEMPLATE.md; provide one.
+        template = self.prompts_dir / "_TEMPLATE.md"
+        template.write_text(
+            "---\ntimestamp: \"{{timestamp}}\"\n---\n\n"
+            "## Links\n"
+            "- Roadmap: [[../Roadmap]]\n"
+            "- Logs: [[../agents_logs/]]\n"
+            "## Prompt\n```\n{{prompt_content}}\n```\n"
+            "### Agents\n{{agent_log_links}}\n",
+            encoding="utf-8",
+        )
+        path = prompt_logger.log_prompt(
+            "update Roadmap",
+            target_agents=["m1", "m4"],
+            prompts_dir=self.prompts_dir,
+        )
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("[[../Roadmap]]", content)
+        self.assertIn("[[../agents_logs/]]", content)
+        self.assertIn("[[../agents_logs/M1]]", content)
+        self.assertIn("[[../agents_logs/M4]]", content)
+
+    def test_log_prompt_uses_template_when_present(self):
+        template = self.prompts_dir / "_TEMPLATE.md"
+        template.write_text("CUSTOM: {{prompt_content}}", encoding="utf-8")
+        path = prompt_logger.log_prompt(
+            "custom task",
+            prompts_dir=self.prompts_dir,
+        )
+        self.assertIn("CUSTOM:", path.read_text(encoding="utf-8"))
+
+    def test_log_prompt_fallback_when_template_missing(self):
+        # No _TEMPLATE.md in this directory → fallback content.
+        path = prompt_logger.log_prompt(
+            "fallback test",
+            prompts_dir=self.prompts_dir,
+        )
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("## User Prompt", content)
+        self.assertIn("fallback test", content)
+
+    def test_run_logs_prompt_to_obsidian_vault(self):
+        # Patch the default prompts_dir so the test never writes to the real vault.
+        with mock.patch.object(prompt_logger, "DEFAULT_PROMPTS_DIR", self.prompts_dir):
+            hub = RunHub()
+            with mock.patch("terminal_app.threading.Thread"):
+                hub.run("my coding task", {})
+        generated = sorted(self.prompts_dir.glob("prompt-*.md"))
+        self.assertTrue(generated, "at least one prompt log should be generated")
+        self.assertTrue(
+            any("my coding task" in f.read_text(encoding="utf-8")
+                for f in generated),
+            "prompt log should contain 'my coding task'",
+        )
+
+    def test_safe_filename_slugs_prompt_text(self):
+        self.assertEqual(
+            prompt_logger._safe_filename("Hello World!!!"), "Hello-World"
+        )
+        self.assertEqual(
+            prompt_logger._safe_filename("  spaces   everywhere  "), "spaces-everywhere"
+        )
+
+    def test_wiki_link_formats_correctly(self):
+        self.assertEqual(
+            prompt_logger._wiki_link("agents_logs/M1"),
+            "[[agents_logs/M1]]",
+        )
+        self.assertEqual(
+            prompt_logger._wiki_link("Roadmap", "Phase-D"),
+            "[[Roadmap#Phase-D]]",
+        )
+
+
+class AgentLoggerTestCase(unittest.TestCase):
+    """agent_logger creates/maintains per-agent Obsidian markdown logs."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.agents_dir = Path(self._tmp.name) / "agents_logs"
+        self.agents_dir.mkdir(parents=True, exist_ok=True)
+        # Reset the in-memory active-set cache between tests.
+        agent_logger._ACTIVE_AGENT_CACHE.clear()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    # ---------------------------------------------------------- ensure_agent_logs
+
+    def test_ensure_creates_files_for_all_dispatched_agents(self):
+        paths = agent_logger.ensure_agent_logs(
+            ["m1", "m4"], agents_dir=self.agents_dir
+        )
+        self.assertEqual(len(paths), 2)
+        filenames = {p.name for p in paths}
+        self.assertIn("M1_System_Architect.md", filenames)
+        self.assertIn("M4_Backend_Dev.md", filenames)
+
+    def test_ensure_is_idempotent(self):
+        first = agent_logger.ensure_agent_logs(
+            ["m1"], agents_dir=self.agents_dir
+        )
+        second = agent_logger.ensure_agent_logs(
+            ["m1"], agents_dir=self.agents_dir
+        )
+        self.assertEqual(len(second), 1)
+        self.assertEqual(first[0], second[0])
+
+    def test_ensure_only_creates_for_given_tags(self):
+        agent_logger.ensure_agent_logs(
+            ["m4"], agents_dir=self.agents_dir
+        )
+        all_files = set(self.agents_dir.iterdir())
+        # Exclude _TEMPLATE.md if copied; only M4 should exist.
+        agent_files = {f for f in all_files if f.name != "_TEMPLATE.md"}
+        self.assertEqual(len(agent_files), 1)
+        self.assertTrue(any("M4" in f.name for f in agent_files))
+
+    # ---------------------------------------------------------- append_agent_run
+
+    def test_append_adds_entry_to_active_agent(self):
+        agent_logger.ensure_agent_logs(
+            ["m4"], agents_dir=self.agents_dir
+        )
+        path = agent_logger.append_agent_run(
+            "m4",
+            "build the widget",
+            "prompt-001",
+            status="ok",
+            duration_s=2.5,
+            agents_dir=self.agents_dir,
+        )
+        self.assertIsNotNone(path)
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("build the widget", content)
+        self.assertIn("prompt-001", content)
+        self.assertIn("✅", content)
+        self.assertIn("2.5s", content)
+
+    def test_append_creates_file_even_when_not_in_active_set(self):
+        # Only m1 is in the active set, but m4 should still get a log entry
+        # because we never want to lose agent run history.
+        agent_logger.ensure_agent_logs(
+            ["m1"], agents_dir=self.agents_dir
+        )
+        result = agent_logger.append_agent_run(
+            "m4",
+            "secret task",
+            "prompt-001",
+            agents_dir=self.agents_dir,
+        )
+        # File is created even though m4 was not in the original ensure call.
+        self.assertIsNotNone(result)
+        self.assertTrue(result.exists())
+        content = result.read_text(encoding="utf-8")
+        self.assertIn("secret task", content)
+
+    def test_append_updates_last_updated_frontmatter(self):
+        agent_logger.ensure_agent_logs(
+            ["m4"], agents_dir=self.agents_dir
+        )
+        path = agent_logger.append_agent_run(
+            "m4",
+            "hello",
+            "prompt-001",
+            status="ok",
+            agents_dir=self.agents_dir,
+        )
+        content = path.read_text(encoding="utf-8")
+        self.assertIn('last_updated: "', content)
+
+    # ---------------------------------------------------------- active set tracking
+
+    def test_active_agents_returns_on_disk_set(self):
+        agent_logger.ensure_agent_logs(
+            ["m1", "m4", "m7"], agents_dir=self.agents_dir
+        )
+        active = agent_logger.active_agents(agents_dir=self.agents_dir)
+        self.assertEqual(active, {"m1", "m4", "m7"})
+
+    def test_cached_active_agents_matches_last_ensure(self):
+        agent_logger.ensure_agent_logs(
+            ["m1", "m4"], agents_dir=self.agents_dir
+        )
+        self.assertEqual(agent_logger.cached_active_agents(), {"m1", "m4"})
+
+    def test_scaling_down_does_not_delete_inactive_agent_files(self):
+        # Scale up: create for 3 agents.
+        agent_logger.ensure_agent_logs(
+            ["m1", "m4", "m5"], agents_dir=self.agents_dir
+        )
+        # Scale down: only dispatch m1.
+        agent_logger.ensure_agent_logs(
+            ["m1"], agents_dir=self.agents_dir
+        )
+        all_files = list(self.agents_dir.glob("M*.md"))
+        # All three files still exist (history preserved).
+        self.assertGreaterEqual(len(all_files), 2)
+        # But only m1 is in the active set.
+        self.assertEqual(agent_logger.cached_active_agents(), {"m1"})
+
+    # ---------------------------------------------------------- WikiLinks
+
+    def test_log_content_has_wiki_links(self):
+        template = self.agents_dir / "_TEMPLATE.md"
+        template.write_text(
+            "---\n"
+            'agent_tag: "{{agent_tag}}"\n'
+            'last_updated: "{{last_updated}}"\n'
+            "---\n\n"
+            "# {{agent_tag}}\n\n"
+            "## Role\n{{role_description}}\n\n"
+            "## Links\n"
+            "- Dashboard: [[../Dashboard]]\n"
+            "- Roadmap: [[../Roadmap]]\n"
+            "- Prompts: [[../prompts/]]\n",
+            encoding="utf-8",
+        )
+        paths = agent_logger.ensure_agent_logs(
+            ["m4"], agents_dir=self.agents_dir
+        )
+        content = paths[0].read_text(encoding="utf-8")
+        self.assertIn("[[../Dashboard]]", content)
+        self.assertIn("[[../Roadmap]]", content)
+        self.assertIn("[[../prompts/]]", content)
+
+    def test_run_entry_links_to_prompt_log(self):
+        agent_logger.ensure_agent_logs(
+            ["m4"], agents_dir=self.agents_dir
+        )
+        path = agent_logger.append_agent_run(
+            "m4",
+            "task",
+            "prompt-003",
+            status="failed",
+            agents_dir=self.agents_dir,
+        )
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("[[../prompts/prompt-003]]", content)
+        self.assertIn("❌", content)
+
+    # ---------------------------------------------------------- filename helper
+
+    def test_safe_agent_filename_maps_tags_to_names(self):
+        self.assertIn("M1_System_Architect", agent_logger._safe_agent_filename("m1"))
+        self.assertIn("M7_Reviewer", agent_logger._safe_agent_filename("m7"))
+
+    def test_safe_agent_filename_fallback_for_unknown_tag(self):
+        self.assertEqual(
+            agent_logger._safe_agent_filename("m9"),
+            "M9.md",
+        )
+
+
+class M7AuditTestCase(unittest.TestCase):
+    """M7 Reviewer immutability + obsidian_auditor vault auditing."""
+
+    # -------------------------------------------------- immutability
+
+    def test_m7_is_immutable(self):
+        self.assertIn("m7", IMMUTABLE_TAGS)
+        self.assertEqual(len(IMMUTABLE_TAGS), 1)
+
+    def test_m7_audit_mode_exists(self):
+        self.assertIn(
+            M7_AUDIT_MODE,
+            MODE_OPTIONS_BY_MODEL["opencode/ling-3.0-tiny-free"],
+        )
+        self.assertEqual(M7_AUDIT_MODE, "obsidian-audit")
+
+    def test_hub_resolve_locks_m7(self):
+        hub = RunHub()
+        overrides = {
+            "master": {"model": "opencode/big-pickle", "mode": "plan"},
+            "m7": {"model": "opencode/deepseek-v4-flash-free", "mode": "architect"},
+        }
+        model, mode = hub.resolve("m7", overrides)
+        self.assertEqual(model, "opencode/ling-3.0-tiny-free")
+        self.assertEqual(mode, M7_AUDIT_MODE)
+
+    def test_cmd_model_rejects_m7_change(self):
+        app = RetroTerminalApp()
+        reply = app._cmd_model("m7 opencode/big-pickle")
+        self.assertIn("ERROR", reply)
+        self.assertIn("immutable", reply.lower())
+
+    def test_cmd_mode_rejects_m7_change(self):
+        app = RetroTerminalApp()
+        reply = app._cmd_mode("m7 review")
+        self.assertIn("ERROR", reply)
+        self.assertIn("immutable", reply.lower())
+
+    # -------------------------------------------------- auditor
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self._tmp.name) / "obsidian_vault"
+        self.vault.mkdir()
+        (self.vault / "prompts").mkdir()
+        (self.vault / "agents_logs").mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_verify_vault_integrity_pass(self):
+        (self.vault / "Dashboard.md").write_text("# Dash", encoding="utf-8")
+        (self.vault / "Roadmap.md").write_text("# Road", encoding="utf-8")
+        (self.vault / "prompts" / "prompt-001.md").write_text("p1", encoding="utf-8")
+        (self.vault / "agents_logs" / "M1_Test.md").write_text("a1", encoding="utf-8")
+        result = obsidian_auditor.verify_vault_integrity(vault_root=self.vault)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["issues"]), 0)
+
+    def test_verify_vault_integrity_detects_missing_files(self):
+        result = obsidian_auditor.verify_vault_integrity(vault_root=self.vault)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("Dashboard.md" in i for i in result["issues"]))
+
+    def test_cross_reference_detects_orphaned_prompts(self):
+        (self.vault / "prompts" / "prompt-001.md").write_text("orphan", encoding="utf-8")
+        (self.vault / "agents_logs" / "M4_Backend_Dev.md").write_text(
+            "No links here", encoding="utf-8"
+        )
+        result = obsidian_auditor.cross_reference_prompts(vault_root=self.vault)
+        self.assertFalse(result["ok"])
+        self.assertIn("prompt-001", result["orphaned_prompts"])
+
+    def test_cross_reference_pass_when_all_linked(self):
+        (self.vault / "prompts" / "prompt-001.md").write_text("p1", encoding="utf-8")
+        (self.vault / "agents_logs" / "M4_Backend_Dev.md").write_text(
+            "[[../prompts/prompt-001]]", encoding="utf-8"
+        )
+        result = obsidian_auditor.cross_reference_prompts(vault_root=self.vault)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["orphaned_prompts"]), 0)
+
+    def test_sync_roadmap_updates_timestamp_and_branch(self):
+        (self.vault / "Roadmap.md").write_text(
+            "> **Last updated:** old\n> **Current branch:** old-branch\n",
+            encoding="utf-8",
+        )
+        result = obsidian_auditor.sync_roadmap(
+            vault_root=self.vault, project_root=Path(self._tmp.name)
+        )
+        self.assertTrue(result["ok"])
+        updated = (self.vault / "Roadmap.md").read_text(encoding="utf-8")
+        self.assertNotIn("old", updated)
+        self.assertIn("**Last updated:**", updated)
+        self.assertIn("**Current branch:**", updated)
+
+    def test_audit_run_integrates_all_checks(self):
+        (self.vault / "Dashboard.md").write_text("# D", encoding="utf-8")
+        (self.vault / "Roadmap.md").write_text("# R", encoding="utf-8")
+        (self.vault / "prompts" / "prompt-001.md").write_text("p", encoding="utf-8")
+        (self.vault / "agents_logs" / "M4_Backend_Dev.md").write_text(
+            "[[../prompts/prompt-001]]", encoding="utf-8"
+        )
+        result = obsidian_auditor.audit_run(
+            vault_root=self.vault, project_root=Path(self._tmp.name)
+        )
+        self.assertIn("integrity", result)
+        self.assertIn("cross_ref", result)
+        self.assertIn("roadmap", result)
+        self.assertIn("M7 Audit complete", result["summary"])
+
+    def test_run_hub_has_m7_audit_method(self):
+        hub = RunHub()
+        self.assertTrue(hasattr(hub, "_run_m7_audit"))
+        self.assertTrue(callable(hub._run_m7_audit))
 
 
 if __name__ == "__main__":
