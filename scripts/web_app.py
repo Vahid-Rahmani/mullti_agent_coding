@@ -21,7 +21,7 @@ API:
     GET  /api/status          combined JSON: agents + inbox + feedback + brief
     GET  /api/swarm           swarm JSON: live helpers + recent feedback + brief
     GET  /api/logs/<agent>    tail of one agent's run log
-    POST /api/tasks           queue a task: {"agent": "frontend-dev", "prompt": "..."}
+    POST /api/tasks           queue a task: {"agent": "sarah", "prompt": "..."}
     GET  /healthz             {"ok": true}
 
 Usage:
@@ -429,7 +429,7 @@ button:hover{background:#0f2b0a}
   </div>
 </main>
 <script>
-const SLOTS={1:'system-architect',2:'analyst',3:'planner',4:'backend-dev',5:'frontend-dev',6:'tester',7:'reviewer'};
+const SLOTS={1:'matthew',2:'alex',3:'sarah',4:'david',5:'elena',6:'max',7:'chloe'};
 const SEL=document.getElementById('agent-select');
 Object.entries(SLOTS).forEach(([slot,agent])=>{
   const o=document.createElement('option');o.value=agent;o.textContent='M'+slot+' '+agent;SEL.appendChild(o);

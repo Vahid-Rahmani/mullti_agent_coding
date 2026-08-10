@@ -5,11 +5,11 @@ Pure-Python keyword/regex classifier that maps a user prompt to a ``Route``
 No network calls, no third-party dependencies.
 
 The classifier evaluates ordered keyword rules first-match-wins:
-  * ``greeting``  -> ``single``  (one fast analyst reply, concierge wrapper)
+  * ``greeting``  -> ``single``  (one fast Matthew concierge reply)
   * ``analyze`` / ``design`` / ``plan`` / ``build`` / ``frontend`` /
     ``test`` / ``review`` -> ``subset`` (2-3 agents)
-  * no match -> ``pipeline`` core subset (architect -> planner -> backend ->
-    tester -> reviewer)
+  * no match -> ``pipeline`` full specialist roster (Matthew -> Alex -> Sarah ->
+    David -> Elena -> Max -> Chloe)
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ PROJECT_ROOT = Path(os.getcwd())
 # Agent tags referenced by routes (order matches opencode.json agents).
 AGENT_TAGS = ("m1", "m2", "m3", "m4", "m5", "m6", "m7")
 
-GREETING_AGENT = "analyst"
+GREETING_AGENT = "matthew"
 GREETING_PROMPT_TEMPLATE = (
     "You are the front-desk concierge for MultiAgentCoding. A user greeted "
     "you with: \"{prompt}\". Reply warmly in 1-3 short sentences and briefly "
@@ -38,7 +38,7 @@ GREETING_PROMPT_TEMPLATE = (
 )
 
 FALLBACK_CONFIDENCE = 0.2
-FALLBACK_AGENTS = ["m1", "m3", "m4", "m6", "m7"]
+FALLBACK_AGENTS = ["m1", "m2", "m3", "m4", "m5", "m6", "m7"]
 
 _LOG_LOCK = threading.Lock()
 _PROMPT_TRUNCATE = 200
@@ -90,7 +90,7 @@ DEFAULT_RULES: list[Rule] = [
     Rule(
         "greeting",
         "single",
-        ["m2"],
+        ["m1"],
         [
             "hello", "hi", "hey", "thanks", "thank you", "how are you",
             "what can you do", "help", "good morning", "good afternoon",
@@ -100,31 +100,31 @@ DEFAULT_RULES: list[Rule] = [
     Rule(
         "self-evolve",
         "subset",
-        ["m4", "m6", "m7"],
+        ["m2", "m6", "m7"],
         ["upgrade", "self-evolve", "self-heal", "evolve", "heal"],
     ),
     Rule(
         "analyze",
         "subset",
-        ["m2", "m1"],
+        ["m1", "m2"],
         ["analyze", "analysis", "requirements", "requirement", "assess", "evaluate"],
     ),
     Rule(
         "design",
         "subset",
-        ["m1", "m2"],
+        ["m1", "m3"],
         ["design", "architecture", "architect", "schema", "blueprint", "model"],
     ),
     Rule(
         "plan",
         "subset",
-        ["m3", "m2"],
+        ["m1", "m2"],
         ["plan", "planning", "roadmap", "schedule", "milestone", "next step", "steps"],
     ),
     Rule(
         "build",
         "subset",
-        ["m4", "m6", "m7"],
+        ["m2", "m6", "m7"],
         [
             "build", "implement", "code", "develop", "backend", "api", "fix",
             "bug", "login", "database", "auth", "server", "endpoint",
@@ -134,7 +134,7 @@ DEFAULT_RULES: list[Rule] = [
     Rule(
         "frontend",
         "subset",
-        ["m5", "m6", "m7"],
+        ["m3", "m6", "m7"],
         [
             "frontend", "front-end", "ui", "ux", "interface", "css", "html",
             "react", "component", "page", "layout", "web",
@@ -143,14 +143,14 @@ DEFAULT_RULES: list[Rule] = [
     Rule(
         "test",
         "subset",
-        ["m6", "m4"],
+        ["m4", "m2"],
         ["test", "tests", "testing", "unittest", "pytest", "coverage"],
     ),
     Rule(
         "review",
         "subset",
-        ["m7", "m4"],
-        ["review", "reviewer", "code review", "approve", "merge", "critique", "pull request"],
+        ["m5", "m2"],
+        ["review", "reviewer", "code review", "approve", "merge", "critique", "pull request", "security"],
     ),
 ]
 

@@ -53,19 +53,19 @@ class DetectOptimizationLoopsTestCase(unittest.TestCase):
         self.assertEqual(detect_optimization_loops(missing), [])
 
     def test_below_threshold_no_proposal(self):
-        _init_log(self.log_dir, "backend-dev.log", ["Error: one", "Error: two"])
+        _init_log(self.log_dir, "david.log", ["Error: one", "Error: two"])
         self.assertEqual(detect_optimization_loops(self.log_dir), [])
 
     def test_threshold_met_creates_proposal(self):
         _init_log(
             self.log_dir,
-            "backend-dev.log",
+            "david.log",
             ["Error: one", "Error: two", "Error: three"],
         )
         proposals = detect_optimization_loops(self.log_dir)
         self.assertEqual(len(proposals), 1)
         proposal = proposals[0]
-        self.assertEqual(proposal.agent, "backend-dev")
+        self.assertEqual(proposal.agent, "david")
         self.assertEqual(proposal.count, 3)
         self.assertGreaterEqual(proposal.count, LOOP_THRESHOLD)
         self.assertTrue(proposal.suggestion)
@@ -73,16 +73,16 @@ class DetectOptimizationLoopsTestCase(unittest.TestCase):
     def test_agent_name_from_filename(self):
         _init_log(
             self.log_dir,
-            "analyst.log",
+            "alex.log",
             ["Error: a", "Error: b", "Error: c"],
         )
         proposals = detect_optimization_loops(self.log_dir)
-        self.assertEqual(proposals[0].agent, "analyst")
+        self.assertEqual(proposals[0].agent, "alex")
 
     def test_multiple_signatures_counted_separately(self):
         _init_log(
             self.log_dir,
-            "tester.log",
+            "max.log",
             [
                 "Error: a",
                 "Error: b",
@@ -100,22 +100,22 @@ class DetectOptimizationLoopsTestCase(unittest.TestCase):
     def test_multiple_agents_produce_separate_proposals(self):
         _init_log(
             self.log_dir,
-            "backend-dev.log",
+            "david.log",
             ["Error: a", "Error: b", "Error: c"],
         )
         _init_log(
             self.log_dir,
-            "frontend-dev.log",
+            "elena.log",
             ["Error: x", "Error: y", "Error: z"],
         )
         proposals = detect_optimization_loops(self.log_dir)
         agents = {p.agent for p in proposals}
-        self.assertEqual(agents, {"backend-dev", "frontend-dev"})
+        self.assertEqual(agents, {"david", "elena"})
 
     def test_proposal_id_is_unique_per_agent_signature(self):
         _init_log(
             self.log_dir,
-            "backend-dev.log",
+            "david.log",
             ["Error: a", "Error: b", "Error: c"],
         )
         proposals = detect_optimization_loops(self.log_dir)

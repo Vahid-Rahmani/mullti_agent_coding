@@ -8,24 +8,25 @@ and memory used to drive software projects (typically under `projects/`).
 
 | Agent | Role | Model |
 |---|---|---|
-| `system-architect` | System architecture + design approval (read-only) | opencode/deepseek-v4-flash-free |
-| `analyst` | Requirements analysis (read-only) | opencode/big-pickle |
-| `planner` | PLAN.md + TASKS.json (read-only) | opencode/big-pickle |
-| `backend-dev` | Backend implementation | opencode/deepseek-v4-flash-free |
-| `frontend-dev` | Frontend implementation | opencode/deepseek-v4-flash-free |
-| `tester` | Test authoring + execution | opencode/big-pickle |
-| `reviewer` | Code review, approve/reject (read-only) | opencode/ling-3.0-tiny-free |
+| `matthew` | Matthew — lead architecture + master coordination (read-only) | opencode/deepseek-v4-flash-free |
+| `alex` | Alex — backend, APIs, Python logic, and data handling | opencode/deepseek-v4-flash-free |
+| `sarah` | Sarah — TUI, frontend, UX, and rendering | opencode/deepseek-v4-flash-free |
+| `david` | David — QA, TDD, tests, and debugging | opencode/big-pickle |
+| `elena` | Elena — code quality and security audit (read-only) | opencode/ling-3.0-tiny-free |
+| `max` | Max — DevOps, automation, and environment stability | opencode/deepseek-v4-flash-free |
+| `chloe` | Chloe — documentation and Obsidian knowledge audit (read-only) | opencode/ling-3.0-tiny-free |
 
 Every agent has an explicit `fallback_models` chain (see [Fallback Policy](#fallback-policy)).
 
 ## Workflow
 
-1. **Analyze** — `analyst` turns the request into requirements.
-2. **Design** — `system-architect` validates requirements and defines architecture.
-3. **Plan** — `planner` writes `PLAN.md` + `TASKS.json`.
-4. **Execute** — `backend-dev` / `frontend-dev` implement; `tester` writes/runs tests.
-5. **Review** — `reviewer` reviews the diff; on approval it merges to `main`.
-6. **Deploy** — defined per-project (see `skills/deploy` when present).
+1. **Coordinate** — `matthew` defines architecture, routing, and handoffs.
+2. **Build backend** — `alex` implements Python, APIs, data, and file operations.
+3. **Build interface** — `sarah` implements TUI/frontend behavior and UX.
+4. **Verify** — `david` writes and runs tests using a TDD workflow.
+5. **Audit quality** — `elena` reviews code and security; `max` stabilizes automation.
+6. **Document** — `chloe` audits state, plans, and the Obsidian vault, then reports drift.
+7. **Deploy** — defined per-project (see `skills/deploy` when present).
 
 ## Conventions
 
@@ -65,15 +66,15 @@ by side, each listening for tasks in its own inbox.
 
 - **Launch** — run `launch_agents.bat` at the repo root, or in VS Code use the
   `Launch All Agents` terminal task (`.vscode/tasks.json`). Seven terminal
-  windows open, titled `M1 - System Architect` … `M7 - Reviewer`, positioned in
+  windows open, titled `M1 - Matthew` … `M7 - Chloe`, positioned in
   a 4×2 grid.
 - **Task inbox flow** — drop a single-line task into `_inbox/<agent>.task`
-  (e.g. `_inbox/analyst.task`). The agent's window polls the inbox, runs
+  (e.g. `_inbox/alex.task`). The agent's window polls the inbox, runs
   `opencode run --agent <name> -m <model> "<task>"`, appends the full output to
   `_logs/<agent>.log`, then moves the consumed task to `_inbox/done/`. Poll
   interval is 3s.
-- **Window map** — `M1` system-architect, `M2` analyst, `M3` planner,
-  `M4` backend-dev, `M5` frontend-dev, `M6` tester, `M7` reviewer.
+- **Window map** — `M1` matthew, `M2` alex, `M3` sarah,
+  `M4` david, `M5` elena, `M6` max, `M7` chloe.
 - **Event-driven handoff** — each role processes its inbox independently. To
   hand work to the next role, drop the next task into that role's inbox after
   the previous role logs completion. There is no shared queue; the operator (or
@@ -85,19 +86,17 @@ by side, each listening for tasks in its own inbox.
   session (see [Fallback Policy](#fallback-policy)). Model assignment is a
   hybrid of the three free models:
   - `opencode/ling-3.0-tiny-free` — ultra-fast routing/summarization: used for
-    `compaction` and the `reviewer` (quick final checks).
+    `compaction`, `elena`, and `chloe` (quick audit/documentation checks).
   - `opencode/deepseek-v4-flash-free` — heavy reasoning & coding:
-    `system-architect`, `backend-dev`, `frontend-dev`.
-  - `opencode/big-pickle` — planning, analysis & testing: `analyst`, `planner`,
-    `tester`.
+    `matthew`, `alex`, `sarah`, and `max`.
+  - `opencode/big-pickle` — QA and fallback reasoning: `david`.
   All three are free (no paid credits required). The MuleRouter provider block
   remains defined in `opencode.json` but is no longer used by default; its API
   key lives only in `~/.local/share/opencode/auth.json` (never committed).
 - **Mode note** — all 7 agents are `mode: all`: they can be invoked standalone
   (`opencode run --agent X`) and still be used as subagents by other agents.
-  The read-only annotations on `system-architect`, `analyst`, `planner`, and
-  `reviewer` are permission-based (`edit: deny`) and are unaffected by the mode
-  change.
+  The read-only annotations on `matthew`, `elena`, and `chloe` are permission-based
+  (`edit: deny`) and are unaffected by the mode change.
 
 ## Memory & evolution
 

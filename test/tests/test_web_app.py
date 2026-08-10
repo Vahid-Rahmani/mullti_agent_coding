@@ -36,22 +36,22 @@ def make_workspace(tmp: str):
     (root / "_inbox" / "done").mkdir(parents=True)
     (root / "_inbox" / "claimed").mkdir(parents=True)
     # Per-slot state: m4 helper -> m1, m5 idle working.
-    swarm.write_slot_state(root / "_logs" / "swarm", 4, status="helper", target=1, title="M4-Helper->M1", agent="backend-dev")
-    swarm.write_slot_state(root / "_logs" / "swarm", 5, status="working", title="M5 - Frontend Dev [working]", agent="frontend-dev")
+    swarm.write_slot_state(root / "_logs" / "swarm", 4, status="helper", target=1, title="M4-Helper->M1", agent="david")
+    swarm.write_slot_state(root / "_logs" / "swarm", 5, status="working", title="M5 - Elena [working]", agent="elena")
     # Feedback records.
     (root / "_logs" / "swarm_feedback.jsonl").write_text(
-        json.dumps({"ts": "2026-08-09T00:00:00+00:00", "slot": 4, "agent": "backend-dev", "mode": "helper", "target": 1, "ok": True, "duration": 3.0, "task": "fix login"})
+        json.dumps({"ts": "2026-08-09T00:00:00+00:00", "slot": 4, "agent": "david", "mode": "helper", "target": 1, "ok": True, "duration": 3.0, "task": "fix login"})
         + "\n"
-        + json.dumps({"ts": "2026-08-09T00:01:00+00:00", "slot": 5, "agent": "frontend-dev", "mode": "own", "ok": False, "duration": 1.2, "task": "style nav"})
+        + json.dumps({"ts": "2026-08-09T00:01:00+00:00", "slot": 5, "agent": "elena", "mode": "own", "ok": False, "duration": 1.2, "task": "style nav"})
         + "\n",
         encoding="utf-8",
     )
     # Logs.
-    (root / "_logs" / "frontend-dev.log").write_text("line0\nline1\nline2\n", encoding="utf-8")
-    # Inbox: one pending task for backend-dev.
-    (root / "_inbox" / "backend-dev.task").write_text("fix the login redirect bug", encoding="utf-8")
-    (root / "_inbox" / "done" / "planner-1.task").write_text("smoke", encoding="utf-8")
-    (root / "_inbox" / "claimed" / "tester-claimed-by-m4-1.task").write_text("smoke", encoding="utf-8")
+    (root / "_logs" / "elena.log").write_text("line0\nline1\nline2\n", encoding="utf-8")
+    # Inbox: one pending task for david.
+    (root / "_inbox" / "david.task").write_text("fix the login redirect bug", encoding="utf-8")
+    (root / "_inbox" / "done" / "sarah-1.task").write_text("smoke", encoding="utf-8")
+    (root / "_inbox" / "claimed" / "max-claimed-by-m4-1.task").write_text("smoke", encoding="utf-8")
     return root
 
 
@@ -78,7 +78,7 @@ class CollectAgentsTestCase(unittest.TestCase):
     def test_all_seven_slots_in_order(self):
         agents = web_app.collect_agents(self.root)
         self.assertEqual([a["slot"] for a in agents], [1, 2, 3, 4, 5, 6, 7])
-        self.assertEqual([a["agent"] for a in agents], ["system-architect", "analyst", "planner", "backend-dev", "frontend-dev", "tester", "reviewer"])
+        self.assertEqual([a["agent"] for a in agents], ["matthew", "alex", "sarah", "david", "elena", "max", "chloe"])
 
     def test_helper_status_and_title(self):
         m4 = next(a for a in web_app.collect_agents(self.root) if a["slot"] == 4)
@@ -93,7 +93,7 @@ class CollectAgentsTestCase(unittest.TestCase):
     def test_idle_default_when_no_state(self):
         m6 = next(a for a in web_app.collect_agents(self.root) if a["slot"] == 6)
         self.assertEqual(m6["status"], "idle")
-        self.assertEqual(m6["title"], "M6 - Tester")
+        self.assertEqual(m6["title"], "M6 - Max")
 
     def test_log_tail_and_has_log(self):
         agents = web_app.collect_agents(self.root)
@@ -119,8 +119,8 @@ class CollectInboxTestCase(unittest.TestCase):
 
     def test_pending_counts_and_metadata(self):
         inbox = web_app.collect_inbox(self.root)
-        self.assertEqual([p["agent"] for p in inbox["pending"]], ["backend-dev"])
-        self.assertIn("backend-dev.task", inbox["pending"][0]["path"])
+        self.assertEqual([p["agent"] for p in inbox["pending"]], ["david"])
+        self.assertIn("david.task", inbox["pending"][0]["path"])
         self.assertGreaterEqual(inbox["pending"][0]["age"], 0.0)
 
     def test_done_and_claimed_counts(self):
@@ -167,10 +167,10 @@ class SubmitTaskTestCase(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_valid_submission_writes_task_file(self):
-        ok, message, path = web_app.submit_task(self.root, "frontend-dev", "make a web")
+        ok, message, path = web_app.submit_task(self.root, "elena", "make a web")
         self.assertTrue(ok)
         self.assertEqual(message, "queued")
-        self.assertEqual(path, self.root / "_inbox" / "frontend-dev.task")
+        self.assertEqual(path, self.root / "_inbox" / "elena.task")
         self.assertEqual(path.read_text(encoding="utf-8"), "make a web")
 
     def test_unknown_agent_rejected(self):
@@ -184,12 +184,12 @@ class SubmitTaskTestCase(unittest.TestCase):
         self.assertFalse(ok)
 
     def test_empty_prompt_rejected(self):
-        ok, message, _ = web_app.submit_task(self.root, "analyst", "   ")
+        ok, message, _ = web_app.submit_task(self.root, "alex", "   ")
         self.assertFalse(ok)
         self.assertIn("empty prompt", message)
 
     def test_prompt_sanitized_on_disk(self):
-        ok, _, path = web_app.submit_task(self.root, "planner", "  plan\x07the\x1bthing  ")
+        ok, _, path = web_app.submit_task(self.root, "sarah", "  plan\x07the\x1bthing  ")
         self.assertTrue(ok)
         self.assertEqual(path.read_text(encoding="utf-8"), "planthething")
 
@@ -257,7 +257,7 @@ class WebServerTestCase(unittest.TestCase):
         self.assertEqual(len(payload["helpers"]), 1)
 
     def test_api_logs_valid_agent(self):
-        status, body = self._get("/api/logs/frontend-dev")
+        status, body = self._get("/api/logs/elena")
         self.assertEqual(status, 200)
         payload = json.loads(body)
         self.assertEqual(payload["lines"], ["line0", "line1", "line2"])
@@ -273,10 +273,10 @@ class WebServerTestCase(unittest.TestCase):
         self.assertIn("not found", json.loads(body)["error"])
 
     def test_post_task_creates_file(self):
-        status, payload = self._post_task("tester", "run the suite")
+        status, payload = self._post_task("max", "run the suite")
         self.assertEqual(status, 201)
         self.assertTrue(payload["ok"])
-        self.assertTrue((self.root / "_inbox" / "tester.task").exists())
+        self.assertTrue((self.root / "_inbox" / "max.task").exists())
 
     def test_post_task_invalid_agent_400(self):
         status, payload = self._post_task("nope", "x")

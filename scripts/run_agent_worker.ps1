@@ -61,7 +61,7 @@ catch {
     Write-Host "Warning: window placement skipped ($($_.Exception.Message))"
 }
 
-# --- Resolve agent model from opencode.json (unless overridden) ---
+# --- Resolve humanified agent model from opencode.json (unless overridden) ---
 $configPath = Join-Path $ProjectRoot 'opencode.json'
 if (-not (Test-Path $configPath)) {
     Write-Error "opencode.json not found at $configPath"

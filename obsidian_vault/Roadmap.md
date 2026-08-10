@@ -1,7 +1,7 @@
 # Roadmap — MultiAgentCoding Control Plane
 
-> **Last updated:** 2026-08-10 09:21 UTC
-> **Current branch:** `feature/obsidian-vault-integration`
+> **Last updated:** 2026-08-10 15:07 UTC
+> **Current branch:** `feat/ui-layout-and-abort-fix`
 
 ---
 

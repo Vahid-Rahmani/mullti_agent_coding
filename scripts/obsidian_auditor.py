@@ -1,7 +1,7 @@
-"""Obsidian Vault Auditor — M7 Reviewer's immutable documentation audit engine.
+"""Obsidian Vault Auditor — M7 Chloe's immutable documentation audit engine.
 
 Pure-stdlib module that implements the 'Obsidian-Vault-Sync & Final Audit'
-mode for agent M7 (Reviewer). It never writes production code — its sole
+mode for agent M7 (Chloe). It never writes production code — its sole
 responsibilities are:
 
 1. **Vault Integrity Verification** — ensures the ``obsidian_vault/``

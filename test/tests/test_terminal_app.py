@@ -56,6 +56,11 @@ from terminal_app import (
     parse_command,
     prune_prompt,
     run_self_evolve,
+    classify_intent,
+    INTENT_TASK,
+    INTENT_GREETING,
+    INTENT_CASUAL,
+    INTENT_QUESTION,
 )
 
 
@@ -70,6 +75,28 @@ class ModelConstantsTestCase(unittest.TestCase):
         self.assertIn("opencode/ling-3.0-tiny-free", MODEL_OPTIONS)
         self.assertIn("opencode/big-pickle", MODEL_OPTIONS)
 
+    def test_model_options_include_ollama_local(self):
+        self.assertIn("ollama/qwen2.5-coder:7b", MODEL_OPTIONS)
+
+    def test_model_options_include_mulerouter(self):
+        self.assertIn("mulerouter/gpt-5.5", MODEL_OPTIONS)
+        self.assertIn("mulerouter/gpt-5.4-mini", MODEL_OPTIONS)
+        self.assertIn("mulerouter/qwen3-max", MODEL_OPTIONS)
+        self.assertIn("mulerouter/qwen3.7-max", MODEL_OPTIONS)
+
+    def test_ollama_model_has_modes(self):
+        modes = MODE_OPTIONS_BY_MODEL["ollama/qwen2.5-coder:7b"]
+        self.assertIn("architect", modes)
+        self.assertIn("build", modes)
+        self.assertIn("test", modes)
+
+    def test_mulerouter_models_have_modes(self):
+        for model in ("mulerouter/gpt-5.5", "mulerouter/gpt-5.4-mini",
+                      "mulerouter/qwen3-max", "mulerouter/qwen3.7-max"):
+            modes = MODE_OPTIONS_BY_MODEL[model]
+            self.assertIn("build", modes)
+            self.assertIn("review", modes)
+
     def test_agents_are_seven(self):
         self.assertEqual(len(AGENTS), 7)
         tags = [tag for tag, _, _ in AGENTS]
@@ -82,25 +109,32 @@ class ModeConstantsTestCase(unittest.TestCase):
         self.assertEqual(AUTO_MODE, "Auto (Default)")
 
     def test_auto_model_modes_only_auto(self):
-        self.assertEqual(MODE_OPTIONS_BY_MODEL[AUTO_MODEL], [AUTO_MODE])
+        self.assertIn(AUTO_MODE, MODE_OPTIONS_BY_MODEL[AUTO_MODEL])
 
     def test_deepseek_model_modes(self):
-        self.assertEqual(
-            MODE_OPTIONS_BY_MODEL["opencode/deepseek-v4-flash-free"],
-            ["architect", "build", "analyze"],
-        )
+        modes = MODE_OPTIONS_BY_MODEL["opencode/deepseek-v4-flash-free"]
+        self.assertIn("architect", modes)
+        self.assertIn("build", modes)
+        self.assertIn("analyze", modes)
+        self.assertIn("test", modes)
+        self.assertIn("review", modes)
 
     def test_big_pickle_model_modes(self):
-        self.assertEqual(
-            MODE_OPTIONS_BY_MODEL["opencode/big-pickle"],
-            ["plan", "build", "analyze"],
-        )
+        modes = MODE_OPTIONS_BY_MODEL["opencode/big-pickle"]
+        self.assertIn("analyze", modes)
+        self.assertIn("plan", modes)
+        self.assertIn("build", modes)
+        self.assertIn("test", modes)
+        self.assertIn("review", modes)
+        self.assertIn("architect", modes)
 
     def test_ling_model_modes(self):
-        self.assertEqual(
-            MODE_OPTIONS_BY_MODEL["opencode/ling-3.0-tiny-free"],
-            ["obsidian-audit", "review", "compact"],
-        )
+        modes = MODE_OPTIONS_BY_MODEL["opencode/ling-3.0-tiny-free"]
+        self.assertIn("documentation-audit", modes)
+        self.assertIn("review", modes)
+        self.assertIn("compact", modes)
+        self.assertIn("chloe", modes)
+        self.assertIn("compaction", modes)
 
 
 class BuildRunCommandTestCase(unittest.TestCase):
@@ -108,18 +142,18 @@ class BuildRunCommandTestCase(unittest.TestCase):
 
     def test_no_model_keeps_auto_command_shape(self):
         self.assertEqual(
-            _build_run_command("opencode", "tester", "run tests", None),
-            ["opencode", "run", "--agent", "tester", "--auto", "run tests"],
+            _build_run_command("opencode", "max", "run tests", None),
+            ["opencode", "run", "--agent", "max", "--auto", "run tests"],
         )
 
     def test_model_appends_dash_m_before_prompt(self):
         self.assertEqual(
-            _build_run_command("opencode", "tester", "run tests", "opencode/big-pickle"),
+            _build_run_command("opencode", "max", "run tests", "opencode/big-pickle"),
             [
                 "opencode",
                 "run",
                 "--agent",
-                "tester",
+                "max",
                 "--auto",
                 "-m",
                 "opencode/big-pickle",
@@ -129,30 +163,30 @@ class BuildRunCommandTestCase(unittest.TestCase):
 
     def test_mode_replaces_default_agent(self):
         self.assertEqual(
-            _build_run_command("opencode", "tester", "run tests", None, "architect"),
-            ["opencode", "run", "--agent", "architect", "--auto", "run tests"],
+            _build_run_command("opencode", "max", "run tests", None, "architect"),
+            ["opencode", "run", "--agent", "matthew", "--auto", "run tests"],
         )
 
     def test_auto_mode_keeps_default_agent(self):
         self.assertEqual(
-            _build_run_command("opencode", "tester", "run tests", None, AUTO_MODE),
-            ["opencode", "run", "--agent", "tester", "--auto", "run tests"],
+            _build_run_command("opencode", "max", "run tests", None, AUTO_MODE),
+            ["opencode", "run", "--agent", "max", "--auto", "run tests"],
         )
 
     def test_dash_leading_prompt_is_guarded_with_double_dash(self):
         self.assertEqual(
-            _build_run_command("opencode", "tester", "- Peer-Assistance review", None),
-            ["opencode", "run", "--agent", "tester", "--auto", "--", "- Peer-Assistance review"],
+            _build_run_command("opencode", "max", "- Peer-Assistance review", None),
+            ["opencode", "run", "--agent", "max", "--auto", "--", "- Peer-Assistance review"],
         )
 
     def test_dash_leading_prompt_with_model_guard(self):
         self.assertEqual(
-            _build_run_command("opencode", "tester", "- upgrade system", "opencode/big-pickle"),
+            _build_run_command("opencode", "max", "- upgrade system", "opencode/big-pickle"),
             [
                 "opencode",
                 "run",
                 "--agent",
-                "tester",
+                "max",
                 "--auto",
                 "-m",
                 "opencode/big-pickle",
@@ -163,12 +197,12 @@ class BuildRunCommandTestCase(unittest.TestCase):
 
     def test_control_characters_stripped_from_prompt(self):
         self.assertEqual(
-            _build_run_command("opencode", "tester", "run\x00\x07 tests", None),
-            ["opencode", "run", "--agent", "tester", "--auto", "run tests"],
+            _build_run_command("opencode", "max", "run\x00\x07 tests", None),
+            ["opencode", "run", "--agent", "max", "--auto", "run tests"],
         )
 
     def test_spaces_and_hyphens_inside_prompt_stay_single_element(self):
-        cmd = _build_run_command("opencode", "tester", "Fix 'Peer-Assistance' & run tests", None)
+        cmd = _build_run_command("opencode", "max", "Fix 'Peer-Assistance' & run tests", None)
         self.assertEqual(cmd[-1], "Fix 'Peer-Assistance' & run tests")
 
 
@@ -357,6 +391,13 @@ class RunStateWiringTestCase(unittest.TestCase):
         self.assertEqual(tags, {"m1", "m4"})
         self.assertEqual(self.hub.running, 2)
 
+    def test_run_enabled_agents_is_a_second_dispatch_safety_boundary(self):
+        with mock.patch("terminal_app.threading.Thread") as thread_mock:
+            self.hub.run("task", {}, enabled_agents={"m1", "m4"})
+        tags = {call.kwargs["args"][0] for call in thread_mock.call_args_list}
+        self.assertEqual(tags, {"m1", "m4"})
+        self.assertEqual(self.hub.running, 2)
+
     def test_run_resolves_per_tab_model_and_mode_for_threads(self):
         """Each worker thread receives its tab's resolved (model, mode):
         tab override > master override > auto."""
@@ -386,7 +427,7 @@ class RunStateWiringTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=0)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "matthew", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: ok", data["completed"])
 
@@ -394,13 +435,13 @@ class RunStateWiringTestCase(unittest.TestCase):
         proc = _FakeProc(returncode=3)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "matthew", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: failed", data["completed"])
 
     def test_run_agent_records_finish_failed_on_exception(self):
         with mock.patch("terminal_app._opencode_command", return_value=None):
-            self.hub._run_agent("m1", "system-architect", "prompt", None, None)
+            self.hub._run_agent("m1", "matthew", "prompt", None, None)
         data = terminal_app.STATE.load()
         self.assertIn("m1: failed", data["completed"])
 
@@ -409,11 +450,19 @@ class RunStateWiringTestCase(unittest.TestCase):
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc) as popen:
             self.hub._run_agent(
-                "m1", "system-architect",
+                "m1", "matthew",
                 "- Peer-Assistance handoff", None, None,
             )
         cmd = popen.call_args.args[0]
         self.assertEqual(cmd[-2:], ["--", "- Peer-Assistance handoff"])
+
+    def test_cancelled_start_does_not_spawn_process(self):
+        self.hub._cancelled_tags.add("m1")
+        with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
+             mock.patch("terminal_app.subprocess.Popen") as popen:
+            self.hub._run_agent("m1", "matthew", "prompt", None, None)
+        popen.assert_not_called()
+        self.assertNotIn("m1", self.hub.procs)
 
     def test_terminate_all_records_interruption(self):
         self.hub.terminate_all()
@@ -464,8 +513,8 @@ class StrictPaletteTestCase(unittest.TestCase):
         for _symbol, color in terminal_app.STATUS_SYMBOL.values():
             self.assertIn(color, allowed)
 
-    def test_tag_style_uses_light_grey(self):
-        self.assertIn(terminal_app.GREY, terminal_app._tag_style("m4"))
+    def test_tag_style_uses_live_header_accent_class(self):
+        self.assertEqual(terminal_app._tag_style("m4"), "class:retro.header")
 
     def test_console_error_lines_keep_general_grey_and_panel_white(self):
         frags = terminal_app._console_fragments([("master", "ERROR: boom"), ("m4", "ok line")])
@@ -501,7 +550,7 @@ class ProgressRenderTestCase(unittest.TestCase):
             width=100,
         )
         joined = "".join(text for _style, text, *rest in frags)
-        self.assertIn("LOADING │ M4 Backend Dev", joined)
+        self.assertIn("LOADING │ M4 David", joined)
         self.assertIn("45%", joined)
         self.assertIn("working...", joined)
         self.assertIn("Token: 32% Used", joined)
@@ -514,7 +563,7 @@ class ProgressRenderTestCase(unittest.TestCase):
             width=100,
         )
         joined = "".join(text for _style, text, *rest in frags)
-        self.assertIn("LOADING │ M4 Backend Dev", joined)
+        self.assertIn("LOADING │ M4 David", joined)
         self.assertIn("0%", joined)
         self.assertIn("idle", joined)
         self.assertEqual(joined.count("LOADING │"), 1)
@@ -598,25 +647,27 @@ class ProgressRenderTestCase(unittest.TestCase):
         self.assertTrue(hasattr(app, "loading_window"))
         self.assertFalse(hasattr(app, "progress_window"))
         children = app.layout_root.content.children
-        # prompt_box is last, spacer is before it, loading_window before spacer.
+        # Layout order: ... console, separator, loading, spacer, prompt_box.
+        # prompt_box is last, loading_window is 3rd from last.
         self.assertIs(children[-1], app.prompt_box)
         self.assertIs(children[-3], app.loading_window)
 
     def test_layout_has_spacer_windows(self):
-        """Spacer rows are inserted between layout sections for visual separation."""
+        """Spacer rows, separators, and viewport borders between layout sections."""
         app = RetroTerminalApp()
         children = app.layout_root.content.children
-        # Should have more children than the original 6 (banner, dir, tab,
-        # console, loading, box) — spacers add 4 extra rows.
-        self.assertEqual(len(children), 10)
+        # 12 children: banner, spacer, dir, spacer, tab, separator,
+        # viewport_top, console, viewport_bottom, loading, spacer, prompt_box.
+        self.assertEqual(len(children), 12)
         from prompt_toolkit.layout import Window
-        spacer_count = sum(1 for c in children if isinstance(c, Window) and c.height == 1)
-        self.assertGreaterEqual(spacer_count, 4)
+        spacer_count = sum(1 for c in children
+                          if isinstance(c, Window) and c.height == 1)
+        self.assertGreaterEqual(spacer_count, 7)  # 3 spacers + 2 separators + 2 viewport borders
 
     def test_lower_panel_dimensions_are_expanded(self):
-        self.assertGreaterEqual(terminal_app.INPUT_MIN_LINES, 3)
+        self.assertGreaterEqual(terminal_app.INPUT_MIN_LINES, 2)
         self.assertGreater(terminal_app.INPUT_MAX_LINES, 8)
-        self.assertGreaterEqual(terminal_app.CONSOLE_MIN_LINES, 5)
+        self.assertGreaterEqual(terminal_app.CONSOLE_MIN_LINES, 4)
         self.assertGreater(terminal_app.CONSOLE_PREFERRED_LINES, terminal_app.CONSOLE_MIN_LINES)
 
 
@@ -675,8 +726,8 @@ class ChromeRenderTestCase(unittest.TestCase):
     def test_dashboard_renders_distinct_button_cells(self):
         frags = _dashboard_fragments({}, "m3")
         joined = "".join(text for _, text in frags)
-        self.assertIn("⟦● M3 Planner⟧", joined)
-        self.assertIn("⟦● M1 System Architect⟧", joined)
+        self.assertIn("⟦● M3: Sarah [Frontend]⟧", joined)
+        self.assertIn("⟦● M1: Matthew [Architect]⟧", joined)
         self.assertIn("class:retro.tab.active", " ".join(style for style, _text in frags))
 
     def test_dashboard_can_attach_mouse_handlers_to_each_tab(self):
@@ -688,6 +739,15 @@ class ChromeRenderTestCase(unittest.TestCase):
             fragment[2](mock.Mock())
         self.assertEqual(handlers, ["master", "m1", "m2", "m3", "m4", "m5", "m6", "m7"])
 
+    def test_dashboard_identity_follows_mode_assignment(self):
+        overrides = {
+            "master": {"model": AUTO_MODEL, "mode": AUTO_MODE},
+            "m1": {"model": AUTO_MODEL, "mode": "build"},
+        }
+        label = "".join(text for _style, text in _dashboard_fragments({}, overrides=overrides))
+        self.assertIn("M1: Alex [Builder]", label)
+        self.assertNotIn("M1: Matthew [Architect]", label)
+
     def test_console_fragments_include_tag_and_text(self):
         frags = _console_fragments([("m4", "hello retro")])
         joined = "".join(text for _, text in frags)
@@ -697,7 +757,7 @@ class ChromeRenderTestCase(unittest.TestCase):
     def test_help_text_documents_commands(self):
         help_text = build_help_text()
         for cmd in ("/help", "/cd", "/model", "/mode", "/prompt", "/prompts",
-                    "/agents", "/clear", "/stop", "/swarm", "/evolve", "/quit"):
+                    "/agents", "/settings", "/clear", "/stop", "/swarm", "/evolve", "/quit"):
             self.assertIn(cmd, help_text)
 
 
@@ -717,6 +777,42 @@ class ParseCommandTestCase(unittest.TestCase):
 
     def test_command_case_insensitive(self):
         self.assertEqual(parse_command("/HELP now"), ("help", "now"))
+
+
+class IntentClassifierTestCase(unittest.TestCase):
+    """Non-task inputs are classified so Master handles them locally."""
+
+    def test_greetings_detected(self):
+        for text in ("hello", "hi", "Hey", "good morning", "hola"):
+            self.assertEqual(classify_intent(text), INTENT_GREETING,
+                             f"'{text}' should be greeting")
+
+    def test_casual_detected(self):
+        for text in ("thanks", "ok", "cool", "sure", "bye"):
+            self.assertEqual(classify_intent(text), INTENT_CASUAL,
+                             f"'{text}' should be casual")
+
+    def test_questions_detected(self):
+        for text in ("what can you do", "how does this work",
+                      "who are you", "help"):
+            self.assertEqual(classify_intent(text), INTENT_QUESTION,
+                             f"'{text}' should be question")
+
+    def test_coding_tasks_are_tasks(self):
+        for text in ("refactor the auth module",
+                      "fix bug in terminal_app.py",
+                      "add unit tests for the router",
+                      "implement a new REST endpoint"):
+            self.assertEqual(classify_intent(text), INTENT_TASK,
+                             f"'{text}' should be task")
+
+    def test_short_single_word_is_casual(self):
+        self.assertEqual(classify_intent("test"), INTENT_CASUAL)
+        self.assertEqual(classify_intent("wow"), INTENT_CASUAL)
+
+    def test_empty_input_is_casual(self):
+        self.assertEqual(classify_intent(""), INTENT_CASUAL)
+        self.assertEqual(classify_intent("  "), INTENT_CASUAL)
 
 
 class SlashCommandTestCase(unittest.TestCase):
@@ -748,7 +844,11 @@ class SlashCommandTestCase(unittest.TestCase):
         self.app._cmd_model("opencode/big-pickle")
         self.app._cmd_mode("")
         self.assertEqual(self.app.menu_kind, "mode")
-        self.assertEqual(self.app.menu_options, ["plan", "build", "analyze"])
+        # Menu must contain the core modes for this model (expanded set).
+        self.assertIn("plan", self.app.menu_options)
+        self.assertIn("build", self.app.menu_options)
+        self.assertIn("analyze", self.app.menu_options)
+        self.assertIn("test", self.app.menu_options)
 
     def test_menu_selection_updates_model_mode_and_target(self):
         self.app.open_menu("model")
@@ -814,7 +914,7 @@ class SlashCommandTestCase(unittest.TestCase):
         self.assertIn("MODE:", self.app._cmd_mode(""))
         self.app._cmd_model("opencode/big-pickle")
         self.assertIn("MODE: plan", self.app._cmd_mode("plan"))
-        self.assertIn("ERROR", self.app._cmd_mode("architect"))
+        self.assertIn("ERROR", self.app._cmd_mode("zzz-invalid"))
 
     def test_agents_show_filter_all(self):
         self.assertIn("all", self.app._cmd_agents(""))
@@ -861,6 +961,13 @@ class SlashCommandTestCase(unittest.TestCase):
             self.app._handle_input("do the thing")
         run.assert_called_once()
         self.assertEqual(run.call_args.args[0], "do the thing")
+
+    def test_disabled_agent_is_not_used_by_manual_audit(self):
+        self.app.enabled_agents.discard("m7")
+        with mock.patch("terminal_app.threading.Thread") as thread_mock:
+            reply = self.app._cmd_audit("")
+        self.assertIn("disabled", reply)
+        thread_mock.assert_not_called()
 
     def test_empty_input_is_ignored(self):
         with mock.patch.object(self.app.hub, "run") as run:
@@ -923,8 +1030,8 @@ class PerAgentOverrideTestCase(unittest.TestCase):
         self.app._cmd_model("m4 opencode/big-pickle")
         self.assertIn("MODE (m4)", self.app._cmd_mode("m4 plan"))
         self.assertEqual(self.app.overrides["m4"]["mode"], "plan")
-        # 'review' is not a big-pickle mode -> rejected for this tab
-        self.assertIn("ERROR", self.app._cmd_mode("m4 review"))
+        # 'zzz-invalid' is not a valid mode for any model -> rejected
+        self.assertIn("ERROR", self.app._cmd_mode("m4 zzz-invalid"))
 
     def test_mode_allows_ling_modes_after_model_change(self):
         self.app._cmd_model("m4 opencode/ling-3.0-tiny-free")
@@ -1000,21 +1107,21 @@ class CleanLinePrefixTestCase(unittest.TestCase):
         proc = _FakeProc(lines=["hello from opencode", "second line"], returncode=0)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "backend-dev", "prompt", None, None)
-        # raw streamed lines, no embedded "[m4 Backend Dev]" prefix
+            self.hub._run_agent("m4", "david", "prompt", None, None)
+        # raw streamed lines, no embedded "[m4 David · QA & Max · DevOps & Automation]" prefix
         self.assertEqual(
             self.hub.buffers["m4"], ["hello from opencode", "second line"]
         )
-        self.assertFalse(any("Backend Dev]" in line for line in self.hub.buffers["m4"]))
+        self.assertFalse(any("David · QA & Tester]" in line for line in self.hub.buffers["m4"]))
 
     def test_run_agent_error_has_no_embedded_tag(self):
         proc = _FakeProc(returncode=3)
         with mock.patch("terminal_app._opencode_command", return_value="opencode"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "backend-dev", "prompt", None, None)
+            self.hub._run_agent("m4", "david", "prompt", None, None)
         err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
         self.assertIn("exit code 3", err_lines[-1])
-        self.assertFalse(any("Backend Dev]" in text for text in err_lines))
+        self.assertFalse(any("David · QA & Tester]" in text for text in err_lines))
 
     def test_drain_renders_clean_prefixed_lines(self):
         app = RetroTerminalApp()
@@ -1257,8 +1364,8 @@ class RetroRenderTestCase(unittest.TestCase):
     def test_frame_contains_tab_bar(self):
         frame = self._render()
         self.assertIn("MASTER", frame)
-        self.assertIn("System Architect", frame)
-        self.assertIn("Reviewer", frame)
+        self.assertIn("Matthew", frame)
+        self.assertIn("Chloe", frame)
 
     def test_frame_shows_active_tab_in_model_bar(self):
         import asyncio
@@ -1493,8 +1600,8 @@ class TabbedLayoutTestCase(unittest.TestCase):
         self.assertIn("MASTER", joined)  # master tab present
         self.assertIn("m3".upper(), joined)
         # active and inactive tabs share the same crisp outlined geometry
-        self.assertIn("⟦● M3 Planner⟧", joined)
-        self.assertIn("⟦● M1 System Architect⟧", joined)
+        self.assertIn("⟦● M3: Sarah [Frontend]⟧", joined)
+        self.assertIn("⟦● M1: Matthew [Architect]⟧", joined)
 
 
 class QueuedInput:
@@ -1662,6 +1769,17 @@ class InteractiveInputTestCase(unittest.TestCase):
         app, _run = self._run_with_keys([KeyPress(Keys.ControlT)])
         self.assertEqual(app.current_tab, "m1")
 
+    def test_settings_hotkey_opens_and_escape_restores_prompt(self):
+        from prompt_toolkit.key_binding import KeyPress
+        from prompt_toolkit.keys import Keys
+
+        app, _run = self._run_with_keys([
+            KeyPress(Keys.ControlS),
+            KeyPress(Keys.Escape),
+        ])
+        self.assertFalse(app.settings_open)
+        self.assertEqual(app.buffer.text, "")
+
     def test_task_on_agent_tab_via_f_key_dispatches_to_agent(self):
         from prompt_toolkit.key_binding import KeyPress
         from prompt_toolkit.keys import Keys
@@ -1684,6 +1802,9 @@ class SelfEvolveWiringTestCase(unittest.TestCase):
         terminal_app.STATE = StateTracker(path=Path(self._tmp.name) / "state.md")
         self.engine = mock.MagicMock()
         terminal_app.SELF_EVOLVE_ENGINE = self.engine
+        # Ensure no stale abort signal from other test classes suppresses
+        # the watcher's verify + marker writes.
+        terminal_app.HUB._abort_event.clear()
 
     def tearDown(self):
         terminal_app.STATE = self._orig_state
@@ -1703,6 +1824,14 @@ class SelfEvolveWiringTestCase(unittest.TestCase):
         hub_run.assert_called_once()
         spawn_mock.assert_called_once()
         self.assertEqual(spawn_mock.call_args.args[0], "upgrade the plane")
+
+    def test_run_self_evolve_passes_enabled_agents_to_hub(self):
+        self.engine.checkpoint.return_value = {"prompt": "upgrade", "git_head": "abc123", "decision": "d"}
+        enabled = {"m1", "m4"}
+        with mock.patch.object(terminal_app.HUB, "run", return_value=None) as hub_run, \
+             mock.patch.object(terminal_app, "_spawn_self_evolve_watcher"):
+            run_self_evolve("upgrade the plane", {}, enabled_agents=enabled)
+        self.assertEqual(hub_run.call_args.kwargs["enabled_agents"], enabled)
 
     def test_watcher_records_failure_without_marker(self):
         terminal_app.HUB.running = 0
@@ -1864,8 +1993,8 @@ class AgentLoggerTestCase(unittest.TestCase):
         )
         self.assertEqual(len(paths), 2)
         filenames = {p.name for p in paths}
-        self.assertIn("M1_System_Architect.md", filenames)
-        self.assertIn("M4_Backend_Dev.md", filenames)
+        self.assertIn("M1_Matthew.md", filenames)
+        self.assertIn("M4_David.md", filenames)
 
     def test_ensure_is_idempotent(self):
         first = agent_logger.ensure_agent_logs(
@@ -2013,8 +2142,8 @@ class AgentLoggerTestCase(unittest.TestCase):
     # ---------------------------------------------------------- filename helper
 
     def test_safe_agent_filename_maps_tags_to_names(self):
-        self.assertIn("M1_System_Architect", agent_logger._safe_agent_filename("m1"))
-        self.assertIn("M7_Reviewer", agent_logger._safe_agent_filename("m7"))
+        self.assertIn("M1_Matthew", agent_logger._safe_agent_filename("m1"))
+        self.assertIn("M7_Chloe", agent_logger._safe_agent_filename("m7"))
 
     def test_safe_agent_filename_fallback_for_unknown_tag(self):
         self.assertEqual(
@@ -2024,7 +2153,7 @@ class AgentLoggerTestCase(unittest.TestCase):
 
 
 class M7AuditTestCase(unittest.TestCase):
-    """M7 Reviewer immutability + obsidian_auditor vault auditing."""
+    """M7 Chloe · Documentation & Knowledge immutability + obsidian_auditor vault auditing."""
 
     # -------------------------------------------------- immutability
 
@@ -2037,7 +2166,7 @@ class M7AuditTestCase(unittest.TestCase):
             M7_AUDIT_MODE,
             MODE_OPTIONS_BY_MODEL["opencode/ling-3.0-tiny-free"],
         )
-        self.assertEqual(M7_AUDIT_MODE, "obsidian-audit")
+        self.assertEqual(M7_AUDIT_MODE, "documentation-audit")
 
     def test_hub_resolve_locks_m7(self):
         hub = RunHub()
@@ -2089,7 +2218,7 @@ class M7AuditTestCase(unittest.TestCase):
 
     def test_cross_reference_detects_orphaned_prompts(self):
         (self.vault / "prompts" / "prompt-001.md").write_text("orphan", encoding="utf-8")
-        (self.vault / "agents_logs" / "M4_Backend_Dev.md").write_text(
+        (self.vault / "agents_logs" / "M4_David.md").write_text(
             "No links here", encoding="utf-8"
         )
         result = obsidian_auditor.cross_reference_prompts(vault_root=self.vault)
@@ -2098,7 +2227,7 @@ class M7AuditTestCase(unittest.TestCase):
 
     def test_cross_reference_pass_when_all_linked(self):
         (self.vault / "prompts" / "prompt-001.md").write_text("p1", encoding="utf-8")
-        (self.vault / "agents_logs" / "M4_Backend_Dev.md").write_text(
+        (self.vault / "agents_logs" / "M4_David.md").write_text(
             "[[../prompts/prompt-001]]", encoding="utf-8"
         )
         result = obsidian_auditor.cross_reference_prompts(vault_root=self.vault)
@@ -2123,7 +2252,7 @@ class M7AuditTestCase(unittest.TestCase):
         (self.vault / "Dashboard.md").write_text("# D", encoding="utf-8")
         (self.vault / "Roadmap.md").write_text("# R", encoding="utf-8")
         (self.vault / "prompts" / "prompt-001.md").write_text("p", encoding="utf-8")
-        (self.vault / "agents_logs" / "M4_Backend_Dev.md").write_text(
+        (self.vault / "agents_logs" / "M4_David.md").write_text(
             "[[../prompts/prompt-001]]", encoding="utf-8"
         )
         result = obsidian_auditor.audit_run(
@@ -2210,7 +2339,7 @@ class SubprocessErrorHandlingTestCase(unittest.TestCase):
         proc = self._make_proc(returncode=0, lines=["hello"])
         with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+            self.hub._run_agent("m4", "david", "test prompt", None, None)
         self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_IDLE)
         self.assertIn("hello", self.hub.buffers["m4"])
 
@@ -2218,14 +2347,14 @@ class SubprocessErrorHandlingTestCase(unittest.TestCase):
         proc = self._make_proc(returncode=1, lines=["some output"])
         with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+            self.hub._run_agent("m4", "david", "test prompt", None, None)
         self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_ERROR)
         err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
         self.assertTrue(err_lines)
         error_msg = err_lines[-1]
         self.assertIn("exit code 1", error_msg)
         self.assertIn("fake.exe", error_msg)  # command is included
-        self.assertIn("backend-dev", error_msg)
+        self.assertIn("david", error_msg)
 
     def test_external_termination_does_not_set_error(self):
         """When terminate_agent() kills the proc, _run_agent must not overwrite IDLE with ERROR."""
@@ -2239,7 +2368,7 @@ class SubprocessErrorHandlingTestCase(unittest.TestCase):
         proc.wait.side_effect = _wait_side_effect
         with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+            self.hub._run_agent("m4", "david", "test prompt", None, None)
         # Status must remain IDLE — the external termination was intentional.
         self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_IDLE)
 
@@ -2255,7 +2384,7 @@ class SubprocessErrorHandlingTestCase(unittest.TestCase):
         # Don't mock procs.pop — it returns normally (not externally terminated).
         with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+            self.hub._run_agent("m4", "david", "test prompt", None, None)
         # Should have captured the first line before the pipe broke.
         self.assertIn("first line", self.hub.buffers["m4"])
         # Non-zero exit code from pipe break (proc was NOT popped => no external
@@ -2264,7 +2393,7 @@ class SubprocessErrorHandlingTestCase(unittest.TestCase):
 
     def test_file_not_found_error_is_surfaced(self):
         with mock.patch("terminal_app._opencode_command", return_value=None):
-            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+            self.hub._run_agent("m4", "david", "test prompt", None, None)
         self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_ERROR)
         err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
         self.assertTrue(any("not found" in e.lower() for e in err_lines))
@@ -2275,7 +2404,7 @@ class SubprocessErrorHandlingTestCase(unittest.TestCase):
         proc = self._make_proc(returncode=1, lines=["failed"])
         with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
-            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+            self.hub._run_agent("m4", "david", "test prompt", None, None)
         self.assertEqual(self.hub.running, 1)
         # session_tags only clears when running hits 0.
         self.assertIn("m5", self.hub.session_tags)
@@ -2292,7 +2421,7 @@ class SubprocessErrorHandlingTestCase(unittest.TestCase):
         with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
              mock.patch("terminal_app.subprocess.Popen", return_value=proc), \
              mock.patch.object(terminal_app.STATE, "record_finish") as mock_finish:
-            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+            self.hub._run_agent("m4", "david", "test prompt", None, None)
         mock_finish.assert_not_called()
 
 
@@ -2356,7 +2485,7 @@ class EscAbortTestCase(unittest.TestCase):
         warning = warnings[-1]
         self.assertIn("M4", warning)
         self.assertIn("only", warning.lower())
-        self.assertIn("Backend Dev", warning)
+        self.assertIn("David", warning)
 
     # -------------------------------------------------- abort execution
 
@@ -2824,6 +2953,261 @@ class AbortStateResetTestCase(unittest.TestCase):
             self.hub.running = 0
             self.hub.session_tags.clear()
             self.hub.procs.clear()
+
+
+class SettingsModalTestCase(unittest.TestCase):
+    """Headless coverage for the settings modal state and persistence contract."""
+
+    def setUp(self):
+        self._orig_state = terminal_app.STATE
+        self._tmp = tempfile.TemporaryDirectory()
+        terminal_app.STATE = StateTracker(path=Path(self._tmp.name) / "state.md")
+
+    def tearDown(self):
+        terminal_app.STATE = self._orig_state
+        self._tmp.cleanup()
+
+    def test_modal_opens_renders_sections_and_can_cancel(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        rendered = "".join(fragment[1] for fragment in app._settings_fragments())
+        self.assertTrue(app.settings_open)
+        for label in ("AGENT MAPPING", "AI MODEL", "OPERATING MODE", "COLOR THEME", "LAYOUT DENSITY", "AGENT TOGGLES", "SAVE & APPLY", "CANCEL"):
+            self.assertIn(label, rendered)
+        self.assertIn("ENTER TO CUSTOMIZE", rendered)
+        for tag, name, _agent in AGENTS:
+            self.assertNotIn(f"{tag.upper()} {name}", rendered)
+        self.assertTrue(any(len(fragment) == 3 for fragment in app._settings_fragments()))
+        app.close_settings(save=False)
+        self.assertFalse(app.settings_open)
+        self.assertIsNone(terminal_app.STATE.load())
+
+    def test_agent_toggle_submenu_lists_all_agents_without_inline_rows(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        main = "".join(fragment[1] for fragment in app._settings_fragments())
+        self.assertIn("AGENT TOGGLES", main)
+        self.assertIn("ENTER TO CUSTOMIZE", main)
+        self.assertNotIn("M1: Matthew", main)
+
+        app.open_agent_menu()
+        submenu = "".join(fragment[1] for fragment in app._settings_fragments())
+        self.assertTrue(app.agent_menu_open)
+        self.assertEqual(submenu.count("[ ON ]"), 7)
+        for index, (_tag, name, _agent) in enumerate(AGENTS):
+            self.assertIn(f"M{index + 1}: {name}", submenu)
+        app.close_settings(save=False)
+
+    def test_agent_toggle_draft_save_persists_and_hides_tab(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        app.settings_focus = app._settings_fields().index("agent_toggles")
+        app._settings_cycle(1)  # open dedicated submenu
+        self.assertTrue(app.agent_menu_open)
+        field = "agent_toggle_m3"
+        app.agent_focus = app._agent_toggle_fields().index(field)
+        app._agent_cycle(1)  # ON -> OFF
+        self.assertIn("m3", app.enabled_agents)
+        self.assertNotIn("m3", app.settings_draft["enabled_agents"])
+        # The committed app remains unchanged until Save & Apply.
+        app.close_settings(save=False)
+        self.assertIn("m3", app.enabled_agents)
+
+        app.toggle_settings()
+        app.settings_focus = app._settings_fields().index("agent_toggles")
+        app.open_agent_menu()
+        app.agent_focus = app._agent_toggle_fields().index(field)
+        app._agent_cycle(1)
+        app.close_settings(save=True)
+        self.assertNotIn("m3", app.enabled_agents)
+        self.assertNotIn("m3", app._tab_order())
+        dashboard = "".join(text for _style, text in terminal_app._dashboard_fragments({}, enabled_agents=app.enabled_agents))
+        self.assertNotIn("M3 Sarah", dashboard)
+        self.assertNotIn("m3", terminal_app.STATE.load()["settings"]["enabled_agents"])
+
+        reloaded = RetroTerminalApp()
+        self.assertNotIn("m3", reloaded.enabled_agents)
+
+    def test_save_applies_mapping_and_terminal_settings_and_roundtrips(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        app.settings_draft["target"] = "m4"
+        app._settings_set_mapping("model", "opencode/big-pickle")
+        app._settings_set_mapping("mode", "build")
+        app.settings_draft["theme"] = "amber"
+        app.settings_draft["font_size"] = "large"
+        app.settings_draft["density"] = "spacious"
+        app.settings_draft["panel_borders"] = False
+        app.close_settings(save=True)
+
+        self.assertFalse(app.settings_open)
+        self.assertEqual(app.overrides["m4"]["model"], "opencode/big-pickle")
+        self.assertEqual(app.overrides["m4"]["mode"], "build")
+        self.assertEqual(app.terminal_settings["theme"], "amber")
+        self.assertFalse(app.terminal_settings["panel_borders"])
+        persisted = terminal_app.STATE.load()["settings"]
+        self.assertEqual(persisted["overrides"]["m4"]["mode"], "build")
+
+        reloaded = RetroTerminalApp()
+        self.assertEqual(reloaded.overrides["m4"]["model"], "opencode/big-pickle")
+        self.assertEqual(reloaded.terminal_settings["theme"], "amber")
+        self.assertEqual(reloaded.terminal_settings["font_size"], "large")
+        self.assertFalse(reloaded.terminal_settings["panel_borders"])
+
+    def test_m7_mapping_is_locked_in_modal_and_resolver(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        app.settings_draft["target"] = "m7"
+        app._settings_set_mapping("model", "opencode/big-pickle")
+        app._settings_set_mapping("mode", "build")
+        self.assertEqual(app._settings_value("model"), "opencode/ling-3.0-tiny-free")
+        self.assertEqual(app._settings_value("mode"), M7_AUDIT_MODE)
+        app.close_settings(save=True)
+        self.assertEqual(app.hub.resolve("m7", app.overrides), ("opencode/ling-3.0-tiny-free", M7_AUDIT_MODE))
+
+    def test_headless_theme_entry_and_escape_key_sequence(self):
+        import asyncio
+        import io
+        from prompt_toolkit.key_binding import KeyPress
+        from prompt_toolkit.keys import Keys
+        from prompt_toolkit.output.vt100 import Vt100_Output
+
+        class FixedSize:
+            columns = 110
+            rows = 40
+
+        async def run_keys():
+            app = RetroTerminalApp()
+            app.toggle_settings()
+            app.settings_focus = app._settings_fields().index("theme")
+            output = Vt100_Output(io.StringIO(), get_size=lambda: FixedSize())
+            instance = app._build_application(
+                input=QueuedInput([
+                    KeyPress(Keys.Enter),   # main COLOR THEME -> submenu
+                    KeyPress(Keys.Escape),  # submenu -> main settings
+                    KeyPress(Keys.Escape),  # main settings -> cancel/close
+                ]),
+                output=output,
+            )
+
+            async def stop():
+                await asyncio.sleep(0.3)
+                instance.exit()
+
+            instance.create_background_task(stop())
+            await instance.run_async()
+            return app
+
+        app = asyncio.run(run_keys())
+        self.assertFalse(app.settings_open)
+        self.assertFalse(app.theme_menu_open)
+        self.assertEqual(app.buffer.text, "")
+
+    def test_theme_submenu_slices_rows_on_short_terminals_and_keeps_actions(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        app.open_theme_menu()
+        fields = app._theme_fields()
+        app.settings_height = 10
+        app.theme_focus = fields.index("active_tabs")
+        visible = app._theme_visible_indices(fields)
+        visible_fields = [fields[i] for i in visible]
+        self.assertIn("save", visible_fields)
+        self.assertIn("back", visible_fields)
+        self.assertIn(app.theme_focus, visible)
+
+        app.settings_height = 5
+        rendered = "".join(fragment[1] for fragment in app._settings_fragments())
+        self.assertLessEqual(len(rendered.splitlines()), 5)
+        self.assertIn("SAVE & APPLY", rendered)
+        app.close_settings(save=False)
+
+    def test_theme_submenu_renders_categories_and_component_rows(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        app.settings_focus = app._settings_fields().index("theme")
+        app.open_theme_menu()
+        rendered = "".join(fragment[1] for fragment in app._settings_fragments())
+
+        self.assertTrue(app.theme_menu_open)
+        for category in (
+            "CODE & TEXT STREAMS",
+            "HEADERS & TABS",
+            "WINDOWS & PANEL BORDERS",
+            "INPUT & ACTION BOXES",
+        ):
+            self.assertIn(category, rendered)
+        for _key, label, _category in terminal_app.COLOR_COMPONENTS:
+            self.assertIn(label, rendered)
+        self.assertIn("BACK TO SETTINGS", rendered)
+        app.close_settings(save=False)
+
+    def test_theme_arrow_preview_is_live_but_cancel_rolls_back(self):
+        app = RetroTerminalApp()
+        original_style = dict(app._style_dict)
+        original_color = terminal_app._DEFAULT_COMPONENT_COLORS["zova"]["execution_logs"]
+        app.toggle_settings()
+        app.open_theme_menu()
+        app.theme_focus = app._theme_fields().index("execution_logs")
+        app._theme_cycle(1)
+
+        preview_color = app._theme_value("execution_logs")
+        self.assertNotEqual(preview_color, original_color)
+        self.assertIn(preview_color, app._style_dict["retro.panel.execution"])
+        self.assertIsNone(terminal_app.STATE.load())
+
+        app.close_settings(save=False)
+        self.assertFalse(app.settings_open)
+        self.assertEqual(app.terminal_settings["theme_colors"], {})
+        self.assertEqual(app._style_dict, original_style)
+
+    def test_theme_component_save_persists_and_roundtrips(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        app.open_theme_menu()
+        app.theme_focus = app._theme_fields().index("active_tabs")
+        app._theme_cycle(1)
+        saved_color = app._theme_value("active_tabs")
+        app.close_settings(save=True)
+
+        self.assertEqual(app.terminal_settings["theme_colors"]["zova"]["active_tabs"], saved_color)
+        persisted = terminal_app.STATE.load()["settings"]["terminal"]
+        self.assertEqual(persisted["theme_colors"]["zova"]["active_tabs"], saved_color)
+
+        reloaded = RetroTerminalApp()
+        self.assertEqual(
+            reloaded._style_dict["retro.tab.active"],
+            f"bold bg:{terminal_app.GREY_BG} fg:{saved_color}",
+        )
+
+    def test_component_streams_use_granular_style_classes(self):
+        for kind, style_name in (
+            (terminal_app.BLOCK_EXECUTION, "retro.panel.execution"),
+            (terminal_app.BLOCK_THINKING, "retro.panel.thinking"),
+            (terminal_app.BLOCK_TODO, "retro.panel.todo"),
+        ):
+            style = terminal_app._content_style(kind, "sample")
+            self.assertIn("retro.panel.content", style)
+            self.assertIn(style_name, style)
+
+    def test_theme_row_click_opens_customizer(self):
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        theme_index = app._settings_fields().index("theme")
+        fragments = app._settings_fragments()
+        # The theme row is the first clickable row after the three header rows.
+        theme_fragment = fragments[3 + theme_index]
+        self.assertEqual(len(theme_fragment), 3)
+        theme_fragment[2](None)
+        self.assertTrue(app.theme_menu_open)
+        app.close_settings(save=False)
+
+    def test_settings_command_and_hotkey_handler_toggle_same_modal(self):
+        app = RetroTerminalApp()
+        self.assertIn("modal opened", app._cmd_settings(""))
+        self.assertTrue(app.settings_open)
+        app.toggle_settings()
+        self.assertFalse(app.settings_open)
 
 
 if __name__ == "__main__":

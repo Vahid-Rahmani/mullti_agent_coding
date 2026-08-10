@@ -27,7 +27,7 @@ class RouteTestCase(unittest.TestCase):
         route = Route(
             intent="build",
             strategy="subset",
-            agents=["m4", "m6", "m7"],
+            agents=["m2", "m6", "m7"],
             confidence=0.8,
             keywords=["implement", "api"],
         )
@@ -36,7 +36,7 @@ class RouteTestCase(unittest.TestCase):
             {
                 "intent": "build",
                 "strategy": "subset",
-                "agents": ["m4", "m6", "m7"],
+                "agents": ["m2", "m6", "m7"],
                 "confidence": 0.8,
                 "keywords": ["implement", "api"],
             },
@@ -44,11 +44,11 @@ class RouteTestCase(unittest.TestCase):
 
 
 class ClassifyTestCase(unittest.TestCase):
-    def test_greeting_single_analyst(self):
+    def test_greeting_single_matthew(self):
         route = classify("Hello there!")
         self.assertEqual(route.intent, "greeting")
         self.assertEqual(route.strategy, "single")
-        self.assertEqual(route.agents, ["m2"])
+        self.assertEqual(route.agents, ["m1"])
 
     def test_greeting_keywords(self):
         for prompt in [
@@ -70,43 +70,43 @@ class ClassifyTestCase(unittest.TestCase):
         route = classify("Analyze the project requirements")
         self.assertEqual(route.intent, "analyze")
         self.assertEqual(route.strategy, "subset")
-        self.assertEqual(route.agents, ["m2", "m1"])
+        self.assertEqual(route.agents, ["m1", "m2"])
 
     def test_design(self):
         route = classify("Design the database schema")
         self.assertEqual(route.intent, "design")
-        self.assertEqual(route.agents, ["m1", "m2"])
+        self.assertEqual(route.agents, ["m1", "m3"])
 
     def test_plan(self):
         route = classify("Plan the next implementation step")
         self.assertEqual(route.intent, "plan")
-        self.assertEqual(route.agents, ["m3", "m2"])
+        self.assertEqual(route.agents, ["m1", "m2"])
 
     def test_build(self):
         route = classify("implement the login API")
         self.assertEqual(route.intent, "build")
-        self.assertEqual(route.agents, ["m4", "m6", "m7"])
+        self.assertEqual(route.agents, ["m2", "m6", "m7"])
 
     def test_frontend(self):
         route = classify("create a React UI for the dashboard")
         self.assertEqual(route.intent, "frontend")
-        self.assertEqual(route.agents, ["m5", "m6", "m7"])
+        self.assertEqual(route.agents, ["m3", "m6", "m7"])
 
     def test_test(self):
         route = classify("write tests for the module")
         self.assertEqual(route.intent, "test")
-        self.assertEqual(route.agents, ["m6", "m4"])
+        self.assertEqual(route.agents, ["m4", "m2"])
 
     def test_review(self):
         route = classify("review the changes")
         self.assertEqual(route.intent, "review")
-        self.assertEqual(route.agents, ["m7", "m4"])
+        self.assertEqual(route.agents, ["m5", "m2"])
 
     def test_fallback_pipeline(self):
         route = classify("Describe something completely unrelated")
         self.assertEqual(route.intent, "pipeline")
         self.assertEqual(route.strategy, "pipeline")
-        self.assertEqual(route.agents, ["m1", "m3", "m4", "m6", "m7"])
+        self.assertEqual(route.agents, ["m1", "m2", "m3", "m4", "m5", "m6", "m7"])
         self.assertEqual(route.keywords, [])
 
     def test_empty_prompt(self):
@@ -135,12 +135,12 @@ class SelfEvolveIntentTestCase(unittest.TestCase):
         route = classify("upgrade the control plane")
         self.assertEqual(route.intent, "self-evolve")
         self.assertEqual(route.strategy, "subset")
-        self.assertEqual(route.agents, ["m4", "m6", "m7"])
+        self.assertEqual(route.agents, ["m2", "m6", "m7"])
 
     def test_self_evolve_keyword(self):
         route = classify("self-evolve the system")
         self.assertEqual(route.intent, "self-evolve")
-        self.assertEqual(route.agents, ["m4", "m6", "m7"])
+        self.assertEqual(route.agents, ["m2", "m6", "m7"])
 
     def test_self_heal_keyword(self):
         route = classify("self-heal the broken workflow")
@@ -162,7 +162,7 @@ class SelfEvolveIntentTestCase(unittest.TestCase):
 
 class GreetingConstantsTestCase(unittest.TestCase):
     def test_greeting_agent(self):
-        self.assertEqual(GREETING_AGENT, "analyst")
+        self.assertEqual(GREETING_AGENT, "matthew")
 
     def test_greeting_template_has_prompt_placeholder(self):
         self.assertIn("{prompt}", GREETING_PROMPT_TEMPLATE)
@@ -180,7 +180,7 @@ class LogRouteTestCase(unittest.TestCase):
             self.assertEqual(record["prompt"], "hello")
             self.assertEqual(record["intent"], "greeting")
             self.assertEqual(record["strategy"], "single")
-            self.assertEqual(record["agents"], ["m2"])
+            self.assertEqual(record["agents"], ["m1"])
             self.assertEqual(record["confidence"], route.confidence)
             self.assertEqual(record["keywords"], ["hello"])
             self.assertEqual(record["status"], "ok")
@@ -221,7 +221,7 @@ class LoadRulesTestCase(unittest.TestCase):
         rules = load_rules()
         self.assertGreater(len(rules.rules), 0)
         self.assertEqual(rules.fallback.intent, "pipeline")
-        self.assertEqual(rules.fallback.agents, ["m1", "m3", "m4", "m6", "m7"])
+        self.assertEqual(rules.fallback.agents, ["m1", "m2", "m3", "m4", "m5", "m6", "m7"])
 
     def test_json_override_changes_matched_intent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -240,7 +240,7 @@ class LoadRulesTestCase(unittest.TestCase):
                         "fallback": {
                             "intent": "pipeline",
                             "strategy": "pipeline",
-                            "agents": ["m1", "m3", "m4", "m6", "m7"],
+                            "agents": ["m1", "m2", "m3", "m4", "m5", "m6", "m7"],
                         },
                     }
                 ),

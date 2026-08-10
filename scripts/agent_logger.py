@@ -2,8 +2,8 @@
 
 Pure-stdlib module that creates and maintains per-agent markdown log files
 inside ``obsidian_vault/agents_logs/``. Only agents that participate in the
-current dispatch are tracked — when the active set changes, stale log files
-are left in place (never deleted) while new agents get fresh files.
+current dispatch are tracked — when the active set changes,stale historical log files are
+left in place (never deleted) while the canonical humanified logs receive new entries.
 
 Each agent log file records:
   * Active Role & Scope — the agent's responsibility in the project.
@@ -31,39 +31,13 @@ DEFAULT_AGENTS_DIR = _PROJECT_ROOT / "obsidian_vault" / "agents_logs"
 
 # Agent role descriptions (can be extended).
 ROLE_DESCRIPTIONS: dict[str, str] = {
-    "system-architect": (
-        "System architecture + design approval. Reviews requirements, validates "
-        "architecture decisions, and ensures design consistency across the project. "
-        "Read-only agent."
-    ),
-    "analyst": (
-        "Requirements analysis. Turns raw user prompts into structured requirements, "
-        "identifies gaps, and clarifies scope before planning begins. Read-only agent."
-    ),
-    "planner": (
-        "Project planning. Produces ``PLAN.md`` and ``TASKS.json`` from analyzed "
-        "requirements, defining phases, epics, dependencies, and owners. Read-only agent."
-    ),
-    "backend-dev": (
-        "Backend implementation. Writes and modifies Python modules, shell scripts, "
-        "and configuration files in ``scripts/`` and the project root."
-    ),
-    "frontend-dev": (
-        "Frontend implementation. Handles terminal UI styling, layout, rendering "
-        "components, and interactive elements in ``scripts/terminal_app.py``."
-    ),
-    "tester": (
-        "Test authoring + execution. Writes and maintains unittest suites, runs "
-        "``python -m unittest discover``, and validates correctness."
-    ),
-    "reviewer": (
-        "**Obsidian-Vault-Sync & Final Audit** — permanently locked mode. "
-        "Monitors git diffs and completed tasks from active agents, verifies "
-        "the integrity of ``obsidian_vault/``, cross-references every prompt "
-        "log with corresponding agent run entries, and automatically updates "
-        "``Roadmap.md`` to guarantee end-to-end traceability. Read-only agent "
-        "with immutable model/mode — cannot write production code."
-    ),
+    "matthew": "Matthew — analytical, approachable lead system architect and master coordinator guiding structure, routing, and design decisions. Read-only.",
+    "alex": "Alex — pragmatic core backend and API specialist owning robust Python logic, data handling, filesystem operations, background processes, and integrations.",
+    "sarah": "Sarah — detail-oriented terminal interface and UX engineer owning layout, rendering, interactions, modals, themes, and user-facing presentation.",
+    "david": "David — rigorous QA and TDD lead owning unit/integration coverage, debugging, edge cases, and assertion quality.",
+    "elena": "Elena — strict code quality and security auditor reviewing correctness, maintainability, secure patterns, and release readiness. Read-only.",
+    "max": "Max — systematic DevOps and automation specialist owning launchers, workers, execution paths, configuration plumbing, and build stability.",
+    "chloe": "Chloe — organized technical writer and Obsidian knowledge auditor keeping state.md, PLAN.md, TASKS.json, Roadmap.md, Dashboard.md, and vault logs synchronized. Read-only.",
 }
 
 _lock = threading.Lock()
@@ -75,7 +49,7 @@ _PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
 
 def _safe_agent_filename(tag: str) -> str:
-    """Agent log filename from a tag: ``m4`` → ``M4_Backend_Dev.md``."""
+    """Return the canonical humanified log filename for an agent tag."""
     from terminal_app import AGENTS  # avoid circular import at module level
 
     for agent_tag, name, _agent in AGENTS:
@@ -154,9 +128,9 @@ def ensure_agent_logs(
 ) -> list[Path]:
     """Create per-agent log files for every tag in ``agent_tags``.
 
-    Existing files are left untouched (they serve as the persistent history).
-    New files are created from the template. Files for agents not in
-    ``agent_tags`` are **not** deleted — they are simply not updated.
+    Existing canonical files are left untouched (they serve as persistent history).
+    New canonical files are created from the template. Historical files for agents
+    not in ``agent_tags`` are **not deleted** — they are preserved for audit traceability.
 
     Args:
         agent_tags: Tags of the currently dispatched agents (e.g.
