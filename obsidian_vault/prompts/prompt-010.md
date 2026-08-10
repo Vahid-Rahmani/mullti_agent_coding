@@ -1,6 +1,6 @@
 ---
-timestamp: "2026-08-10T07:19:18+00:00"
-target_agent: "m1, m4"
+timestamp: "2026-08-10T07:44:30+00:00"
+target_agent: "MASTER (all agents)"
 status: "dispatched"
 session_id: "prompt-010"
 tags: ["prompt-log"]
@@ -12,15 +12,19 @@ tags: ["prompt-log"]
 
 | Field | Value |
 |-------|-------|
-| **Timestamp** | 2026-08-10T07:19:18+00:00 |
-| **Target Agent(s)** | m1, m4 |
+| **Timestamp** | 2026-08-10T07:44:30+00:00 |
+| **Target Agent(s)** | MASTER (all agents) |
 | **Status** | dispatched |
 | **Active Tab** | master |
 
 ## User Prompt
 
 ```
-task
+line one
+
+
+
+line two
 ```
 
 ## Linked References
@@ -32,8 +36,7 @@ task
 *No affected files recorded.*
 
 ### Agent Run Logs
-- [[../agents_logs/M1]]
-- [[../agents_logs/M4]]
+*No agent logs linked.*
 
 ---
 

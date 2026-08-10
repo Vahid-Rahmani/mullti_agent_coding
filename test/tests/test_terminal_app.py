@@ -10,6 +10,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -596,8 +598,20 @@ class ProgressRenderTestCase(unittest.TestCase):
         self.assertTrue(hasattr(app, "loading_window"))
         self.assertFalse(hasattr(app, "progress_window"))
         children = app.layout_root.content.children
-        self.assertIs(children[-2], app.loading_window)
+        # prompt_box is last, spacer is before it, loading_window before spacer.
         self.assertIs(children[-1], app.prompt_box)
+        self.assertIs(children[-3], app.loading_window)
+
+    def test_layout_has_spacer_windows(self):
+        """Spacer rows are inserted between layout sections for visual separation."""
+        app = RetroTerminalApp()
+        children = app.layout_root.content.children
+        # Should have more children than the original 6 (banner, dir, tab,
+        # console, loading, box) — spacers add 4 extra rows.
+        self.assertEqual(len(children), 10)
+        from prompt_toolkit.layout import Window
+        spacer_count = sum(1 for c in children if isinstance(c, Window) and c.height == 1)
+        self.assertGreaterEqual(spacer_count, 4)
 
     def test_lower_panel_dimensions_are_expanded(self):
         self.assertGreaterEqual(terminal_app.INPUT_MIN_LINES, 3)
@@ -999,7 +1013,7 @@ class CleanLinePrefixTestCase(unittest.TestCase):
              mock.patch("terminal_app.subprocess.Popen", return_value=proc):
             self.hub._run_agent("m4", "backend-dev", "prompt", None, None)
         err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
-        self.assertEqual(err_lines[-1], "exit code 3")
+        self.assertIn("exit code 3", err_lines[-1])
         self.assertFalse(any("Backend Dev]" in text for text in err_lines))
 
     def test_drain_renders_clean_prefixed_lines(self):
@@ -2124,6 +2138,692 @@ class M7AuditTestCase(unittest.TestCase):
         hub = RunHub()
         self.assertTrue(hasattr(hub, "_run_m7_audit"))
         self.assertTrue(callable(hub._run_m7_audit))
+
+    # -------------------------------------------------- new phase 5 checks
+
+    def test_verify_dashboard_wikilinks_valid(self):
+        (self.vault / "Dashboard.md").write_text(
+            "[[Roadmap]] [[prompts/]] [[agents_logs/]]", encoding="utf-8"
+        )
+        (self.vault / "Roadmap.md").write_text("# R", encoding="utf-8")
+        result = obsidian_auditor.verify_dashboard_wikilinks(vault_root=self.vault)
+        self.assertTrue(result["ok"])
+        self.assertIn("PASS", result["summary"])
+
+    def test_verify_dashboard_wikilinks_detects_broken(self):
+        (self.vault / "Dashboard.md").write_text(
+            "[[MissingPage]]", encoding="utf-8"
+        )
+        result = obsidian_auditor.verify_dashboard_wikilinks(vault_root=self.vault)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("MissingPage" in b for b in result["broken_links"]))
+
+    def test_verify_roadmap_checkboxes_tracks_phases(self):
+        (self.vault / "Roadmap.md").write_text(
+            "## Phase A\n- [x] done task\n- [ ] pending task\n", encoding="utf-8"
+        )
+        result = obsidian_auditor.verify_roadmap_checkboxes(vault_root=self.vault)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("50%" in m for m in result["mismatches"]))
+
+
+class NewSlashCommandsTestCase(unittest.TestCase):
+    """/agents-log and /audit commands."""
+
+    def setUp(self):
+        self.app = RetroTerminalApp()
+
+    def test_agents_log_rejects_unknown_tag(self):
+        reply = self.app._cmd_agents_log("m9")
+        self.assertIn("ERROR", reply)
+
+    def test_agents_log_reports_empty_or_missing(self):
+        # Use a temp agents dir so the test is isolated from the real vault.
+        with tempfile.TemporaryDirectory() as tmp:
+            agents_dir = Path(tmp) / "agents_logs"
+            agents_dir.mkdir()
+            reply = self.app._cmd_agents_log("m1", _agents_dir_override=agents_dir)
+            self.assertTrue(
+                "No log file" in reply or "no run entries" in reply,
+                f"Expected 'No log file' or 'no run entries', got: {reply}"
+            )
+
+    def test_audit_returns_string_when_idle(self):
+        reply = self.app._cmd_audit("")
+        self.assertIsInstance(reply, str)
+
+
+class SubprocessErrorHandlingTestCase(unittest.TestCase):
+    """Graceful subprocess error handling: exit codes, pipe breaks, external termination."""
+
+    def setUp(self):
+        self.hub = RunHub()
+
+    def _make_proc(self, returncode=0, lines=None):
+        """Build a mock Popen that yields lines then returns a given exit code."""
+        proc = mock.MagicMock()
+        proc.stdout = lines or []
+        proc.wait.return_value = returncode
+        return proc
+
+    def test_exit_code_zero_sets_ok_and_idle(self):
+        proc = self._make_proc(returncode=0, lines=["hello"])
+        with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
+             mock.patch("terminal_app.subprocess.Popen", return_value=proc):
+            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+        self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_IDLE)
+        self.assertIn("hello", self.hub.buffers["m4"])
+
+    def test_exit_code_nonzero_shows_command_in_error(self):
+        proc = self._make_proc(returncode=1, lines=["some output"])
+        with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
+             mock.patch("terminal_app.subprocess.Popen", return_value=proc):
+            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+        self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_ERROR)
+        err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
+        self.assertTrue(err_lines)
+        error_msg = err_lines[-1]
+        self.assertIn("exit code 1", error_msg)
+        self.assertIn("fake.exe", error_msg)  # command is included
+        self.assertIn("backend-dev", error_msg)
+
+    def test_external_termination_does_not_set_error(self):
+        """When terminate_agent() kills the proc, _run_agent must not overwrite IDLE with ERROR."""
+        proc = self._make_proc(returncode=1, lines=["working"])
+        # Simulate external termination: proc.wait() pops the proc from the hub
+        # before _run_agent's own pop, mimicking terminate_agent's cleanup.
+        def _wait_side_effect():
+            self.hub.procs.pop("m4", None)
+            self.hub.statuses["m4"] = terminal_app.STATUS_IDLE
+            return 1
+        proc.wait.side_effect = _wait_side_effect
+        with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
+             mock.patch("terminal_app.subprocess.Popen", return_value=proc):
+            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+        # Status must remain IDLE — the external termination was intentional.
+        self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_IDLE)
+
+    def test_pipe_broken_during_read_is_graceful(self):
+        """BrokenPipeError during stdout read must not crash the thread."""
+        proc = mock.MagicMock()
+        # Make stdout raise BrokenPipeError after yielding one line.
+        def _broken_stdout():
+            yield "first line"
+            raise BrokenPipeError()
+        proc.stdout = _broken_stdout()
+        proc.wait.return_value = -15  # SIGTERM-like
+        # Don't mock procs.pop — it returns normally (not externally terminated).
+        with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
+             mock.patch("terminal_app.subprocess.Popen", return_value=proc):
+            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+        # Should have captured the first line before the pipe broke.
+        self.assertIn("first line", self.hub.buffers["m4"])
+        # Non-zero exit code from pipe break (proc was NOT popped => no external
+        # termination detected) => ERROR.
+        self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_ERROR)
+
+    def test_file_not_found_error_is_surfaced(self):
+        with mock.patch("terminal_app._opencode_command", return_value=None):
+            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+        self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_ERROR)
+        err_lines = [e["text"] for e in self.hub.events if e["kind"] == "error"]
+        self.assertTrue(any("not found" in e.lower() for e in err_lines))
+
+    def test_running_decremented_on_error(self):
+        self.hub.running = 2
+        self.hub.session_tags.update(["m4", "m5"])
+        proc = self._make_proc(returncode=1, lines=["failed"])
+        with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
+             mock.patch("terminal_app.subprocess.Popen", return_value=proc):
+            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+        self.assertEqual(self.hub.running, 1)
+        # session_tags only clears when running hits 0.
+        self.assertIn("m5", self.hub.session_tags)
+        self.assertIn("m4", self.hub.session_tags)
+
+    def test_state_record_finish_skipped_when_killed(self):
+        """When externally terminated, STATE.record_finish is NOT called by the thread."""
+        proc = self._make_proc(returncode=1, lines=["working"])
+        def _wait_side_effect():
+            self.hub.procs.pop("m4", None)
+            self.hub.statuses["m4"] = terminal_app.STATUS_IDLE
+            return 1
+        proc.wait.side_effect = _wait_side_effect
+        with mock.patch("terminal_app._opencode_command", return_value="fake.exe"), \
+             mock.patch("terminal_app.subprocess.Popen", return_value=proc), \
+             mock.patch.object(terminal_app.STATE, "record_finish") as mock_finish:
+            self.hub._run_agent("m4", "backend-dev", "test prompt", None, None)
+        mock_finish.assert_not_called()
+
+
+class EscAbortTestCase(unittest.TestCase):
+    """Two-step Esc abort mechanism: context-aware scoping (Master vs Agent tab)."""
+
+    def setUp(self):
+        self.app = RetroTerminalApp()
+        self.hub = self.app.hub
+
+    def tearDown(self):
+        # Ensure any mock patching is cleaned up
+        self.hub.terminate_all()
+
+    # -------------------------------------------------- state management
+
+    def test_clear_esc_state_resets_pending(self):
+        self.app._esc_pending_tag = "m1"
+        self.app._esc_pending_time = 999.0
+        self.app._clear_esc_state()
+        self.assertIsNone(self.app._esc_pending_tag)
+        self.assertEqual(self.app._esc_pending_time, 0.0)
+
+    def test_set_tab_clears_pending_esc(self):
+        self.app._esc_pending_tag = "m1"
+        self.app._esc_pending_time = 999.0
+        self.app.set_tab("m4")
+        self.assertIsNone(self.app._esc_pending_tag)
+        self.assertEqual(self.app._esc_pending_time, 0.0)
+
+    def test_close_menu_clears_pending_esc(self):
+        self.app._esc_pending_tag = "m1"
+        self.app._esc_pending_time = 999.0
+        self.app.close_menu()
+        self.assertIsNone(self.app._esc_pending_tag)
+        self.assertEqual(self.app._esc_pending_time, 0.0)
+
+    # -------------------------------------------------- warning messages
+
+    def test_show_esc_warning_master_tab(self):
+        self.app.current_tab = "master"
+        self.app._show_esc_warning()
+        # The warning is echoed via _echo => console_lines; verify the message.
+        warnings = [
+            text for _tag, text in self.app.console_lines
+            if "ESC" in text
+        ]
+        self.assertTrue(warnings, f"Expected an Esc warning in console_lines, got: {self.app.console_lines}")
+        warning = warnings[-1]
+        self.assertIn("ALL AGENTS", warning)
+        self.assertIn("global cascade", warning.lower())
+
+    def test_show_esc_warning_agent_tab(self):
+        self.app.current_tab = "m4"
+        self.app._show_esc_warning()
+        warnings = [
+            text for _tag, text in self.app.console_lines
+            if "ESC" in text
+        ]
+        self.assertTrue(warnings, f"Expected an Esc warning in console_lines, got: {self.app.console_lines}")
+        warning = warnings[-1]
+        self.assertIn("M4", warning)
+        self.assertIn("only", warning.lower())
+        self.assertIn("Backend Dev", warning)
+
+    # -------------------------------------------------- abort execution
+
+    def test_execute_escapbort_master_calls_terminate_all(self):
+        self.app.current_tab = "master"
+        with mock.patch.object(self.hub, "terminate_all") as mock_term:
+            self.app._execute_esc_abort()
+            mock_term.assert_called_once()
+
+    def test_execute_esc_abort_agent_calls_terminate_agent(self):
+        self.app.current_tab = "m4"
+        # Simulate an active process so terminate_agent returns True.
+        with self.hub.lock:
+            self.hub.statuses["m4"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 1
+            self.hub.session_tags.add("m4")
+        self.hub.procs["m4"] = mock.MagicMock()
+        try:
+            self.app._execute_esc_abort()
+            # Verify the agent was marked idle
+            self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_IDLE)
+        finally:
+            self.hub.procs.pop("m4", None)
+            with self.hub.lock:
+                self.hub.statuses["m4"] = terminal_app.STATUS_IDLE
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+
+    def test_execute_esc_abort_agent_not_running_noop(self):
+        self.app.current_tab = "m5"
+        with self.hub.lock:
+            self.hub.statuses["m5"] = terminal_app.STATUS_IDLE
+        result = self.hub.terminate_agent("m5")
+        self.assertFalse(result)
+
+    # -------------------------------------------------- terminate_agent
+
+    def test_terminate_agent_resets_state(self):
+        with self.hub.lock:
+            self.hub.statuses["m3"] = terminal_app.STATUS_ACTIVE
+            self.hub.progress["m3"] = 42
+            self.hub.token_usage["m3"] = 55
+            self.hub.running = 2
+            self.hub.session_tags.add("m3")
+            self.hub.session_tags.add("m6")
+        self.hub.procs["m3"] = mock.MagicMock()
+        try:
+            result = self.hub.terminate_agent("m3")
+            self.assertTrue(result)
+            self.assertEqual(self.hub.statuses["m3"], terminal_app.STATUS_IDLE)
+            self.assertEqual(self.hub.progress["m3"], 0)
+            self.assertEqual(self.hub.token_usage["m3"], 0)
+            # running is NOT decremented in terminate_agent — the thread's
+            # finally block handles it to avoid double-counting.
+            self.assertEqual(self.hub.running, 2)
+            self.assertNotIn("m3", self.hub.session_tags)
+        finally:
+            self.hub.procs.pop("m3", None)
+            with self.hub.lock:
+                self.hub.statuses["m3"] = terminal_app.STATUS_IDLE
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+
+    def test_terminate_agent_clears_session_when_last(self):
+        with self.hub.lock:
+            self.hub.statuses["m3"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 1
+            self.hub.session_tags.add("m3")
+        self.hub.procs["m3"] = mock.MagicMock()
+        try:
+            self.hub.terminate_agent("m3")
+            # running is NOT decremented — the thread's finally block handles it.
+            self.assertEqual(self.hub.running, 1)
+            # session_tags discards the tag but won't clear since running != 0.
+            self.assertNotIn("m3", self.hub.session_tags)
+        finally:
+            self.hub.procs.pop("m3", None)
+            with self.hub.lock:
+                self.hub.statuses["m3"] = terminal_app.STATUS_IDLE
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+
+    def test_terminate_agent_kills_subprocess(self):
+        mock_proc = mock.MagicMock()
+        with self.hub.lock:
+            self.hub.statuses["m2"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 1
+            self.hub.session_tags.add("m2")
+        self.hub.procs["m2"] = mock_proc
+        try:
+            self.hub.terminate_agent("m2")
+            mock_proc.terminate.assert_called_once()
+        finally:
+            self.hub.procs.pop("m2", None)
+            with self.hub.lock:
+                self.hub.statuses["m2"] = terminal_app.STATUS_IDLE
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+
+    def test_terminate_all_still_works(self):
+        with self.hub.lock:
+            self.hub.statuses["m1"] = terminal_app.STATUS_ACTIVE
+            self.hub.statuses["m2"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 2
+            self.hub.session_tags.update(["m1", "m2"])
+        try:
+            self.hub.terminate_all()
+            self.assertEqual(self.hub.running, 0)
+            self.assertEqual(len(self.hub.session_tags), 0)
+            self.assertEqual(self.hub.statuses["m1"], terminal_app.STATUS_IDLE)
+            self.assertEqual(self.hub.statuses["m2"], terminal_app.STATUS_IDLE)
+        finally:
+            with self.hub.lock:
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+                for t, _, _ in AGENTS:
+                    self.hub.statuses[t] = terminal_app.STATUS_IDLE
+
+    # -------------------------------------------------- full two-step flow
+
+    def test_full_two_step_master_global_abort(self):
+        """Simulate full two-step flow on Master: first Esc warns, second aborts all."""
+        self.app.current_tab = "master"
+        with self.hub.lock:
+            self.hub.statuses["m1"] = terminal_app.STATUS_ACTIVE
+            self.hub.statuses["m2"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 2
+            self.hub.session_tags.update(["m1", "m2"])
+        try:
+            # Step 1: first Esc press => sets pending, shows warning.
+            self.app._handle_esc()
+            self.assertEqual(self.app._esc_pending_tag, "master")
+            self.assertGreater(self.app._esc_pending_time, 0)
+            warnings = [
+                text for _tag, text in self.app.console_lines
+                if "ESC" in text and "ALL AGENTS" in text
+            ]
+            self.assertTrue(warnings, "Expected global abort warning")
+
+            # Step 2: second Esc press (within timeout) => executes abort.
+            self.app._handle_esc()
+            # After abort, pending state is cleared.
+            self.assertIsNone(self.app._esc_pending_tag)
+            self.assertEqual(self.app._esc_pending_time, 0.0)
+            # All agents should be idle after the global cascade.
+            self.assertEqual(self.hub.statuses["m1"], terminal_app.STATUS_IDLE)
+            self.assertEqual(self.hub.statuses["m2"], terminal_app.STATUS_IDLE)
+            self.assertEqual(self.hub.running, 0)
+        finally:
+            with self.hub.lock:
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+                for t, _, _ in AGENTS:
+                    self.hub.statuses[t] = terminal_app.STATUS_IDLE
+
+    def test_full_two_step_agent_isolated_abort(self):
+        """Simulate full two-step flow on M4: first Esc warns, second aborts only M4."""
+        self.app.current_tab = "m4"
+        mock_proc = mock.MagicMock()
+        with self.hub.lock:
+            self.hub.statuses["m4"] = terminal_app.STATUS_ACTIVE
+            self.hub.statuses["m5"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 2
+            self.hub.session_tags.update(["m4", "m5"])
+        self.hub.procs["m4"] = mock_proc
+        try:
+            # Step 1: first Esc press => sets pending, shows isolated warning.
+            self.app._handle_esc()
+            self.assertEqual(self.app._esc_pending_tag, "m4")
+            warnings = [
+                text for _tag, text in self.app.console_lines
+                if "ESC" in text and "M4" in text and "only" in text.lower()
+            ]
+            self.assertTrue(warnings, "Expected M4-only abort warning")
+
+            # Step 2: second Esc press => aborts only M4.
+            self.app._handle_esc()
+            self.assertIsNone(self.app._esc_pending_tag)
+            # M4 should be terminated, M5 still running.
+            self.assertEqual(self.hub.statuses["m4"], terminal_app.STATUS_IDLE)
+            self.assertEqual(self.hub.statuses["m5"], terminal_app.STATUS_ACTIVE)
+            # M4's proc was terminated.
+            mock_proc.terminate.assert_called_once()
+            # session_tags discarded m4 but kept m5.
+            self.assertNotIn("m4", self.hub.session_tags)
+            self.assertIn("m5", self.hub.session_tags)
+        finally:
+            self.hub.procs.pop("m4", None)
+            with self.hub.lock:
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+                for t, _, _ in AGENTS:
+                    self.hub.statuses[t] = terminal_app.STATUS_IDLE
+
+    def test_esc_timeout_resets_to_fresh_first_press(self):
+        """When the timeout expires, Esc acts as a fresh first press, not an abort."""
+        self.app.current_tab = "master"
+        with self.hub.lock:
+            self.hub.statuses["m1"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 1
+            self.hub.session_tags.add("m1")
+        try:
+            # Set pending state with an expired timestamp.
+            self.app._esc_pending_tag = "master"
+            self.app._esc_pending_time = time.monotonic() - 10.0  # well past 3s timeout
+
+            # Call handle_esc — should re-arm as a fresh first press.
+            with mock.patch.object(self.app, "_execute_esc_abort") as mock_abort:
+                self.app._handle_esc()
+                # Should NOT have executed abort (timeout expired).
+                mock_abort.assert_not_called()
+            # Should have re-set pending state.
+            self.assertEqual(self.app._esc_pending_tag, "master")
+            self.assertGreater(self.app._esc_pending_time, 0)
+        finally:
+            with self.hub.lock:
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+                for t, _, _ in AGENTS:
+                    self.hub.statuses[t] = terminal_app.STATUS_IDLE
+
+    def test_esc_noop_when_no_agents_running(self):
+        """Esc does nothing (and clears state) when no agents are running."""
+        self.app.current_tab = "m4"
+        self.app._esc_pending_tag = "m4"
+        self.app._esc_pending_time = time.monotonic()
+        self.hub.running = 0
+
+        with mock.patch.object(self.app, "_execute_esc_abort") as mock_abort:
+            with mock.patch.object(self.app, "_show_esc_warning") as mock_warn:
+                self.app._handle_esc()
+                mock_abort.assert_not_called()
+                mock_warn.assert_not_called()
+        # Pending state is cleared.
+        self.assertIsNone(self.app._esc_pending_tag)
+        self.assertEqual(self.app._esc_pending_time, 0.0)
+
+    def test_esc_closes_menu_without_abort(self):
+        """Esc closes an open dropdown menu without triggering abort logic."""
+        self.app.current_tab = "master"
+        self.app.menu_kind = "model"
+        self.app.menu_target = "m1"
+        self.app.menu_options = ["auto", "opencode/big-pickle"]
+
+        with mock.patch.object(self.app, "_execute_esc_abort") as mock_abort:
+            with mock.patch.object(self.app, "_show_esc_warning") as mock_warn:
+                self.app._handle_esc()
+                mock_abort.assert_not_called()
+                mock_warn.assert_not_called()
+        # Menu should be closed.
+        self.assertIsNone(self.app.menu_kind)
+        self.assertIsNone(self.app.menu_target)
+        self.assertEqual(self.app.menu_options, [])
+
+    def test_esc_when_running_and_not_pending_shows_warning_only(self):
+        """First Esc press on a running agent tab shows warning, no abort."""
+        self.app.current_tab = "m3"
+        with self.hub.lock:
+            self.hub.statuses["m3"] = terminal_app.STATUS_ACTIVE
+            self.hub.running = 1
+            self.hub.session_tags.add("m3")
+        try:
+            with mock.patch.object(self.app, "_execute_esc_abort") as mock_abort:
+                self.app._handle_esc()
+                mock_abort.assert_not_called()
+            # Pending state is set.
+            self.assertEqual(self.app._esc_pending_tag, "m3")
+            self.assertGreater(self.app._esc_pending_time, 0)
+            # Warning was shown.
+            warnings = [
+                text for _tag, text in self.app.console_lines
+                if "ESC" in text and "M3" in text
+            ]
+            self.assertTrue(warnings, "Expected M3 warning")
+        finally:
+            with self.hub.lock:
+                self.hub.running = 0
+                self.hub.session_tags.clear()
+                for t, _, _ in AGENTS:
+                    self.hub.statuses[t] = terminal_app.STATUS_IDLE
+
+    # -------------------------------------------------- idempotency
+
+    def test_clear_esc_state_is_idempotent(self):
+        self.app._clear_esc_state()
+        self.assertIsNone(self.app._esc_pending_tag)
+        # Calling again is safe.
+        self.app._clear_esc_state()
+        self.assertIsNone(self.app._esc_pending_tag)
+
+    def test_help_text_references_esc(self):
+        text = terminal_app.build_help_text()
+        self.assertIn("Esc", text)
+        self.assertIn("abort", text.lower())
+
+    # -------------------------------------------------- Esc in model bar
+
+    def test_model_bar_shows_esc_pending_master(self):
+        """When Esc is pending on master, RUN block shows 'abort ALL'."""
+        with self.hub.lock:
+            self.hub.running = 3
+        fragments = _model_bar_fragments(
+            {"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}},
+            None,
+            "master",
+            esc_pending_tag="master",
+        )
+        text = "".join(fragment[1] for fragment in fragments)
+        self.assertIn("ESC", text)
+        self.assertIn("abort ALL", text)
+        with self.hub.lock:
+            self.hub.running = 0
+
+    def test_model_bar_shows_esc_pending_agent(self):
+        """When Esc is pending on M4, RUN block shows 'abort M4'."""
+        with self.hub.lock:
+            self.hub.running = 2
+        fragments = _model_bar_fragments(
+            {"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}},
+            None,
+            "m4",
+            esc_pending_tag="m4",
+        )
+        text = "".join(fragment[1] for fragment in fragments)
+        self.assertIn("ESC", text)
+        self.assertIn("abort M4", text)
+        self.assertNotIn("abort ALL", text)
+        with self.hub.lock:
+            self.hub.running = 0
+
+    def test_model_bar_no_esc_when_idle(self):
+        """No Esc indicator when running is 0 (nothing to abort)."""
+        fragments = _model_bar_fragments(
+            {"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}},
+            None,
+            "master",
+            esc_pending_tag="master",
+        )
+        text = "".join(fragment[1] for fragment in fragments)
+        self.assertNotIn("ESC", text)
+
+    def test_model_bar_no_esc_when_none(self):
+        """No Esc indicator when esc_pending_tag is None."""
+        with self.hub.lock:
+            self.hub.running = 1
+        fragments = _model_bar_fragments(
+            {"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}},
+            None,
+            "master",
+            esc_pending_tag=None,
+        )
+        text = "".join(fragment[1] for fragment in fragments)
+        self.assertNotIn("ESC", text)
+        with self.hub.lock:
+            self.hub.running = 0
+
+
+class AbortStateResetTestCase(unittest.TestCase):
+    """Bulletproof UI state reset after abort: no stuck progress bars or
+    stale status indicators survive termination."""
+
+    def setUp(self):
+        self.hub = terminal_app.RunHub()
+
+    def test_force_ui_idle_resets_all_seven_agents(self):
+        """force_ui_idle() sets every agent to IDLE with 0 progress & tokens."""
+        with self.hub.lock:
+            # Dirty the state: set every agent to something non-idle.
+            for tag, _name, _agent in terminal_app.AGENTS:
+                self.hub.statuses[tag] = terminal_app.STATUS_ACTIVE
+                self.hub.progress[tag] = 77
+                self.hub.token_usage[tag] = 88
+            self.hub.running = 7
+            self.hub.session_tags = {"m1", "m2", "m3", "m4", "m5", "m6", "m7"}
+        self.hub.force_ui_idle()
+        self.assertEqual(self.hub.running, 0)
+        self.assertEqual(self.hub.session_tags, set())
+        for tag, _name, _agent in terminal_app.AGENTS:
+            self.assertEqual(self.hub.statuses[tag], terminal_app.STATUS_IDLE,
+                             f"{tag} status not IDLE")
+            self.assertEqual(self.hub.progress[tag], 0,
+                             f"{tag} progress not 0")
+            self.assertEqual(self.hub.token_usage[tag], 0,
+                             f"{tag} token_usage not 0")
+
+    def test_terminate_agent_resets_progress_when_no_proc(self):
+        """Even when no subprocess is running, terminate_agent resets
+        stale progress to 0 so the loading bar never shows old values."""
+        with self.hub.lock:
+            self.hub.statuses["m4"] = terminal_app.STATUS_IDLE
+            self.hub.progress["m4"] = 100  # stale from a previous finished run
+        # No proc present — terminate_agent should still reset progress.
+        result = self.hub.terminate_agent("m4")
+        self.assertFalse(result)  # no process was killed
+        self.assertEqual(self.hub.progress["m4"], 0,
+                         "stale progress must be reset even when no proc")
+
+    def test_terminate_all_resets_non_active_agents_too(self):
+        """terminate_all() resets ALL seven agents — not only the currently
+        active ones — so no stale values from previously completed runs stick."""
+        with self.hub.lock:
+            # M1 is active, M2 is idle with stale progress from a prior run.
+            self.hub.statuses["m1"] = terminal_app.STATUS_ACTIVE
+            self.hub.progress["m1"] = 50
+            self.hub.statuses["m2"] = terminal_app.STATUS_IDLE
+            self.hub.progress["m2"] = 100  # stale
+            self.hub.token_usage["m2"] = 99  # stale
+            self.hub.procs["m1"] = mock.MagicMock()
+            self.hub.running = 1
+        self.hub.terminate_all()
+        # Both agents must be reset regardless of prior status.
+        self.assertEqual(self.hub.statuses["m1"], terminal_app.STATUS_IDLE)
+        self.assertEqual(self.hub.progress["m1"], 0)
+        self.assertEqual(self.hub.statuses["m2"], terminal_app.STATUS_IDLE)
+        self.assertEqual(self.hub.progress["m2"], 0)
+        self.assertEqual(self.hub.token_usage["m2"], 0)
+
+    def test_cmd_stop_clears_esc_pending_state(self):
+        """The /stop command clears any pending Esc abort state so the RUN
+        block immediately reverts to a clean display."""
+        app = terminal_app.RetroTerminalApp()
+        app._esc_pending_tag = "master"
+        app._esc_pending_time = time.monotonic()
+        with app.hub.lock:
+            app.hub.statuses["m1"] = terminal_app.STATUS_ACTIVE
+            app.hub.procs["m1"] = mock.MagicMock()
+            app.hub.running = 1
+        result = app._cmd_stop("")
+        self.assertIn("stopped", result)
+        self.assertIsNone(app._esc_pending_tag)
+        self.assertEqual(app._esc_pending_time, 0.0)
+
+    def test_force_ui_idle_signals_audit_thread_to_suppress_output(self):
+        """force_ui_idle() sets _abort_event so a still-running M7 audit
+        thread discards its log lines instead of streaming into a dead hub."""
+        # Simulate an in-flight audit thread.
+        self.hub._abort_event.clear()
+        self.hub._audit_thread = threading.Thread(target=lambda: None)
+        self.hub.force_ui_idle()
+        self.assertTrue(self.hub._abort_event.is_set(),
+                        "_abort_event must be set so audit output is suppressed")
+        self.assertIsNone(self.hub._audit_thread,
+                          "_audit_thread reference cleared on abort")
+
+    def test_new_dispatch_clears_abort_event(self):
+        """Starting a new dispatch resets _abort_event so subsequent M7
+        audit results ARE logged normally."""
+        self.hub._abort_event.set()  # dirty from a prior abort
+        # Simulate a minimal dispatch: set running > 0 and a targets list.
+        with self.hub.lock:
+            self.hub.running = 0  # will trigger _abort_event.clear() below
+        # Call run with a dummy prompt — it will try to spawn opencode which
+        # won't exist, but we only care about the _abort_event.clear() side
+        # effect which happens before subprocess creation.
+        try:
+            self.hub.run("test prompt", {}, agents=["m7"])
+        except Exception:
+            pass  # expected — opencode not on test PATH
+        # The _abort_event should be cleared because running was 0 at dispatch.
+        self.assertFalse(self.hub._abort_event.is_set(),
+                         "_abort_event must be cleared on new session dispatch")
+        # Clean up: force_ui_idle to reset the hub after the failed dispatch.
+        self.hub.force_ui_idle()
+        with self.hub.lock:
+            self.hub.running = 0
+            self.hub.session_tags.clear()
+            self.hub.procs.clear()
 
 
 if __name__ == "__main__":

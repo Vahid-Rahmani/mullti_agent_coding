@@ -1,7 +1,7 @@
 # Roadmap — MultiAgentCoding Control Plane
 
-> **Last updated:** 2026-08-10
-> **Current branch:** `feature/ui-loading-refactor`
+> **Last updated:** 2026-08-10 09:21 UTC
+> **Current branch:** `feature/obsidian-vault-integration`
 
 ---
 
@@ -74,3 +74,12 @@
 - [ ] Knowledge re-indexing automation
 - [ ] Prompt template library in [[prompts/]]
 - [ ] Agent run history archive in [[agents_logs/]]
+---
+
+## Audit Status (M7 — Obsidian-Vault-Sync)
+
+- **Last audit:** 2026-08-10 07:33 UTC
+- **Branch:** `feature/obsidian-vault-integration`
+- **Uncommitted changes:** 6 file(s) modified
+- **Completed runs:** 21
+- **Prompt logs:** 26
