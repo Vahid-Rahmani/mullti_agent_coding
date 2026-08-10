@@ -51,9 +51,14 @@ Slash commands (typed at the prompt):
     /status          print current status line
     /clear           clear the console
     /stop            terminate all running agents
+    Esc (×2)         Master tab: abort all agents; agent tab: abort only
+                     the focused agent (other agents keep running)
+    Ctrl+G           same as Esc — abort active runs (reliable fallback)
     /swarm           print live swarm helper state
+    /agents-log [t]  show recent run entries for an agent (default: active tab)
     /proposals       list detected optimization-loop proposals
     /evolve <prompt> run a self-evolve cycle (checkpoint + dispatch + verify)
+    /audit           run M7 vault audit manually
     /quit | /exit    leave the terminal
 """
 
@@ -597,6 +602,11 @@ class RunHub:
         self.session_tags: set[str] = set()
         self.progress_weights: dict[str, float] = dict(DEFAULT_PROGRESS_WEIGHTS)
         self.workspace: Path = PROJECT_ROOT
+        # Background audit thread spawned by M7 completion — tracked so
+        # force_ui_idle / terminate_all can suppress its log output after
+        # an abort instead of letting it stream into a dead hub.
+        self._audit_thread: threading.Thread | None = None
+        self._abort_event = threading.Event()
 
     # ------------------------------------------------------------ state writes
 
@@ -726,6 +736,7 @@ class RunHub:
         with self.lock:
             if self.running == 0:
                 self.session_tags.clear()
+                self._abort_event.clear()  # new session — reset abort signal
             self.session_tags.update(tag for tag, _name, _agent in targets)
             self.running += len(targets)
             for tag, _name, _agent in targets:
@@ -768,6 +779,7 @@ class RunHub:
     ) -> None:
         _start = time.time()
         ok = False
+        _killed = False  # True when terminate_agent() killed this process.
         try:
             exe = _opencode_command()
             if not exe:
@@ -792,16 +804,35 @@ class RunHub:
             # Lines are stored without an embedded agent prefix: the console
             # renderer adds exactly one ``[m4]`` tag, so no double tags like
             # ``[m4] [m4 Backend Dev]`` ever appear.
-            for raw in proc.stdout:
-                line = raw.rstrip("\r\n")
-                if line:
-                    self.append_line(tag, line)
-                    self.set_status(tag, STATUS_ACTIVE)
+            try:
+                for raw in proc.stdout:
+                    line = raw.rstrip("\r\n")
+                    if line:
+                        self.append_line(tag, line)
+                        self.set_status(tag, STATUS_ACTIVE)
+            except (BrokenPipeError, OSError, ValueError) as _pipe_err:
+                # Subprocess pipe broke — typically because terminate_agent()
+                # killed the process.  Don't treat this as a hard error; the
+                # caller already cleaned up the hub state.
+                # ValueError is included for Windows where a closed pipe may
+                # raise "I/O operation on closed file" instead of OSError.
+                pass
             returncode = proc.wait()
+            # Detect external termination: if terminate_agent() already popped
+            # this proc, the thread must NOT overwrite the IDLE status.
             with self.lock:
-                self.procs.pop(tag, None)
-            if returncode != 0:
-                self.append_error(tag, f"exit code {returncode}")
+                _already_popped = self.procs.pop(tag, None) is None
+            if _already_popped:
+                # Already terminated by the user — the hub state is clean.
+                _killed = True
+                ok = True
+            elif returncode != 0:
+                # Show the command that failed so the user can diagnose it.
+                # Truncate to avoid flooding the UI with a very long prompt.
+                cmd_str = " ".join(cmd)
+                if len(cmd_str) > 200:
+                    cmd_str = cmd_str[:197] + "…"
+                self.append_error(tag, f"exit code {returncode}: {cmd_str}")
                 self.set_status(tag, STATUS_ERROR)
             else:
                 ok = True
@@ -816,7 +847,9 @@ class RunHub:
                     # The session is complete; the next dispatch starts a new
                     # weighted denominator and the idle bar stays at 0%.
                     self.session_tags.clear()
-            STATE.record_finish(tag, ok)
+            # Record finish unless externally terminated (already logged).
+            if not _killed:
+                STATE.record_finish(tag, ok)
             # Append to the agent's Obsidian vault run log (best-effort).
             try:
                 if prompt_log_id:
@@ -829,9 +862,10 @@ class RunHub:
                     )
             except Exception:
                 pass
-            # M7 audit: when M7 finishes and the dispatch is complete, run
-            # the vault integrity check + cross-reference + roadmap sync.
-            if tag == "m7" and ok:
+            # M7 audit: when M7 finishes naturally (not killed) and the
+            # dispatch is complete, run the vault integrity check +
+            # cross-reference + roadmap sync.
+            if tag == "m7" and ok and not _killed:
                 self._run_m7_audit()
 
     def aggregate_progress(self) -> int:
@@ -867,7 +901,45 @@ class RunHub:
                 "current_tab": current_tab,
             }
 
+    def terminate_agent(self, tag: str) -> bool:
+        """Terminate a single agent's subprocess and reset its state.
+
+        Returns True if an active process was terminated, False otherwise.
+
+        Does NOT decrement ``running`` — the agent's ``_run_agent`` thread
+        will reach its ``finally`` block after the subprocess is killed and
+        decrement it there, avoiding a double-count.
+
+        Always resets progress to 0 — even when no subprocess was running —
+        so stale percentages from previous finished runs never stick in the
+        loading bar."""
+        proc = None
+        with self.lock:
+            proc = self.procs.pop(tag, None)
+            if self.statuses.get(tag) in (STATUS_THINKING, STATUS_ACTIVE):
+                self.statuses[tag] = STATUS_IDLE
+                self.token_usage[tag] = 0
+                self.session_tags.discard(tag)
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            name = next((n for t, n, _ in AGENTS if t == tag), tag.upper())
+            self.append_line(tag, f"── {name} terminated ──")
+            self.append_line("master", f"── {tag.upper()} terminated ──")
+            STATE.record_restart("interrupted", f"{tag} terminated by user")
+        # Always reset progress to 0 so stale values from finished runs
+        # never leave the loading bar stuck at a non-zero percentage.
+        with self.lock:
+            self.progress[tag] = 0
+        return proc is not None
+
     def terminate_all(self) -> None:
+        """Kill every active subprocess and force-reset all UI telemetry.
+
+        Resets *every* agent (not only the currently active ones) so stale
+        progress/status from previously completed runs cannot stick."""
         with self.lock:
             procs = list(self.procs.values())
             self.procs.clear()
@@ -876,42 +948,64 @@ class RunHub:
                 proc.terminate()
             except Exception:
                 pass
+        self.force_ui_idle()
+        self.append_line("master", "── terminated ──")
+        STATE.record_restart("interrupted", "terminated by user")
+
+    def force_ui_idle(self) -> None:
+        """Reset every UI telemetry field to idle so no indicator remains stuck.
+
+        Safe to call at any time — it only mutates UI-facing counters, never
+        touches subprocess handles. Callers that need to kill processes must
+        do so separately.
+
+        Also signals any in-flight M7 audit thread to suppress its output
+        (it cannot be forcibly killed, but its log lines are discarded)."""
+        self._abort_event.set()
+        self._audit_thread = None
         with self.lock:
             self.running = 0
             self.session_tags.clear()
             for tag, _name, _agent in AGENTS:
-                if self.statuses.get(tag) in (STATUS_THINKING, STATUS_ACTIVE):
-                    self.statuses[tag] = STATUS_IDLE
-                    self.progress[tag] = 0
-                    self.token_usage[tag] = 0
-        self.append_line("master", "── terminated ──")
-        STATE.record_restart("interrupted", "terminated by user")
+                self.statuses[tag] = STATUS_IDLE
+                self.progress[tag] = 0
+                self.token_usage[tag] = 0
 
     def _run_m7_audit(self) -> None:
         """Run the M7 vault audit (best-effort; never blocks the hub).
 
         Spawned on a daemon thread after M7 completes so the audit never
-        blocks the hub or subsequent dispatches.
-        """
+        blocks the hub or subsequent dispatches. The thread is tracked and
+        checks ``_abort_event`` before emitting output — if an abort was
+        triggered while the audit was running, its log lines are silently
+        discarded instead of streaming into a reset hub."""
         def _audit() -> None:
             try:
                 import obsidian_auditor
 
                 result = obsidian_auditor.audit_run()
+                # If the hub was aborted while the audit ran, suppress all
+                # output — the console has already been reset and the user
+                # does not need stale audit lines.
+                if self._abort_event.is_set():
+                    return
                 self.append_line("master", result["summary"])
                 if not result["ok"]:
                     for issue in result.get("integrity", {}).get("issues", []):
                         self.append_line("m7", f"AUDIT: {issue}")
                     for orphan in result.get("cross_ref", {}).get("orphaned_prompts", []):
                         self.append_line("m7", f"AUDIT: orphaned prompt {orphan}")
-            except Exception:
-                pass  # audit failures are cosmetic — never disrupt the hub
+            except Exception as exc:  # noqa: BLE001
+                if not self._abort_event.is_set():
+                    self.append_line("m7", f"AUDIT ERROR: {exc}")
 
-        threading.Thread(
+        t = threading.Thread(
             target=_audit,
             name="m7-audit",
             daemon=True,
-        ).start()
+        )
+        self._audit_thread = t
+        t.start()
 
 
 HUB = RunHub()
@@ -1014,8 +1108,14 @@ def build_help_text() -> str:
         "  /status          print current status line\n"
         "  /clear           clear the console\n"
         "  /stop            terminate all running agents\n"
+        "  Esc (×2)         Master tab: abort all agents; agent tab: abort only\n"
+        "                   the focused agent (other agents keep running)\n"
+        "  Ctrl+G           same as Esc — abort active runs (reliable fallback)\n"
+        "  Ctrl+C           when buffer is empty: abort all if running, else quit\n"
         "  /swarm           print live swarm helper state\n"
         "  /proposals       list detected optimization-loop proposals\n"
+        "  /agents-log [t]  show recent run entries for an agent\n"
+        "  /audit           run M7 vault audit manually\n"
         "  /evolve <prompt> run a self-evolve cycle (checkpoint + dispatch + verify)\n"
         "  /quit | /exit    leave the terminal\n"
         "\n"
@@ -1150,6 +1250,7 @@ def _model_bar_fragments(
     on_control_click=None,
     compact: bool = False,
     ultra_compact: bool = False,
+    esc_pending_tag: str | None = None,
 ) -> list[tuple]:
     """Render bottom chrome segments, optionally attaching mouse actions.
 
@@ -1162,6 +1263,15 @@ def _model_bar_fragments(
         ",".join(agents_filter) if agents_filter else "all"
     )
     running = HUB.running
+    # When a two-step Esc abort is pending, blend the indicator directly
+    # into the RUN block so it sits beside the agent count — no floating.
+    if esc_pending_tag and running > 0:
+        if esc_pending_tag == "master":
+            esc_suffix = " ⚠ ESC: abort ALL"
+        else:
+            esc_suffix = f" ⚠ ESC: abort {esc_pending_tag.upper()}"
+    else:
+        esc_suffix = ""
     if ultra_compact:
         model_text = "Auto" if not model or model == AUTO_MODEL else model.split("/")[-1]
         mode_text = "Auto" if not mode or mode == AUTO_MODE else mode
@@ -1170,7 +1280,7 @@ def _model_bar_fragments(
             ("model", f"M:{model_text}"),
             ("mode", f"D:{mode_text}"),
             ("target", f"G:{target[:8]}"),
-            ("run", f"R:{running}/{len(AGENTS)}"),
+            ("run", f"R:{running}/{len(AGENTS)}{esc_suffix}"),
         ]
     elif compact:
         model_text = "Auto" if not model or model == AUTO_MODEL else model
@@ -1180,7 +1290,7 @@ def _model_bar_fragments(
             ("model", f"AI MODEL {model_text}"),
             ("mode", f"MODE {mode_text}"),
             ("target", f"TARGET {target}"),
-            ("run", f"RUN {running}/{len(AGENTS)}"),
+            ("run", f"RUN {running}/{len(AGENTS)}{esc_suffix}"),
         ]
     else:
         controls = [
@@ -1188,7 +1298,7 @@ def _model_bar_fragments(
             ("model", f"AI MODEL {model or AUTO_MODEL}"),
             ("mode", f"MODE {mode or AUTO_MODE}"),
             ("target", f"TARGET {target}"),
-            ("run", f"RUN {running}/{len(AGENTS)}"),
+            ("run", f"RUN {running}/{len(AGENTS)}{esc_suffix}"),
         ]
     fragments: list[tuple] = []
     for index, (kind, label) in enumerate(controls):
@@ -1587,6 +1697,8 @@ class RetroTerminalApp:
 
     MAX_CONSOLE_LINES = 1000
     CONSOLE_TAIL = 20  # lines visible by default (scroll reveals more)
+    # Seconds before a pending first-Esc abort press expires (two-step confirm).
+    _ABORT_CONFIRM_TIMEOUT_S = 3.0
 
     def __init__(self, workspace: Path | None = None) -> None:
         self.hub = HUB
@@ -1623,6 +1735,11 @@ class RetroTerminalApp:
         self.tab_scroll: dict[str, int] = {tag: 0 for tag, _, _ in TABS}
         self._seq = 0
         self._last_status: dict[str, str] = {}
+        # Two-step Esc abort: first press shows a context-aware warning,
+        # second press within _ABORT_CONFIRM_TIMEOUT_S executes the abort.
+        # Any other action (tab switch, input, menu) clears the pending state.
+        self._esc_pending_tag: str | None = None
+        self._esc_pending_time: float = 0.0
 
         from prompt_toolkit.application import Application
         from prompt_toolkit.buffer import Buffer
@@ -1680,6 +1797,10 @@ class RetroTerminalApp:
             if self.buffer.text.strip():
                 self.buffer.text = ""
                 self.buffer.cursor_position = 0
+            elif self.hub.running > 0:
+                # Agents are running — treat Ctrl+C as abort (no two-step
+                # needed; Ctrl+C is already a deliberate destructive action).
+                self._execute_esc_abort()
             else:
                 event.app.exit()
 
@@ -1687,9 +1808,19 @@ class RetroTerminalApp:
         def _ctrl_d(event):
             event.app.exit()
 
-        @kb.add("escape")
+        @kb.add("escape", eager=True)
         def _escape(_event):
-            self.close_menu(_event)
+            # eager=True ensures this fires before the input Buffer's own
+            # escape handling (which would otherwise consume the key and
+            # prevent the two-step abort from ever triggering).
+            self._handle_esc()
+
+        @kb.add("c-g")
+        def _ctrl_g(_event):
+            # Ctrl+G (BEL) is reliably delivered on all platforms including
+            # Windows terminal emulators that may not forward the Escape key
+            # correctly. It mirrors the two-step Esc abort flow.
+            self._handle_esc()
 
         @kb.add("pageup")
         def _page_up(_event):
@@ -1811,6 +1942,7 @@ class RetroTerminalApp:
                 self._handle_control_mouse,
                 compact=_box_width() < 100,
                 ultra_compact=_box_width() < 60,
+                esc_pending_tag=self._esc_pending_tag,
             ),
             width=lambda: _box_width(),
         )
@@ -1832,13 +1964,26 @@ class RetroTerminalApp:
             always_hide_cursor=True,
             dont_extend_height=True,
         )
+        # Thin spacer row — a fixed-height blank window that adds visual
+        # breathing room between UI sections without consuming flex space.
+        def _spacer():
+            return Window(
+                height=1,
+                style="class:retro.spacer",
+                dont_extend_height=True,
+            )
+
         content = HSplit(
             [
                 banner_window,
+                _spacer(),
                 dir_window,
+                _spacer(),
                 self.tab_window,
+                _spacer(),
                 self.console_window,
                 self.loading_window,
+                _spacer(),
                 box,
             ]
         )
@@ -1873,6 +2018,7 @@ class RetroTerminalApp:
             "retro.progress": f"bg:{BLACK} fg:{WHITE}",
             "retro.muted": f"bg:{BLACK} fg:{GREY}",
             "retro.console": f"bg:{BLACK} fg:{GREY}",
+            "retro.spacer": f"bg:{BLACK}",
             "retro.panel.content": f"bg:{BLACK} fg:{WHITE}",
             "retro.model": f"bold bg:{BLACK} fg:{WHITE}",
             "retro.control": f"bold bg:{BLACK} fg:{WHITE}",
@@ -1899,6 +2045,7 @@ class RetroTerminalApp:
         """Switch the active tab (master or m1..m7). Unknown tags are ignored."""
         if tag in self.tab_lines:
             self.current_tab = tag
+            self._clear_esc_state()
 
     def _handle_tab_mouse(self, tag: str, event) -> None:
         """Switch tabs after a primary mouse click on a tab cell."""
@@ -2008,11 +2155,91 @@ class RetroTerminalApp:
         if event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.LEFT:
             self.close_menu(event)
 
+    def _handle_esc(self) -> None:
+        """Handle an Esc key press: two-step abort confirmation.
+
+        Extracted from the keyboard binding so tests can simulate the full
+        two-step flow without mocking prompt_toolkit internals."""
+        # Always close an open menu first — no confirmation needed.
+        # close_menu() already calls _clear_esc_state().
+        if self.menu_kind is not None:
+            self.close_menu()
+            return
+        # Nothing to abort if no agents are running.
+        if self.hub.running == 0:
+            self._clear_esc_state()
+            self._echo("No agents are currently running. Esc / Ctrl+G aborts active runs.")
+            return
+        now = time.monotonic()
+        # Two-step confirmation: second Esc within the timeout window.
+        timeout = self._ABORT_CONFIRM_TIMEOUT_S
+        if (
+            self._esc_pending_tag is not None
+            and (now - self._esc_pending_time) < timeout
+        ):
+            # Second press — execute the abort.
+            self._execute_esc_abort()
+            self._clear_esc_state()
+        else:
+            # First press — show context-aware warning.
+            self._esc_pending_tag = self.current_tab
+            self._esc_pending_time = now
+            self._show_esc_warning()
+
+    def _clear_esc_state(self) -> None:
+        """Reset the two-step Esc abort state; safe to call any time."""
+        self._esc_pending_tag = None
+        self._esc_pending_time = 0.0
+
+    def _show_esc_warning(self) -> None:
+        """Display a context-aware first-Esc warning in the active view."""
+        if self.current_tab == "master":
+            msg = (
+                "⚠  ESC: Press Esc again to ABORT ALL AGENTS "
+                "(global cascade — every active agent will be terminated)"
+            )
+        else:
+            name = next(
+                (n for t, n, _ in AGENTS if t == self.current_tab),
+                self.current_tab.upper(),
+            )
+            msg = (
+                f"⚠  ESC: Press Esc again to ABORT {self.current_tab.upper()} "
+                f"({name}) only — other agents will keep running"
+            )
+        self._echo(msg)
+
+    def _execute_esc_abort(self) -> None:
+        """Perform the context-aware abort: global cascade on Master, isolated
+        on an individual agent tab.
+
+        Always clears the pending Esc state so callers (Esc two-step *and*
+        Ctrl+C direct abort) both leave a clean slate."""
+        if self.current_tab == "master":
+            # Global cascade — terminate every running agent.
+            self.hub.terminate_all()
+            self._echo("ABORTED: all agent processes terminated.")
+        elif self.current_tab.startswith("m"):
+            # Isolated abort — terminate only the focused agent.
+            name = next(
+                (n for t, n, _ in AGENTS if t == self.current_tab),
+                self.current_tab.upper(),
+            )
+            if self.hub.terminate_agent(self.current_tab):
+                self._echo(f"ABORTED: {name} ({self.current_tab.upper()}) terminated.")
+            else:
+                self._echo(f"{name} ({self.current_tab.upper()}) was not running.")
+        else:
+            self._echo("No agent selected to abort.")
+        # Clear the two-step pending state so the RUN status bar resets.
+        self._clear_esc_state()
+
     def close_menu(self, event=None) -> None:
         """Close an open bottom menu and restore prompt focus when possible."""
         self.menu_kind = None
         self.menu_target = None
         self.menu_options = []
+        self._clear_esc_state()
         try:
             from prompt_toolkit.application.current import get_app
 
@@ -2197,6 +2424,8 @@ class RetroTerminalApp:
         stripped = text.strip()
         if not stripped:
             return
+        # Any explicit input cancels the pending Esc abort.
+        self._clear_esc_state()
         # Direct callers/tests and future input paths get the same lifecycle
         # behavior as the Buffer accept handler.
         self.banner_visible = False
@@ -2437,6 +2666,27 @@ class RetroTerminalApp:
         self.agents_filter = tags
         return f"TARGET agents: {','.join(tags)}"
 
+    def _cmd_agents_log(self, arg: str, _agents_dir_override=None) -> str:
+        tag = arg.strip().lower() if arg.strip() else self.current_tab
+        if tag == "master":
+            tag = self.current_tab or "m1"
+        if tag not in {t for t, _, _ in AGENTS}:
+            return f"ERROR: unknown tag '{tag}' — use m1..m7"
+        agents_dir = _agents_dir_override or (PROJECT_ROOT / "obsidian_vault" / "agents_logs")
+        filename = agent_logger._safe_agent_filename(tag)
+        log_path = agents_dir / filename
+        if not log_path.is_file():
+            return f"No log file for {tag.upper()}"
+        try:
+            lines = log_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return f"Cannot read log for {tag.upper()}"
+        entries = [l for l in lines if l.startswith("### ")]
+        if not entries:
+            return f"{tag.upper()}: no run entries yet"
+        recent = entries[-5:]
+        return f"{tag.upper()} — last {len(recent)} run(s):\n" + "\n".join(recent)
+
     def _cmd_status(self, _arg: str) -> str:
         statuses = "  ".join(
             f"{tag.upper()}={self.hub.statuses.get(tag, STATUS_IDLE)}" for tag, _, _ in AGENTS
@@ -2468,6 +2718,7 @@ class RetroTerminalApp:
         return ""
 
     def _cmd_stop(self, _arg: str) -> str:
+        self._clear_esc_state()  # clear any pending Esc abort indicator
         self.hub.terminate_all()
         return "stopped all running agents"
 
@@ -2480,6 +2731,17 @@ class RetroTerminalApp:
     def _cmd_evolve(self, arg: str) -> str:
         err = run_self_evolve(arg, self.overrides, self.system_prompts)
         return err if err else "self-evolve dispatched"
+
+    def _cmd_audit(self, _arg: str) -> str:
+        if self.hub.running > 0:
+            return "Agents are still running — audit will run automatically when M7 completes."
+        try:
+            import obsidian_auditor
+
+            result = obsidian_auditor.audit_run()
+            return result["summary"]
+        except Exception as exc:
+            return f"Audit error: {exc}"
 
     def _cmd_quit(self, _arg: str) -> str:
         app = self._build_application()

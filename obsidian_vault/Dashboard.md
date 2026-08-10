@@ -18,7 +18,7 @@
 ## Project at a Glance
 
 - **Phase:** Running — `feature/ui-loading-refactor`
-- **Active agents:** system-architect, analyst, planner, backend-dev, frontend-dev, tester, reviewer
+- **Active agents:** system-architect, analyst, planner, backend-dev, frontend-dev, tester, reviewer (M7: immutable audit)
 - **Models:** All free-tier (`deepseek-v4-flash-free`, `big-pickle`, `ling-3.0-tiny-free`)
 - **UI:** ZOVA retro terminal (`python scripts/terminal_app.py`)
 - **Swarm:** ON by default (stale-peer detection + helper takeover)
@@ -47,14 +47,48 @@
 | M4 | `backend-dev` | Backend implementation | `deepseek-v4-flash-free` |
 | M5 | `frontend-dev` | Frontend implementation | `deepseek-v4-flash-free` |
 | M6 | `tester` | Test authoring + execution | `big-pickle` |
-| M7 | `reviewer` | Code review + approve/reject (read-only) | `ling-3.0-tiny-free` |
+| M7 | `reviewer` | Obsidian-Vault-Sync & Final Audit (immutable) | `ling-3.0-tiny-free` |
 
 ---
 
 ## Slash Commands (ZOVA Terminal)
 
-`/tab` `/help` `/cd` `/model` `/mode` `/agents` `/status` `/clear` `/stop` `/swarm` `/proposals` `/evolve` `/quit`
+`/tab` `/help` `/cd` `/model` `/mode` `/agents` `/agents-log` `/status` `/clear` `/stop` `/swarm` `/proposals` `/evolve` `/audit` `/quit`
 
 ---
 
-*Open this vault in [Obsidian](https://obsidian.md) for graph view, backlinks, and wiki-link navigation.*
+## Recent Activity (Dataview)
+
+```dataview
+TABLE file.ctime as "Created", target_agent as "Agent", status as "Status"
+FROM "prompts"
+SORT file.ctime DESC
+LIMIT 10
+```
+
+```dataview
+TABLE agent_role as "Role", last_updated as "Last Active", status as "Status"
+FROM "agents_logs"
+WHERE agent_tag
+SORT last_updated DESC
+```
+
+---
+
+## Vault Structure
+
+```
+obsidian_vault/
+├── Dashboard.md          ← you are here
+├── Roadmap.md            ← phased project plan
+├── prompts/              ← auto-generated prompt logs
+│   ├── _TEMPLATE.md
+│   └── prompt-NNN.md
+└── agents_logs/          ← per-agent run logs
+    ├── _TEMPLATE.md
+    └── M{N}_{Role}.md
+```
+
+---
+
+*Open this vault in [Obsidian](https://obsidian.md) for graph view, backlinks, and wiki-link navigation. Enable the Dataview plugin for live query tables.*

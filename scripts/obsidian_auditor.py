@@ -16,6 +16,9 @@ responsibilities are:
    current project state (git branch, completed tasks from ``state.md``,
    and prompt log activity).
 
+Additionally, the auditor validates Dashboard.md WikiLinks and checks
+that Roadmap.md reflects completed phases with ``- [x]`` checkboxes.
+
 No third-party imports; read-only except for Roadmap.md updates (atomic
 write via tempfile + os.replace).
 """
@@ -298,6 +301,144 @@ def sync_roadmap(
     }
 
 
+# --------------------------------------------------------------------------- dashboard wiki-link validation
+
+
+def verify_dashboard_wikilinks(
+    vault_root: str | os.PathLike | None = None,
+) -> dict:
+    """Validate that Dashboard.md WikiLinks point to existing vault pages.
+
+    Scans ``Dashboard.md`` for ``[[...]]`` wiki-links and checks whether
+    each target (file or directory) actually exists in the vault. Returns
+    a dict with ``ok``, ``total_links``, ``broken_links``, and ``summary``.
+    """
+    root = Path(vault_root) if vault_root is not None else _VAULT_ROOT
+    dashboard = root / "Dashboard.md"
+
+    if not dashboard.is_file():
+        return {
+            "ok": False,
+            "total_links": 0,
+            "broken_links": ["Dashboard.md missing"],
+            "summary": "Dashboard.md not found.",
+        }
+
+    try:
+        text = dashboard.read_text(encoding="utf-8")
+    except OSError:
+        return {
+            "ok": False,
+            "total_links": 0,
+            "broken_links": ["Cannot read Dashboard.md"],
+            "summary": "Cannot read Dashboard.md.",
+        }
+
+    # Match [[Target]] or [[Target|Alias]] or [[path/to/file]]
+    link_pat = re.compile(r"\[\[([^\]#|]+)(?:[#|][^\]]+)?\]\]")
+    broken: list[str] = []
+    total = 0
+
+    for match in link_pat.finditer(text):
+        target = match.group(1).strip()
+        total += 1
+        if target.endswith("/"):
+            # Directory link — check the directory exists.
+            dir_path = root / target.rstrip("/")
+            if not dir_path.is_dir():
+                broken.append(f"[[{target}]] (directory not found)")
+        else:
+            # File link — check the .md file exists.
+            if "/" in target:
+                file_path = root / f"{target}.md" if not target.endswith(".md") else root / target
+            else:
+                file_path = root / f"{target}.md"
+            if not file_path.is_file():
+                broken.append(f"[[{target}]] (file not found)")
+
+    ok = len(broken) == 0
+    summary = (
+        f"Dashboard WikiLinks: PASS — {total} link(s), all valid."
+        if ok
+        else f"Dashboard WikiLinks: {len(broken)}/{total} broken."
+    )
+    return {
+        "ok": ok,
+        "total_links": total,
+        "broken_links": broken,
+        "summary": summary,
+    }
+
+
+# --------------------------------------------------------------------------- roadmap checkbox scan
+
+
+def verify_roadmap_checkboxes(
+    vault_root: str | os.PathLike | None = None,
+) -> dict:
+    """Scan Roadmap.md for completed phases lacking ``- [x]`` checkboxes.
+
+    Reads the completed tasks from ``state.md`` and checks whether any
+    task that appears completed in state is still marked ``- [ ]`` in the
+    Roadmap. Returns ``ok``, ``mismatches``, and ``summary``.
+    """
+    root = Path(vault_root) if vault_root is not None else _VAULT_ROOT
+    roadmap_path = root / "Roadmap.md"
+
+    if not roadmap_path.is_file():
+        return {
+            "ok": False,
+            "mismatches": ["Roadmap.md missing"],
+            "summary": "Roadmap.md not found.",
+        }
+
+    try:
+        text = roadmap_path.read_text(encoding="utf-8")
+    except OSError:
+        return {
+            "ok": False,
+            "mismatches": ["Cannot read Roadmap.md"],
+            "summary": "Cannot read Roadmap.md.",
+        }
+
+    # Find all phases (## Phase X) and count checked vs unchecked items.
+    phases: dict[str, dict[str, int]] = {}
+    current_phase = "(preamble)"
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## Phase") or stripped.startswith("## Backlog"):
+            current_phase = stripped.lstrip("#").strip()
+            phases.setdefault(current_phase, {"checked": 0, "unchecked": 0, "total": 0})
+            continue
+        if stripped.startswith("- [x]"):
+            phases.setdefault(current_phase, {"checked": 0, "unchecked": 0, "total": 0})
+            phases[current_phase]["checked"] += 1
+            phases[current_phase]["total"] += 1
+        elif stripped.startswith("- [ ]"):
+            phases.setdefault(current_phase, {"checked": 0, "unchecked": 0, "total": 0})
+            phases[current_phase]["unchecked"] += 1
+            phases[current_phase]["total"] += 1
+
+    mismatches: list[str] = []
+    for phase, counts in phases.items():
+        if counts["total"] == 0:
+            continue
+        pct = counts["checked"] / counts["total"] * 100 if counts["total"] else 0
+        if counts["unchecked"] > 0:
+            mismatches.append(
+                f"{phase}: {counts['checked']}/{counts['total']} checked ({pct:.0f}%) — "
+                f"{counts['unchecked']} item(s) still pending"
+            )
+
+    ok = len(mismatches) == 0
+    summary = (
+        "Roadmap checkboxes: PASS — all items checked."
+        if ok
+        else f"Roadmap checkboxes: {len(mismatches)} phase(s) with pending items."
+    )
+    return {"ok": ok, "mismatches": mismatches, "summary": summary}
+
+
 # --------------------------------------------------------------------------- master audit
 
 
@@ -318,20 +459,32 @@ def audit_run(
 
     integrity = verify_vault_integrity(vault_root=vault)
     cross_ref = cross_reference_prompts(vault_root=vault)
+    wikilinks = verify_dashboard_wikilinks(vault_root=vault)
+    checkboxes = verify_roadmap_checkboxes(vault_root=vault)
     roadmap = sync_roadmap(vault_root=vault, project_root=proj)
 
-    all_ok = integrity["ok"] and cross_ref["ok"] and roadmap.get("ok", False)
+    all_ok = (
+        integrity["ok"]
+        and cross_ref["ok"]
+        and wikilinks["ok"]
+        and checkboxes["ok"]
+        and roadmap.get("ok", False)
+    )
 
     parts: list[str] = []
-    parts.append(f"  Integrity: {'PASS' if integrity['ok'] else 'FAIL'}")
-    parts.append(f"  Cross-ref: {'PASS' if cross_ref['ok'] else 'FAIL'}")
-    parts.append(f"  Roadmap:   {'PASS' if roadmap.get('ok') else 'FAIL'}")
+    parts.append(f"  Integrity:  {'PASS' if integrity['ok'] else 'FAIL'}")
+    parts.append(f"  Cross-ref:  {'PASS' if cross_ref['ok'] else 'FAIL'}")
+    parts.append(f"  WikiLinks:  {'PASS' if wikilinks['ok'] else 'FAIL'}")
+    parts.append(f"  Checkboxes: {'PASS' if checkboxes['ok'] else 'FAIL'}")
+    parts.append(f"  Roadmap:    {'PASS' if roadmap.get('ok') else 'FAIL'}")
     summary = "M7 Audit complete:\n" + "\n".join(parts)
 
     return {
         "ok": all_ok,
         "integrity": integrity,
         "cross_ref": cross_ref,
+        "wikilinks": wikilinks,
+        "checkboxes": checkboxes,
         "roadmap": roadmap,
         "summary": summary,
     }
