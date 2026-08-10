@@ -72,6 +72,9 @@ import threading
 import time
 from pathlib import Path
 
+import agent_logger  # dynamic per-agent Obsidian vault logging
+import prompt_logger  # automated Obsidian vault prompt tracking
+
 # Workspace root = the directory the launcher was launched from (so agents
 # target whatever folder the terminal is started in), not the script dir.
 PROJECT_ROOT = Path(os.getcwd())
@@ -112,11 +115,16 @@ MODEL_OPTIONS = [
 # Mode selector options. "Auto (Default)" keeps the tab's default agent; a
 # concrete mode is passed as `--agent <mode>`.
 AUTO_MODE = "Auto (Default)"
+# M7 Reviewer immutable audit mode — permanently locked to documentation
+# auditing, vault integrity verification, and Roadmap.md synchronization.
+M7_AUDIT_MODE = "obsidian-audit"
+# Agent tags whose model and mode cannot be changed by the user.
+IMMUTABLE_TAGS: set[str] = {"m7"}
 MODE_OPTIONS_BY_MODEL: dict[str, list[str]] = {
     AUTO_MODEL: [AUTO_MODE],
     "opencode/deepseek-v4-flash-free": ["architect", "build", "analyze"],
     "opencode/big-pickle": ["plan", "build", "analyze"],
-    "opencode/ling-3.0-tiny-free": ["review", "compact"],
+    "opencode/ling-3.0-tiny-free": [M7_AUDIT_MODE, "review", "compact"],
 }
 
 # Matches CSI (ANSI) sequences like \x1b[0m, \x1b[91m, \x1b[1m and OSC
@@ -307,7 +315,9 @@ def _weighted_progress(
         total_weight += weight
     if not total_weight:
         return 0
-    return max(0, min(100, round(weighted_total / total_weight)))
+    # Use conventional half-up rounding rather than Python's banker's
+    # rounding so weighted values such as 62.5 display as 63%.
+    return max(0, min(100, int(weighted_total / total_weight + 0.5)))
 
 
 def _loading_bar_fragments(
@@ -364,7 +374,9 @@ def _loading_bar_fragments(
     fragments.extend(_progress_bar_fragments(percent, bar_width))
     fragments.append(("class:retro.progress", " "))
     fragments.extend(working)
-    fragments.append(("class:retro.progress", suffix + "\n"))
+    # The window has a fixed height of one row; do not append a newline, or
+    # prompt_toolkit allocates an extra blank row between loading and prompt.
+    fragments.append(("class:retro.progress", suffix))
     return fragments
 
 
@@ -633,15 +645,23 @@ class RunHub:
             for buf in self.buffers.values():
                 buf.clear()
             for tag, _name, _agent in AGENTS:
+                self.statuses[tag] = STATUS_IDLE
                 self.progress[tag] = 0
                 self.token_usage[tag] = 0
                 self.prompts[tag] = ""
+            self.session_tags.clear()
         self._emit("master", "line", "── logs cleared ──")
 
     # ------------------------------------------------------------ running
 
     def resolve(self, tag: str, overrides: dict[str, dict[str, str]]) -> tuple[str | None, str]:
-        """Resolve (model, mode) for a tag: tag override > master override > auto."""
+        """Resolve (model, mode) for a tag: tag override > master override > auto.
+
+        Immutable tags (e.g. M7) ignore all overrides and always return their
+        locked configuration."""
+        if tag in IMMUTABLE_TAGS:
+            # M7 is permanently locked to ling-3.0-tiny-free + obsidian-audit.
+            return ("opencode/ling-3.0-tiny-free", M7_AUDIT_MODE)
         tab = overrides.get(tag, {})
         master = overrides.get("master", {})
         tab_model = tab.get("model")
@@ -679,6 +699,25 @@ class RunHub:
         targets = [a for a in AGENTS if not agents or a[0] in agents]
         if not targets:
             return "No agents matched the /agents filter."
+        # Log the prompt into the Obsidian vault for end-to-end traceability.
+        try:
+            # Derive the active tab: the single-agent tag when filtered,
+            # "master" when dispatching to all agents.
+            _log_tab = agents[0] if agents and len(agents) == 1 else "master"
+            _target_tags = [t[0] for t in targets] if agents else None
+            _prompt_path = prompt_logger.log_prompt(
+                prompt,
+                target_agents=_target_tags,
+                active_tab=_log_tab,
+            )
+            # Store the session ID for per-agent run back-linking.
+            _prompt_log_id = _prompt_path.stem
+            # Ensure agent log files exist for every dispatched agent.
+            agent_logger.ensure_agent_logs(
+                [t[0] for t in targets],
+            )
+        except Exception:
+            pass  # prompt/agent logging is best-effort; never block the dispatch
         self.append_line("master", f"▶ {prompt}")
         pruned = prune_prompt(prompt)
         STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
@@ -712,7 +751,7 @@ class RunHub:
             dispatch_prompt = dispatch_prompts.get(tag, pruned)
             threading.Thread(
                 target=self._run_agent,
-                args=(tag, agent, dispatch_prompt, model, mode),
+                args=(tag, agent, dispatch_prompt, model, mode, _prompt_log_id),
                 name=f"term-{tag}",
                 daemon=True,
             ).start()
@@ -725,7 +764,9 @@ class RunHub:
         prompt: str,
         model: str | None,
         mode: str | None,
+        prompt_log_id: str | None = None,
     ) -> None:
+        _start = time.time()
         ok = False
         try:
             exe = _opencode_command()
@@ -771,7 +812,27 @@ class RunHub:
         finally:
             with self.lock:
                 self.running = max(0, self.running - 1)
+                if self.running == 0:
+                    # The session is complete; the next dispatch starts a new
+                    # weighted denominator and the idle bar stays at 0%.
+                    self.session_tags.clear()
             STATE.record_finish(tag, ok)
+            # Append to the agent's Obsidian vault run log (best-effort).
+            try:
+                if prompt_log_id:
+                    agent_logger.append_agent_run(
+                        tag,
+                        prompt,
+                        prompt_log_id,
+                        status="ok" if ok else "failed",
+                        duration_s=time.time() - _start,
+                    )
+            except Exception:
+                pass
+            # M7 audit: when M7 finishes and the dispatch is complete, run
+            # the vault integrity check + cross-reference + roadmap sync.
+            if tag == "m7" and ok:
+                self._run_m7_audit()
 
     def aggregate_progress(self) -> int:
         """Return the current weighted Master progress under the hub lock."""
@@ -782,6 +843,11 @@ class RunHub:
                     tag for tag, _name, _agent in AGENTS
                     if self.statuses.get(tag) in (STATUS_THINKING, STATUS_ACTIVE)
                 }
+            if not any(
+                self.statuses.get(tag) in (STATUS_THINKING, STATUS_ACTIVE)
+                for tag in tags
+            ):
+                return 0
             return _weighted_progress(
                 self.statuses,
                 self.progress,
@@ -810,8 +876,42 @@ class RunHub:
                 proc.terminate()
             except Exception:
                 pass
+        with self.lock:
+            self.running = 0
+            self.session_tags.clear()
+            for tag, _name, _agent in AGENTS:
+                if self.statuses.get(tag) in (STATUS_THINKING, STATUS_ACTIVE):
+                    self.statuses[tag] = STATUS_IDLE
+                    self.progress[tag] = 0
+                    self.token_usage[tag] = 0
         self.append_line("master", "── terminated ──")
         STATE.record_restart("interrupted", "terminated by user")
+
+    def _run_m7_audit(self) -> None:
+        """Run the M7 vault audit (best-effort; never blocks the hub).
+
+        Spawned on a daemon thread after M7 completes so the audit never
+        blocks the hub or subsequent dispatches.
+        """
+        def _audit() -> None:
+            try:
+                import obsidian_auditor
+
+                result = obsidian_auditor.audit_run()
+                self.append_line("master", result["summary"])
+                if not result["ok"]:
+                    for issue in result.get("integrity", {}).get("issues", []):
+                        self.append_line("m7", f"AUDIT: {issue}")
+                    for orphan in result.get("cross_ref", {}).get("orphaned_prompts", []):
+                        self.append_line("m7", f"AUDIT: orphaned prompt {orphan}")
+            except Exception:
+                pass  # audit failures are cosmetic — never disrupt the hub
+
+        threading.Thread(
+            target=_audit,
+            name="m7-audit",
+            daemon=True,
+        ).start()
 
 
 HUB = RunHub()
@@ -1714,6 +1814,9 @@ class RetroTerminalApp:
             ),
             width=lambda: _box_width(),
         )
+        # Expose the prompt frame for layout tests and keep the loading slot's
+        # adjacency to it explicit: loading_window, then prompt_box.
+        self.prompt_box = box
 
         menu_window = Window(
             content=FormattedTextControl(self._menu_fragments),
@@ -2168,11 +2271,15 @@ class RetroTerminalApp:
         return self.current_tab, arg
 
     def _set_override(self, target: str, key: str, value: str) -> None:
-        """Write a per-tab override; 'all' writes every tab (incl. master)."""
+        """Write a per-tab override; 'all' writes every non-immutable tab."""
         if target == "all":
             for tag, _, _ in TABS:
+                if tag in IMMUTABLE_TAGS:
+                    continue
                 self.overrides.setdefault(tag, {})[key] = value
         else:
+            if target in IMMUTABLE_TAGS:
+                return  # silently ignore — immutable tags reject overrides
             self.overrides.setdefault(target, {})[key] = value
 
     def _explicit_overrides(self, key: str | None = None) -> list[str]:
@@ -2218,6 +2325,8 @@ class RetroTerminalApp:
         resets the tab to inherit from master / auto.
         """
         target, value = self._split_override_arg(arg)
+        if target in IMMUTABLE_TAGS and value:
+            return f"ERROR: {target.upper()} is immutable — model cannot be changed"
         if target == "all":
             if not value:
                 over = self._explicit_overrides("model")
@@ -2247,6 +2356,8 @@ class RetroTerminalApp:
         *resolved* model of the target tab (tab override > master > auto).
         """
         target, value = self._split_override_arg(arg)
+        if target in IMMUTABLE_TAGS and value:
+            return f"ERROR: {target.upper()} is immutable — mode cannot be changed"
         if target == "all":
             if not value:
                 over = self._explicit_overrides("mode")
