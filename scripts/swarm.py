@@ -18,11 +18,11 @@ and the unittest suite can import the functions directly.
 
 Usage (called from run_agent_worker.ps1):
 
-    python scripts/swarm.py title    --slot 4 --label "Backend Dev" --mode helper --target 1
-    python scripts/swarm.py find-stale --inbox _inbox --own backend-dev --stale 30
-    python scripts/swarm.py claim    --inbox _inbox --agent frontend-dev --by 4
+    python scripts/swarm.py title    --slot 4 --label "David" --mode helper --target 1
+    python scripts/swarm.py find-stale --inbox _inbox --own david --stale 30
+    python scripts/swarm.py claim    --inbox _inbox --agent sarah --by 4
     python scripts/swarm.py feedback --file _logs/swarm_feedback.jsonl --slot 4 \
-        --agent backend-dev --mode helper --target 1 --ok true --duration 12 --task "..."
+        --agent david --mode helper --target 1 --ok true --duration 12 --task "..."
     python scripts/swarm.py brief    --file _logs/swarm_feedback.jsonl --swarm _logs/swarm
     python scripts/swarm.py state    --swarm _logs/swarm --slot 4 --json '{"status":"helper"}'
     python scripts/swarm.py swarm    --swarm _logs/swarm
@@ -41,13 +41,13 @@ from pathlib import Path
 
 # Canonical slot table: slot -> (agent name, human label).
 SLOTS: dict[int, tuple[str, str]] = {
-    1: ("system-architect", "System Architect"),
-    2: ("analyst", "Analyst"),
-    3: ("planner", "Planner"),
-    4: ("backend-dev", "Backend Dev"),
-    5: ("frontend-dev", "Frontend Dev"),
-    6: ("tester", "Tester"),
-    7: ("reviewer", "Reviewer"),
+    1: ("matthew", "Matthew"),
+    2: ("alex", "Alex"),
+    3: ("sarah", "Sarah"),
+    4: ("david", "David"),
+    5: ("elena", "Elena"),
+    6: ("max", "Max"),
+    7: ("chloe", "Chloe"),
 }
 AGENT_TO_SLOT: dict[str, int] = {name: slot for slot, (name, _) in SLOTS.items()}
 
@@ -61,8 +61,8 @@ def title(slot: int, label: str, mode: str = "idle", target: int | None = None) 
     """Build the dynamic tab/window title for a worker.
 
     Modes:
-      idle    -> ``M3 - Planner``
-      working -> ``M3 - Planner [working]``
+      idle    -> ``M3 - Sarah``
+      working -> ``M3 - Sarah [working]``
       helper  -> ``M3-Helper->M1``            (target required)
     """
     base = f"M{slot} - {label}"

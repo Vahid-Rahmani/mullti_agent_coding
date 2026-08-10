@@ -10,7 +10,7 @@ Usage:
   run_agent_worker.sh --agent <name> [options]
 
 Required:
-  --agent <name>        Agent name (e.g. analyst, backend-dev)
+  --agent <name>        Agent name (e.g. matthew, alex)
 
 Options:
   --title <text>        Terminal tab title (default: none)

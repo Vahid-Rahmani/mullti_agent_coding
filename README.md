@@ -9,19 +9,20 @@ retro-CRT **ZOVA terminal** and a 7-window inbox launcher.
 
 ## Overview
 
-The control plane defines seven specialized agents that collaborate to build
-software. Each agent has a distinct role, model assignment, and permission
-scope, all configured in [`opencode.json`](opencode.json).
+The control plane defines seven humanified specialists—Matthew, Alex, Sarah,
+David, Elena, Max, and Chloe—that collaborate to build software. Each has a
+distinct operational role, model assignment, and permission scope configured in
+[`opencode.json`](opencode.json).
 
 | Agent | Role | Model |
 |---|---|---|
-| `system-architect` | System architecture + design approval (read-only) | opencode/deepseek-v4-flash-free |
-| `analyst` | Requirements analysis (read-only) | opencode/big-pickle |
-| `planner` | PLAN.md + TASKS.json (read-only) | opencode/big-pickle |
-| `backend-dev` | Backend implementation | opencode/deepseek-v4-flash-free |
-| `frontend-dev` | Frontend implementation | opencode/deepseek-v4-flash-free |
-| `tester` | Test authoring + execution | opencode/big-pickle |
-| `reviewer` | Code review, approve/reject (read-only) | opencode/ling-3.0-tiny-free |
+| `matthew` | Matthew — architecture + master coordination (read-only) | opencode/deepseek-v4-flash-free |
+| `alex` | Alex — backend, APIs, Python logic, and data handling | opencode/deepseek-v4-flash-free |
+| `sarah` | Sarah — TUI, frontend, UX, and rendering | opencode/deepseek-v4-flash-free |
+| `david` | David — QA, TDD, tests, and debugging | opencode/big-pickle |
+| `elena` | Elena — code quality and security audit (read-only) | opencode/ling-3.0-tiny-free |
+| `max` | Max — DevOps, automation, and environment stability | opencode/deepseek-v4-flash-free |
+| `chloe` | Chloe — documentation and Obsidian knowledge audit (read-only) | opencode/ling-3.0-tiny-free |
 
 All agents use **free** models (no paid credits required). See
 [`AGENTS.md`](AGENTS.md) for full role, workflow, and fallback-policy details.
@@ -39,7 +40,7 @@ per-tab scrollable console, and a rounded prompt box at the bottom for typing
 coding tasks or slash commands.
 
 **Tabbed agent workspace** — the seven agents each get their own dedicated
-tab (M1 System Architect … M7 Reviewer) inside the single unified window, so
+tab (M1 Matthew … M7 Chloe) inside the single unified window, so
 they operate independently. `F1`–`F7` select an agent tab, `F8` selects
 MASTER (all agents), `Ctrl+T` cycles tabs, or use `/tab <tag>`. A task typed
 on an agent tab dispatches to that agent only; on the MASTER tab it goes to
@@ -90,7 +91,7 @@ launch_agents.bat --no-swarm # disable helper rotation
 launch_agents.bat --stale N  # treat a peer's task as lagging after N s (default 20)
 ```
 
-Drop a single-line task into `_inbox/<agent>.task` (e.g. `_inbox/analyst.task`).
+Drop a single-line task into `_inbox/<agent>.task` (e.g. `_inbox/alex.task`).
 The agent's window polls the inbox, runs the task, appends output to
 `_logs/<agent>.log`, and moves the consumed task to `_inbox/done/`.
 
@@ -102,7 +103,7 @@ The agent's window polls the inbox, runs the task, appends output to
    peer's own agent identity (`--agent <peer>`), logging into the peer's
    `_logs/<peer>.log`.
 2. **Dynamic tab renaming** — the window title updates in real time to show
-   the cooperative role, e.g. `M3 - Planner` → `M3-Helper->M1`, and the live
+   the cooperative role, e.g. `M3 - Sarah` → `M3-Helper->M1`, and the live
    role is persisted per slot in `_logs/swarm/m<slot>.json` so any UI can
    reflect it.
 3. **Inter-agent learning & feedback loop** — every run (own or assisted)

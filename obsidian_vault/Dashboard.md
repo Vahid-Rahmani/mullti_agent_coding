@@ -18,7 +18,7 @@
 ## Project at a Glance
 
 - **Phase:** Running — `feature/ui-loading-refactor`
-- **Active agents:** system-architect, analyst, planner, backend-dev, frontend-dev, tester, reviewer (M7: immutable audit)
+- **Active agents:** matthew, alex, sarah, david, elena, max, chloe (M7: immutable documentation audit)
 - **Models:** All free-tier (`deepseek-v4-flash-free`, `big-pickle`, `ling-3.0-tiny-free`)
 - **UI:** ZOVA retro terminal (`python scripts/terminal_app.py`)
 - **Swarm:** ON by default (stale-peer detection + helper takeover)
@@ -41,13 +41,13 @@
 
 | Tag | Agent | Role | Model |
 |-----|-------|------|-------|
-| M1 | `system-architect` | Architecture + design approval (read-only) | `deepseek-v4-flash-free` |
-| M2 | `analyst` | Requirements analysis (read-only) | `big-pickle` |
-| M3 | `planner` | PLAN.md + TASKS.json (read-only) | `big-pickle` |
-| M4 | `backend-dev` | Backend implementation | `deepseek-v4-flash-free` |
-| M5 | `frontend-dev` | Frontend implementation | `deepseek-v4-flash-free` |
-| M6 | `tester` | Test authoring + execution | `big-pickle` |
-| M7 | `reviewer` | Obsidian-Vault-Sync & Final Audit (immutable) | `ling-3.0-tiny-free` |
+| M1 | `matthew` | Matthew — architecture + master coordination (read-only) | `deepseek-v4-flash-free` |
+| M2 | `alex` | Alex — backend, APIs, Python logic, and data handling | `deepseek-v4-flash-free` |
+| M3 | `sarah` | Sarah — TUI, frontend, UX, and rendering | `deepseek-v4-flash-free` |
+| M4 | `david` | David — QA, TDD, tests, and debugging | `big-pickle` |
+| M5 | `elena` | Elena — code quality and security audit (read-only) | `ling-3.0-tiny-free` |
+| M6 | `max` | Max — DevOps, automation, and environment stability | `deepseek-v4-flash-free` |
+| M7 | `chloe` | Chloe — documentation and Obsidian knowledge audit (immutable) | `ling-3.0-tiny-free` |
 
 ---
 
