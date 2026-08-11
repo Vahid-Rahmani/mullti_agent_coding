@@ -271,5 +271,74 @@ class SpecModelConsistencyTestCase(unittest.TestCase):
             self.assertEqual(spec.model, json_model, spec.agent)
 
 
+class SpecCliTestCase(unittest.TestCase):
+    """The launcher CLI (scripts/core/agents/__main__.py) contract."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from scripts.core.agents import __main__ as cli
+
+        cls.cli = cli
+
+    def _capture(self, argv):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        buf, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err):
+            code = self.cli.main(argv)
+        return code, buf.getvalue(), err.getvalue()
+
+    def test_list_prints_seven_agent_keys(self):
+        code, out, _ = self._capture(["list"])
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            [ln for ln in out.splitlines() if ln.strip()],
+            ["matthew", "alex", "sarah", "david", "elena", "max", "chloe"],
+        )
+
+    def test_roster_prints_slot_aligned_rows(self):
+        code, out, _ = self._capture(["roster"])
+        self.assertEqual(code, 0)
+        rows = [row.split() for row in out.splitlines() if row.strip()]
+        self.assertEqual(len(rows), 7)
+        for row in rows:
+            self.assertEqual(len(row), 5)  # tag agent name role model
+        self.assertEqual(rows[0][0], "m1")
+        self.assertEqual(rows[0][1], "matthew")
+        self.assertEqual(rows[3][1], "david")
+        self.assertEqual(rows[3][4], "opencode/big-pickle")
+
+    def test_model_by_key_and_tag(self):
+        code, out, _ = self._capture(["model", "matthew"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "opencode/deepseek-v4-flash-free")
+        code, out, _ = self._capture(["model", "m7"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "opencode/ling-3.0-tiny-free")
+
+    def test_models_lists_capable_models(self):
+        code, out, _ = self._capture(["models", "chloe"])
+        self.assertEqual(code, 0)
+        models = out.split()
+        self.assertIn("opencode/ling-3.0-tiny-free", models)
+        self.assertNotIn("opencode/deepseek-v4-flash-free", models)
+
+    def test_unknown_agent_exits_2(self):
+        code, _out, err = self._capture(["model", "nobody"])
+        self.assertEqual(code, 2)
+        self.assertIn("unknown agent", err.lower())
+
+    def test_unknown_command_exits_2(self):
+        code, _out, _err = self._capture(["bogus"])
+        self.assertEqual(code, 2)
+
+    def test_verify_reports_in_sync(self):
+        code, out, _ = self._capture(["verify"])
+        self.assertEqual(code, 0)
+        self.assertIn("in sync", out)
+
+
 if __name__ == "__main__":
     unittest.main()

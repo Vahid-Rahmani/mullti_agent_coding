@@ -74,13 +74,16 @@ function Invoke-AgentsCli {
         Pop-Location
     }
 }
-$validAgents = @(Invoke-AgentsCli @('list'))
+# Trim each captured line: Windows PowerShell keeps a trailing "\r" on
+# native-command output, which would otherwise break -notcontains matching
+# and leak into the model string passed to `opencode run -m`.
+$validAgents = @((Invoke-AgentsCli @('list')) | ForEach-Object { $_.Trim() })
 if ($validAgents -notcontains $Agent) {
     Write-Error "Unknown agent '$Agent'. Valid agents: $($validAgents -join ', ')"
     exit 1
 }
 function Get-AgentModel([string]$AgentName) {
-    $m = @((Invoke-AgentsCli @('model', $AgentName) | Select-Object -First 1))
+    $m = (Invoke-AgentsCli @('model', $AgentName) | Select-Object -First 1).Trim()
     return $m
 }
 if (-not $ModelOverride) {
