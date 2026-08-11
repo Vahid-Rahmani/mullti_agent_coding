@@ -1,7 +1,7 @@
 # Roadmap — MultiAgentCoding Control Plane
 
-> **Last updated:** 2026-08-11 09:03 UTC
-> **Current branch:** `refactor/decouple-core-ui`
+> **Last updated:** 2026-08-11 09:05 UTC
+> **Current branch:** `sql-basics-practice`
 
 ---
 
