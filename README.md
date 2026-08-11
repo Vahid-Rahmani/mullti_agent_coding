@@ -22,7 +22,7 @@ distinct operational role, model assignment, and permission scope configured in
 | `david` | David — QA, TDD, tests, and debugging | opencode/big-pickle |
 | `elena` | Elena — code quality and security audit (read-only) | opencode/ling-3.0-tiny-free |
 | `max` | Max — DevOps, automation, and environment stability | opencode/deepseek-v4-flash-free |
-| `chloe` | Chloe — documentation and Obsidian knowledge audit (read-only) | opencode/ling-3.0-tiny-free |
+| `chloe` | Chloe — Architectural Obsidian Archivist (read-only): filters conversation from architecture, stores `docs/architecture/` notes with Mermaid maps per project, keeps lean `Evolution.md` | opencode/ling-3.0-tiny-free |
 
 All agents use **free** models (no paid credits required). See
 [`AGENTS.md`](AGENTS.md) for full role, workflow, and fallback-policy details.
@@ -148,7 +148,19 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 ├── launch_agents.bat      # 7-window inbox launcher (swarm mode ON)
 ├── launch_terminal.bat    # ZOVA retro terminal launcher
 ├── scripts/
-│   ├── terminal_app.py    # ZOVA retro terminal (full-screen interactive UI)
+│   ├── terminal_app.py    # ZOVA retro terminal entry point (thin shim → core/ + ui/)
+│   ├── core/              # Decoupled engine: agents, run hub, state, routing
+│   │   ├── agents/        # Per-agent definitions — one AgentSpec module per agent
+│   │   │   ├── base.py        # AgentSpec dataclass
+│   │   │   ├── registry.py    # Roster + tab order + mode routing derived from the specs
+│   │   ├── models.py      # Model capability matrix (which modes each model may run)
+│   │   │   ├── matthew.py … chloe.py  # M1–M7 specialized agents
+│   │   │   ├── master.py      # Master coordinator spec
+│   │   └── __main__.py    # CLI: resolve per-agent models for the launcher workers
+│   │   ├── run_hub.py     # Thread-safe multi-agent execution engine
+│   │   ├── state_tracker.py   # Session state (state.md)
+│   │   └── archivist.py   # Chloe's Obsidian archivist engine
+│   ├── ui/                # Decoupled terminal UI (palette, rendering, modal, theme)
 │   ├── swarm.py           # Swarm coordinator (role rotation, feedback, briefs)
 │   ├── run_agent_worker.ps1  # Inbox-polling worker (Windows, 7-window launcher)
 │   ├── run_agent_worker.sh   # Inbox-polling worker (Git Bash)

@@ -1,7 +1,7 @@
 # Roadmap — MultiAgentCoding Control Plane
 
-> **Last updated:** 2026-08-10 15:07 UTC
-> **Current branch:** `feat/ui-layout-and-abort-fix`
+> **Last updated:** 2026-08-11 09:03 UTC
+> **Current branch:** `refactor/decouple-core-ui`
 
 ---
 

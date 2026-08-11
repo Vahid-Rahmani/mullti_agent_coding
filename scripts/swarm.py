@@ -39,8 +39,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Canonical slot table: slot -> (agent name, human label).
-SLOTS: dict[int, tuple[str, str]] = {
+# Fallback slot table used when the canonical roster is not importable.
+_FALLBACK_SLOTS: dict[int, tuple[str, str]] = {
     1: ("matthew", "Matthew"),
     2: ("alex", "Alex"),
     3: ("sarah", "Sarah"),
@@ -49,6 +49,39 @@ SLOTS: dict[int, tuple[str, str]] = {
     6: ("max", "Max"),
     7: ("chloe", "Chloe"),
 }
+
+
+def _canonical_slots() -> dict[int, tuple[str, str]]:
+    """Slot table derived from the canonical per-agent specs.
+
+    The single source of truth for the seven-agent roster is
+    ``scripts/core/agents/`` (one ``AgentSpec`` module per agent); the slot
+    map is rebuilt from those specs so a roster change propagates to the
+    launcher. Falls back to ``_FALLBACK_SLOTS`` when the package is genuinely
+    unavailable (standalone execution from the PowerShell worker), but any
+    other error inside the package is allowed to surface.
+    """
+    try:  # pragma: no cover - import guard for standalone execution
+        _repo_root = str(Path(__file__).resolve().parent.parent)
+        if _repo_root not in sys.path:
+            sys.path.insert(0, _repo_root)
+        from scripts.core.agents import AGENT_SPECS
+    except ImportError:  # pragma: no cover - standalone fallback
+        return dict(_FALLBACK_SLOTS)
+    # AGENT_SPECS holds the seven specialists (the master coordinator lives in
+    # MASTER_SPEC), so every spec carries a real agent key and the slots map
+    # 1:1 in roster order. Assert loudly rather than silently renumbering if a
+    # specialist spec ever lost its agent key.
+    specialists = tuple(spec for spec in AGENT_SPECS if spec.agent is not None)
+    assert len(specialists) == len(AGENT_SPECS), "every specialist spec needs an agent key"
+    return {
+        slot: (spec.agent, spec.name)
+        for slot, spec in enumerate(specialists, start=1)
+    }
+
+
+# Canonical slot table: slot -> (agent key, human label).
+SLOTS: dict[int, tuple[str, str]] = _canonical_slots()
 AGENT_TO_SLOT: dict[str, int] = {name: slot for slot, (name, _) in SLOTS.items()}
 
 

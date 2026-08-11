@@ -15,15 +15,15 @@ import threading
 import time
 from pathlib import Path
 
-from .agent_definitions import (
-    AGENTS, _AGENT_TAGS, AUTO_MODE, AUTO_MODEL, IMMUTABLE_TAGS, M7_AUDIT_MODE,
-    MODE_TO_AGENT, PROJECT_ROOT, STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE,
-    STATUS_THINKING,
+from .agents import (
+    AGENTS, _AGENT_TAGS, AGENT_SPEC_BY_TAG, AUTO_MODE, AUTO_MODEL,
+    IMMUTABLE_TAGS, M7_AUDIT_MODE, MODE_TO_AGENT, PROJECT_ROOT,
+    STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE, STATUS_THINKING,
 )
 from .progress import (
     DEFAULT_PROGRESS_WEIGHTS, _estimate_token_percent, _weighted_progress,
 )
-from .state_tracker import STATE
+from . import state_tracker as _state_tracker
 
 # Ensure scripts/ directory is on path for optional imports from sibling modules.
 _SCRIPT_DIR = str(Path(__file__).resolve().parent.parent)
@@ -101,24 +101,6 @@ def _build_run_command(
         cmd.append("--")
     cmd.append(prompt)
     return cmd
-
-
-# _run_header is imported from ui.rendering where it belongs.
-# We define a weak reference pattern here — the actual function is injected below.
-_run_header_func = None
-
-
-def _set_run_header(func) -> None:
-    """Inject the _run_header rendering function (called during UI init)."""
-    global _run_header_func
-    _run_header_func = func
-
-
-def _emit_run_header(prompt: str, label: str) -> str:
-    """Call the injected _run_header or a plain fallback."""
-    if _run_header_func is not None:
-        return _run_header_func(prompt, label)
-    return f"──── RUN {label}: {prompt[:60]} ────"
 
 
 class RunHub:
@@ -204,7 +186,8 @@ class RunHub:
     def resolve(self, tag: str, overrides: dict[str, dict[str, str]]) -> tuple[str | None, str]:
         """Resolve (model, mode) for a tag: tag override > master override > auto."""
         if tag in IMMUTABLE_TAGS:
-            return ("opencode/ling-3.0-tiny-free", M7_AUDIT_MODE)
+            spec = AGENT_SPEC_BY_TAG[tag]
+            return (spec.pinned_model or "opencode/ling-3.0-tiny-free", spec.pinned_mode or M7_AUDIT_MODE)
         tab = overrides.get(tag, {})
         master = overrides.get("master", {})
         tab_model = tab.get("model")
@@ -260,7 +243,7 @@ class RunHub:
             _prompt_log_id = None
         self.append_line("master", f"▶ {prompt}")
         pruned = prune_prompt(prompt)
-        STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
+        _state_tracker.STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
         system_prompts = system_prompts or {}
         dispatch_prompts: dict[str, str] = {}
         with self.lock:
@@ -285,7 +268,7 @@ class RunHub:
                 self.token_usage[tag] = _estimate_token_percent(dispatch_prompt, [])
                 self.prompts[tag] = dispatch_prompt
         for tag, _name, agent in targets:
-            self._emit(tag, "run", _emit_run_header(prompt, tag.upper()))
+            self._emit(tag, "run", f"{tag.upper()}::{_sanitize_prompt(prompt)[:60]}")
             model, mode = self.resolve(tag, overrides)
             self.set_status(tag, STATUS_THINKING)
             dispatch_prompt = dispatch_prompts.get(tag, pruned)
@@ -369,7 +352,7 @@ class RunHub:
                 if self.running == 0:
                     self.session_tags.clear()
             if not _killed:
-                STATE.record_finish(tag, ok)
+                _state_tracker.STATE.record_finish(tag, ok)
             try:
                 if prompt_log_id:
                     import agent_logger
@@ -382,7 +365,7 @@ class RunHub:
             except Exception:
                 pass
             if tag == "m7" and ok and not _killed:
-                self._run_m7_audit()
+                self._run_m7_audit(prompt)
 
     def aggregate_progress(self) -> int:
         """Return the current weighted Master progress under the hub lock."""
@@ -440,7 +423,7 @@ class RunHub:
             name = next((n for t, n, _ in AGENTS if t == tag), tag.upper())
             self.append_line(tag, f"── {name} terminated ──")
             self.append_line("master", f"── {tag.upper()} terminated ──")
-            STATE.record_restart("interrupted", f"{tag} terminated by user")
+            _state_tracker.STATE.record_restart("interrupted", f"{tag} terminated by user")
         with self.lock:
             self.progress[tag] = 0
         return proc is not None
@@ -457,7 +440,7 @@ class RunHub:
                 pass
         self.force_ui_idle()
         self.append_line("master", "── terminated ──")
-        STATE.record_restart("interrupted", "terminated by user")
+        _state_tracker.STATE.record_restart("interrupted", "terminated by user")
 
     def force_ui_idle(self) -> None:
         """Reset every UI telemetry field to idle."""
@@ -474,8 +457,8 @@ class RunHub:
                 self.progress[tag] = 0
                 self.token_usage[tag] = 0
 
-    def _run_m7_audit(self) -> None:
-        """Run the M7 vault audit (best-effort; never blocks the hub)."""
+    def _run_m7_audit(self, prompt: str = "") -> None:
+        """Run the M7 vault audit + archivist sync (best-effort; never blocks)."""
         def _audit() -> None:
             try:
                 import obsidian_auditor
@@ -492,6 +475,21 @@ class RunHub:
             except Exception as exc:  # noqa: BLE001
                 if not self._abort_event.is_set() and not self._tag_cancelled("m7"):
                     self.append_line("m7", f"AUDIT ERROR: {exc}")
+            # Architectural Obsidian Archivist — rules 1-5 (filter, store,
+            # mermaid map, maintenance, lean evolution).
+            if self._abort_event.is_set() or self._tag_cancelled("m7"):
+                return
+            try:
+                from .archivist import archivist_run
+
+                arch = archivist_run(prompt, workspace=self.workspace)
+                if self._abort_event.is_set() or self._tag_cancelled("m7"):
+                    return
+                for line in arch["summary"].splitlines():
+                    self.append_line("m7", f"ARCHIVIST: {line}")
+            except Exception as exc:  # noqa: BLE001
+                if not self._abort_event.is_set() and not self._tag_cancelled("m7"):
+                    self.append_line("m7", f"ARCHIVIST ERROR: {exc}")
 
         t = threading.Thread(target=_audit, name="m7-audit", daemon=True)
         self._audit_thread = t
@@ -507,7 +505,7 @@ def build_overrides_table(
     """Render every tab's effective model/mode as an aligned table."""
     if hub is None:
         hub = HUB
-    from .agent_definitions import TABS
+    from .agents import TABS
 
     rows: list[tuple[str, str, str, str]] = []
     for tag, _name, _agent in TABS:
@@ -545,18 +543,15 @@ def _agent_tab_identity(
     hub: RunHub | None = None,
 ) -> tuple[str, str]:
     """Return the effective display name and role badge for an agent tab."""
-    from .agent_definitions import AGENTS, _AGENT_PERSONAS, MODE_TO_AGENT, AUTO_MODE
+    from .agents import AGENTS, _AGENT_PERSONAS, MODE_TO_AGENT, AUTO_MODE
 
     base = next(((name, agent) for item, name, agent in AGENTS if item == tag), (tag.upper(), tag))
     persona_key = base[1]
     mode = None
     if overrides is not None:
-        try:
-            if hub is None:
-                hub = HUB
-            _model, mode = hub.resolve(tag, overrides)
-        except (NameError, AttributeError, TypeError):
-            mode = None
+        if hub is None:
+            hub = HUB
+        _model, mode = hub.resolve(tag, overrides)
     if mode and mode != AUTO_MODE:
         persona_key = MODE_TO_AGENT.get(mode, persona_key)
     return _AGENT_PERSONAS.get(persona_key, (base[0], mode or tag.upper()))

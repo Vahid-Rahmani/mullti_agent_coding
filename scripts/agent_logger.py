@@ -29,16 +29,9 @@ _PROJECT_ROOT = Path(os.getcwd())
 # Default vault agents_logs directory relative to the workspace root.
 DEFAULT_AGENTS_DIR = _PROJECT_ROOT / "obsidian_vault" / "agents_logs"
 
-# Agent role descriptions (can be extended).
-ROLE_DESCRIPTIONS: dict[str, str] = {
-    "matthew": "Matthew — analytical, approachable lead system architect and master coordinator guiding structure, routing, and design decisions. Read-only.",
-    "alex": "Alex — pragmatic core backend and API specialist owning robust Python logic, data handling, filesystem operations, background processes, and integrations.",
-    "sarah": "Sarah — detail-oriented terminal interface and UX engineer owning layout, rendering, interactions, modals, themes, and user-facing presentation.",
-    "david": "David — rigorous QA and TDD lead owning unit/integration coverage, debugging, edge cases, and assertion quality.",
-    "elena": "Elena — strict code quality and security auditor reviewing correctness, maintainability, secure patterns, and release readiness. Read-only.",
-    "max": "Max — systematic DevOps and automation specialist owning launchers, workers, execution paths, configuration plumbing, and build stability.",
-    "chloe": "Chloe — organized technical writer and Obsidian knowledge auditor keeping state.md, PLAN.md, TASKS.json, Roadmap.md, Dashboard.md, and vault logs synchronized. Read-only.",
-}
+# Agent role descriptions now live in scripts/core/agents/ (one spec per
+# agent); re-export for legacy callers that import ROLE_DESCRIPTIONS here.
+from scripts.core.agents import ROLE_DESCRIPTIONS  # noqa: E402
 
 _lock = threading.Lock()
 _ACTIVE_AGENT_CACHE: set[str] = set()
@@ -50,7 +43,7 @@ _PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
 def _safe_agent_filename(tag: str) -> str:
     """Return the canonical humanified log filename for an agent tag."""
-    from terminal_app import AGENTS  # avoid circular import at module level
+    from scripts.core.agents import AGENTS  # avoid circular import at module level
 
     for agent_tag, name, _agent in AGENTS:
         if agent_tag == tag:
@@ -141,7 +134,7 @@ def ensure_agent_logs(
     Returns:
         List of ``Path`` objects for all active agent log files.
     """
-    from terminal_app import AGENTS  # avoid circular import
+    from scripts.core.agents import AGENTS  # avoid circular import
 
     directory = Path(agents_dir) if agents_dir is not None else DEFAULT_AGENTS_DIR
     directory.mkdir(parents=True, exist_ok=True)

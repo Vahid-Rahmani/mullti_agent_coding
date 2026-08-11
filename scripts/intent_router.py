@@ -27,7 +27,15 @@ from pathlib import Path
 PROJECT_ROOT = Path(os.getcwd())
 
 # Agent tags referenced by routes (order matches opencode.json agents).
-AGENT_TAGS = ("m1", "m2", "m3", "m4", "m5", "m6", "m7")
+# Derived from the canonical roster in scripts/core/agents/ when importable;
+# falls back to the static tuple so this module stays runnable standalone.
+try:  # pragma: no cover - import guard for standalone execution
+    from scripts.core.agents import _AGENT_TAGS as _ROSTER_TAGS
+    AGENT_TAGS = tuple(_ROSTER_TAGS)
+    FALLBACK_AGENTS = list(AGENT_TAGS)
+except Exception:  # pragma: no cover - standalone fallback
+    AGENT_TAGS = ("m1", "m2", "m3", "m4", "m5", "m6", "m7")
+    FALLBACK_AGENTS = list(AGENT_TAGS)
 
 GREETING_AGENT = "matthew"
 GREETING_PROMPT_TEMPLATE = (
@@ -38,7 +46,6 @@ GREETING_PROMPT_TEMPLATE = (
 )
 
 FALLBACK_CONFIDENCE = 0.2
-FALLBACK_AGENTS = ["m1", "m2", "m3", "m4", "m5", "m6", "m7"]
 
 _LOG_LOCK = threading.Lock()
 _PROMPT_TRUNCATE = 200
