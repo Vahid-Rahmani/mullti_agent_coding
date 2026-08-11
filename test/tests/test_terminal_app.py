@@ -30,7 +30,6 @@ from terminal_app import (
     AUTO_MODE,
     AUTO_MODEL,
     BANNER,
-    IMMUTABLE_TAGS,
     M7_AUDIT_MODE,
     MODEL_OPTIONS,
     MODE_OPTIONS_BY_MODEL,
@@ -274,6 +273,22 @@ class StateTrackerTestCase(unittest.TestCase):
         self.assertEqual(data["phase"], "running")
         self.assertEqual(data["last_run"], {"prompt": "prompt text", "started": "2026-01-01T00:00:00"})
 
+    def test_record_run_with_analyzer_metrics_roundtrips(self):
+        self.tracker.record_run(
+            "implement login backend", "2026-01-01T00:00:00",
+            analyzer={"modules": 2, "agents": ["alex", "david"]},
+        )
+        data = self.tracker.load()
+        self.assertEqual(data["last_run"]["prompt"], "implement login backend")
+        self.assertEqual(
+            data["last_run"]["analyzer"], {"modules": 2, "agents": ["alex", "david"]},
+        )
+
+    def test_record_run_without_analyzer_omits_line(self):
+        self.tracker.record_run("hello", "2026-01-01T00:00:00")
+        text = self.path.read_text(encoding="utf-8")
+        self.assertNotIn("analyzer:", text)
+
     def test_record_finish_appends_completed(self):
         self.tracker.record_finish("m1", True)
         self.tracker.record_finish("m2", False)
@@ -474,6 +489,33 @@ class RunStateWiringTestCase(unittest.TestCase):
         self.hub.terminate_all()
         data = __import__("scripts.core.state_tracker", fromlist=["STATE"]).STATE.load()
         self.assertTrue(any("interrupted" in entry for entry in data["restart_log"]))
+
+    def test_insecure_tls_env_parsing(self):
+        """ZOVA_ALLOW_INSECURE_TLS is strictly opt-in: only truthy values
+        map to NODE_TLS_REJECT_UNAUTHORIZED=0 for the opencode subprocess."""
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(terminal_app._insecure_tls_env())
+        for truthy in ("1", "TRUE", "Yes"):
+            with mock.patch.dict(os.environ, {"ZOVA_ALLOW_INSECURE_TLS": truthy}, clear=True):
+                env = terminal_app._insecure_tls_env()
+                self.assertIsNotNone(env)
+                self.assertEqual(env.get("NODE_TLS_REJECT_UNAUTHORIZED"), "0")
+        with mock.patch.dict(os.environ, {"ZOVA_ALLOW_INSECURE_TLS": "0"}, clear=True):
+            self.assertIsNone(terminal_app._insecure_tls_env())
+
+    def test_run_agent_passes_tls_env_when_toggle_enabled(self):
+        proc = _FakeProc(returncode=0)
+        with mock.patch("scripts.core.run_hub._opencode_command", return_value="opencode"),              mock.patch.dict(os.environ, {"ZOVA_ALLOW_INSECURE_TLS": "1"}),              mock.patch("scripts.core.run_hub.subprocess.Popen", return_value=proc) as popen:
+            self.hub._run_agent("m1", "matthew", "prompt", None, None)
+        env = popen.call_args.kwargs.get("env")
+        self.assertIsNotNone(env)
+        self.assertEqual(env.get("NODE_TLS_REJECT_UNAUTHORIZED"), "0")
+
+    def test_run_agent_omits_tls_env_by_default(self):
+        proc = _FakeProc(returncode=0)
+        with mock.patch("scripts.core.run_hub._opencode_command", return_value="opencode"),              mock.patch.dict(os.environ, {}, clear=True),              mock.patch("scripts.core.run_hub.subprocess.Popen", return_value=proc) as popen:
+            self.hub._run_agent("m1", "matthew", "prompt", None, None)
+        self.assertIsNone(popen.call_args.kwargs.get("env"))
 
 
 # --------------------------------------------------------------------------- retro chrome
@@ -781,7 +823,8 @@ class ChromeRenderTestCase(unittest.TestCase):
     def test_help_text_documents_commands(self):
         help_text = build_help_text()
         for cmd in ("/help", "/cd", "/model", "/mode", "/prompt", "/prompts",
-                    "/agents", "/settings", "/clear", "/stop", "/swarm", "/evolve", "/quit"):
+                    "/agents", "/settings", "/clear", "/stop", "/swarm", "/plan",
+                    "/evolve", "/quit"):
             self.assertIn(cmd, help_text)
 
 
@@ -975,6 +1018,31 @@ class SlashCommandTestCase(unittest.TestCase):
         reply = _swarm_state()
         self.assertIsInstance(reply, str)
 
+    def test_plan_command_previews_master_plan(self):
+        reply = self.app._cmd_plan("implement login backend api and tests")
+        self.assertIn("MASTER PLAN — Analyzer Core", reply)
+        self.assertIn("PHASE 1", reply)
+        self.assertIn("PHASE 2", reply)
+        self.assertIn("PHASE 3", reply)
+        self.assertIn("alex", reply)
+        self.assertIn("david", reply)
+
+    def test_plan_command_requires_something_to_analyze(self):
+        self.app.buffer.text = ""
+        self.assertIn("ERROR", self.app._cmd_plan(""))
+
+    def test_plan_command_analyzes_buffer_when_no_arg(self):
+        self.app.buffer.text = "implement login backend api"
+        reply = self.app._cmd_plan("")
+        self.assertIn("MASTER PLAN — Analyzer Core", reply)
+
+    def test_plan_command_end_to_end_via_input_handler(self):
+        self.app._handle_input("/plan implement login backend api and tests")
+        joined = "\n".join(text for _tag, text in self.app.console_lines)
+        self.assertIn("MASTER PLAN — Analyzer Core", joined)
+        self.assertIn("alex", joined)
+        self.assertIn("david", joined)
+
     def test_unknown_command_is_reported(self):
         self.app._handle_input("/frobnicate")
         last = self.app.console_lines[-1][1]
@@ -1029,12 +1097,9 @@ class PerAgentOverrideTestCase(unittest.TestCase):
         self.assertIn("opencode/big-pickle", reply)
 
     def test_model_all_sets_every_tab(self):
+        # No agent is locked: "all" fans out to every agent (M1..M7).
         self.app._cmd_model("all opencode/ling-3.0-tiny-free")
         for tag, _, _ in AGENTS:
-            if tag in IMMUTABLE_TAGS:
-                # M7 is immutable — _set_override skips it, so no override entry.
-                self.assertNotIn(tag, self.app.overrides)
-                continue
             self.assertEqual(
                 self.app.overrides[tag]["model"], "opencode/ling-3.0-tiny-free"
             )
@@ -1186,15 +1251,9 @@ class OverridesTableTestCase(unittest.TestCase):
         table = build_overrides_table({"master": {"model": AUTO_MODEL, "mode": AUTO_MODE}})
         rows = self._rows(table)
         for label, (model, mode, src) in rows.items():
-            if label == "M7":
-                # M7 is immutable — always shows its locked model/mode.
-                self.assertEqual(model, "opencode/ling-3.0-tiny-free")
-                self.assertEqual(mode, M7_AUDIT_MODE)
-                self.assertIn(src, ("auto", "set"))
-            else:
-                self.assertEqual(model, "auto")
-                self.assertEqual(mode, "auto")
-                self.assertEqual(src, "auto")
+            self.assertEqual(model, "auto")
+            self.assertEqual(mode, "auto")
+            self.assertEqual(src, "auto")
 
     def test_explicit_tab_and_master_sources(self):
         overrides = {
@@ -1824,8 +1883,8 @@ class InteractiveInputTestCase(unittest.TestCase):
         # Enter cycles a color, then the U key undoes that single change.
         app, _run = self._run_with_keys([
             KeyPress(Keys.ControlS),
-            KeyPress(Keys.Down), KeyPress(Keys.Down), KeyPress(Keys.Down),
-            KeyPress(Keys.Enter),   # open COLOR CUSTOMIZER
+            KeyPress(Keys.Down), KeyPress(Keys.Down),
+            KeyPress(Keys.Enter),   # open COLOR CUSTOMIZER (theme is row 2)
             KeyPress(Keys.Enter),   # cycle execution_logs color
             KeyPress("u"),          # undo the cycle
         ])
@@ -2222,13 +2281,9 @@ class AgentLoggerTestCase(unittest.TestCase):
 
 
 class M7AuditTestCase(unittest.TestCase):
-    """M7 Chloe · Documentation & Knowledge immutability + obsidian_auditor vault auditing."""
+    """M7 Chloe · Documentation & Knowledge config + obsidian_auditor vault auditing."""
 
-    # -------------------------------------------------- immutability
-
-    def test_m7_is_immutable(self):
-        self.assertIn("m7", IMMUTABLE_TAGS)
-        self.assertEqual(len(IMMUTABLE_TAGS), 1)
+    # -------------------------------------------------- configurable agents
 
     def test_m7_audit_mode_exists(self):
         self.assertIn(
@@ -2237,27 +2292,40 @@ class M7AuditTestCase(unittest.TestCase):
         )
         self.assertEqual(M7_AUDIT_MODE, "documentation-audit")
 
-    def test_hub_resolve_locks_m7(self):
+    def test_m1_and_m7_models_are_configurable(self):
+        app = RetroTerminalApp()
+        reply = app._cmd_model("m1 opencode/big-pickle")
+        self.assertNotIn("ERROR", reply)
+        self.assertEqual(app.overrides["m1"]["model"], "opencode/big-pickle")
+        reply = app._cmd_model("m7 opencode/big-pickle")
+        self.assertNotIn("ERROR", reply)
+        self.assertEqual(app.overrides["m7"]["model"], "opencode/big-pickle")
+
+    def test_m7_mode_is_configurable(self):
+        app = RetroTerminalApp()
+        reply = app._cmd_mode("m7 docs")
+        self.assertNotIn("ERROR", reply)
+        self.assertEqual(app.overrides["m7"]["mode"], "docs")
+
+    def test_m7_native_mode_stays_available_after_model_change(self):
+        """Unlocking M7's model must not strip her native modes: with her
+        model switched to deepseek (whose generic matrix lacks docs modes),
+        /mode m7 docs is still accepted."""
+        app = RetroTerminalApp()
+        app._cmd_model("m7 opencode/deepseek-v4-flash-free")
+        reply = app._cmd_mode("m7 docs")
+        self.assertNotIn("ERROR", reply)
+        self.assertEqual(app.overrides["m7"]["mode"], "docs")
+
+    def test_hub_resolve_respects_m7_override(self):
         hub = RunHub()
         overrides = {
             "master": {"model": "opencode/big-pickle", "mode": "plan"},
-            "m7": {"model": "opencode/deepseek-v4-flash-free", "mode": "architect"},
+            "m7": {"model": "opencode/deepseek-v4-flash-free", "mode": "docs"},
         }
         model, mode = hub.resolve("m7", overrides)
-        self.assertEqual(model, "opencode/ling-3.0-tiny-free")
-        self.assertEqual(mode, M7_AUDIT_MODE)
-
-    def test_cmd_model_rejects_m7_change(self):
-        app = RetroTerminalApp()
-        reply = app._cmd_model("m7 opencode/big-pickle")
-        self.assertIn("ERROR", reply)
-        self.assertIn("immutable", reply.lower())
-
-    def test_cmd_mode_rejects_m7_change(self):
-        app = RetroTerminalApp()
-        reply = app._cmd_mode("m7 review")
-        self.assertIn("ERROR", reply)
-        self.assertIn("immutable", reply.lower())
+        self.assertEqual(model, "opencode/deepseek-v4-flash-free")
+        self.assertEqual(mode, "docs")
 
     # -------------------------------------------------- auditor
 
@@ -2370,6 +2438,14 @@ class NewSlashCommandsTestCase(unittest.TestCase):
 
     def setUp(self):
         self.app = RetroTerminalApp()
+        # The app shares the module-level HUB singleton; tests that point its
+        # workspace at a temp dir must restore it so later tests never see a
+        # deleted directory.
+        self._orig_workspace = self.app.hub.workspace
+        self.addCleanup(self._restore_workspace)
+
+    def _restore_workspace(self) -> None:
+        self.app.hub.workspace = self._orig_workspace
 
     def test_agents_log_rejects_unknown_tag(self):
         reply = self.app._cmd_agents_log("m9")
@@ -2404,6 +2480,34 @@ class NewSlashCommandsTestCase(unittest.TestCase):
         self.assertIn("Archivist (M7)", reply)
         mocked.assert_called_once()
         self.assertEqual(mocked.call_args.args[0], "Decision: JSONL")
+
+    def test_archive_command_passes_analyzer_plan_to_archivist(self):
+        from scripts.core import archivist as archivist_mod
+
+        self.app.hub.running = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            self.app.hub.workspace = Path(tmp)
+            with mock.patch.object(
+                archivist_mod, "archivist_run",
+                return_value={"summary": "Archivist (M7): project=ok"},
+            ) as mocked:
+                self.app._cmd_archive("implement login backend api")
+        plan = mocked.call_args.kwargs.get("plan")
+        self.assertIsNotNone(plan)
+        self.assertTrue(plan.applicable)
+        self.assertTrue(plan.archivist_entries())
+
+    def test_archive_command_persists_analyzer_module_map(self):
+        self.app.hub.running = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            self.app.hub.workspace = Path(tmp)
+            reply = self.app._cmd_archive("implement login backend api")
+            self.assertIn("Archivist (M7)", reply)
+            note = Path(tmp) / "docs" / "architecture" / "Architecture.md"
+            self.assertTrue(note.exists())
+            body = note.read_text(encoding="utf-8", errors="replace")
+            self.assertIn("module login backend", body)
+            self.assertIn(" -> ", body)
 
     def test_archive_command_blocks_while_running(self):
         self.app.hub.running = 2
@@ -3079,23 +3183,30 @@ class SettingsModalTestCase(unittest.TestCase):
         app.toggle_settings()
         rendered = "".join(fragment[1] for fragment in app._settings_fragments())
         self.assertTrue(app.settings_open)
-        for label in ("AGENT MAPPING", "AI MODEL", "OPERATING MODE", "COLOR THEME", "LAYOUT DENSITY", "AGENT TOGGLES", "SAVE & APPLY", "CANCEL"):
+        for label in (
+            "AI MODEL (GLOBAL DEFAULT)", "OPERATING MODE (GLOBAL)",
+            "COLOR THEME", "LAYOUT DENSITY", "AGENT TOGGLES",
+            "SAVE & APPLY", "CANCEL",
+        ):
             self.assertIn(label, rendered)
+        # GENERAL (global execution mode) and AGENTS (individual) are
+        # decoupled; every registry agent gets its own row (dynamic roster).
+        self.assertIn("GENERAL — GLOBAL EXECUTION MODE", rendered)
+        self.assertIn("AGENTS — INDIVIDUAL", rendered)
         self.assertIn("ENTER TO CUSTOMIZE", rendered)
-        for tag, name, _agent in AGENTS:
-            self.assertNotIn(f"{tag.upper()} {name}", rendered)
+        for _tag, name, _agent in AGENTS:
+            self.assertIn(name.upper(), rendered)
         self.assertTrue(any(len(fragment) == 3 for fragment in app._settings_fragments()))
         app.close_settings(save=False)
         self.assertFalse(app.settings_open)
         self.assertIsNone(__import__("scripts.core.state_tracker", fromlist=["STATE"]).STATE.load())
 
-    def test_agent_toggle_submenu_lists_all_agents_without_inline_rows(self):
+    def test_agent_toggle_submenu_lists_all_agents(self):
         app = RetroTerminalApp()
         app.toggle_settings()
         main = "".join(fragment[1] for fragment in app._settings_fragments())
         self.assertIn("AGENT TOGGLES", main)
         self.assertIn("ENTER TO CUSTOMIZE", main)
-        self.assertNotIn("M1: Matthew", main)
 
         app.open_agent_menu()
         submenu = "".join(fragment[1] for fragment in app._settings_fragments())
@@ -3161,16 +3272,63 @@ class SettingsModalTestCase(unittest.TestCase):
         self.assertEqual(reloaded.terminal_settings["font_size"], "large")
         self.assertFalse(reloaded.terminal_settings["panel_borders"])
 
-    def test_m7_mapping_is_locked_in_modal_and_resolver(self):
+    def test_m7_mapping_is_configurable_in_modal_and_resolver(self):
         app = RetroTerminalApp()
         app.toggle_settings()
         app.settings_draft["target"] = "m7"
         app._settings_set_mapping("model", "opencode/big-pickle")
-        app._settings_set_mapping("mode", "build")
-        self.assertEqual(app._settings_value("model"), "opencode/ling-3.0-tiny-free")
-        self.assertEqual(app._settings_value("mode"), M7_AUDIT_MODE)
+        app._settings_set_mapping("mode", "review")
+        self.assertEqual(app._settings_value("model"), "opencode/big-pickle")
+        self.assertEqual(app._settings_value("mode"), "review")
         app.close_settings(save=True)
-        self.assertEqual(app.hub.resolve("m7", app.overrides), ("opencode/ling-3.0-tiny-free", M7_AUDIT_MODE))
+        self.assertEqual(app.hub.resolve("m7", app.overrides), ("opencode/big-pickle", "review"))
+
+    def test_main_screen_fields_derive_from_registry(self):
+        """The settings rows bind to the live agent registry (dynamic roster):
+        5 GENERAL rows + one row per registry agent + pinned SAVE/CANCEL."""
+        app = RetroTerminalApp()
+        fields = app._settings_fields()
+        self.assertEqual(
+            fields[:5],
+            ["general_model", "general_mode", "theme", "density", "agent_toggles"],
+        )
+        agent_rows = fields[5:12]
+        self.assertTrue(all(key.startswith("agent_") for key in agent_rows))
+        # Agent rows follow the registry roster order (M1..M7).
+        self.assertEqual(
+            [key[len("agent_"):] for key in agent_rows],
+            [f"m{i}" for i in range(1, 8)],
+        )
+        self.assertEqual(fields[12:], ["save", "cancel"])
+        self.assertEqual(len(fields), 14)
+        app.close_settings(save=False)
+
+    def test_agent_submenu_cycles_model_and_mode_independently(self):
+        """GENERAL (global execution mode) and per-agent settings are decoupled:
+        the agent submenu configures one agent's model/mode without touching
+        the master defaults, and Esc walks back to the main screen."""
+        app = RetroTerminalApp()
+        app.toggle_settings()
+        app.open_agent_submenu("m4", 0)
+        self.assertTrue(app.submenu_open)
+        self.assertEqual(app.submenu_target, "m4")
+        # Focus 0 = AI MODEL row: Enter cycles to the next model option.
+        app._submenu_cycle(1)
+        model = app._resolve_target_value("m4", "model")
+        self.assertIn(model, MODEL_OPTIONS)
+        self.assertNotEqual(model, AUTO_MODEL)
+        # Focus 1 = OPERATING MODE row: cycle; model stays untouched.
+        app.submenu_focus = 1
+        app._submenu_cycle(1)
+        mode = app._resolve_target_value("m4", "mode")
+        self.assertIn(mode, MODE_OPTIONS_BY_MODEL[app._effective_model("m4")])
+        # The master (GLOBAL) default is untouched: per-agent settings are
+        # configured independently of the general execution mode.
+        self.assertEqual(app._resolve_target_value("master", "model"), AUTO_MODEL)
+        app.handle_escape()
+        self.assertFalse(app.submenu_open)
+        self.assertTrue(app.settings_open)
+        app.close_settings(save=False)
 
     def test_headless_theme_entry_and_escape_key_sequence(self):
         import asyncio
@@ -3301,10 +3459,12 @@ class SettingsModalTestCase(unittest.TestCase):
     def test_theme_row_click_opens_customizer(self):
         app = RetroTerminalApp()
         app.toggle_settings()
-        theme_index = app._settings_fields().index("theme")
         fragments = app._settings_fragments()
-        # The theme row is the first clickable row after the three header rows.
-        theme_fragment = fragments[3 + theme_index]
+        # Find the COLOR THEME row (GENERAL section) by its label text.
+        theme_fragment = next(
+            fragment for fragment in fragments
+            if len(fragment) == 3 and "COLOR THEME" in fragment[1]
+        )
         self.assertEqual(len(theme_fragment), 3)
         theme_fragment[2](None)
         self.assertTrue(app.theme_menu_open)
@@ -3321,11 +3481,11 @@ class SettingsModalTestCase(unittest.TestCase):
         app = RetroTerminalApp()
         app.toggle_settings()
         fields = app._settings_fields()
-        app.settings_focus = fields.index("agent_mapping")
+        app.settings_focus = fields.index("general_model")
         app.navigate(1)
-        self.assertEqual(app.settings_focus, fields.index("model"))
+        self.assertEqual(app.settings_focus, fields.index("general_mode"))
         app.navigate(-1)
-        self.assertEqual(app.settings_focus, fields.index("agent_mapping"))
+        self.assertEqual(app.settings_focus, fields.index("general_model"))
         app.settings_focus = len(fields) - 1
         app.navigate(1)
         self.assertEqual(app.settings_focus, 0)

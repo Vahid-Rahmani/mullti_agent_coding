@@ -40,19 +40,21 @@ class AgentSpecModulesTestCase(unittest.TestCase):
         self.assertIsNone(spec.agent)
         self.assertEqual(spec.role, "Coordinator")
 
-    def test_specs_are_immutable_and_consistent(self):
+    def test_specs_are_consistent(self):
         for spec in agents.AGENT_SPECS:
             self.assertEqual(spec.persona, spec.name)
             self.assertTrue(spec.tag.startswith("m"))
             self.assertIn(spec.tag, {t for t, _n, _a in agents.AGENTS})
             self.assertTrue(spec.description)
 
-    def test_chloe_is_the_only_immutable_agent(self):
-        self.assertEqual(agents.IMMUTABLE_TAGS, {"m7"})
-        chloe = agents.AGENT_SPEC_BY_TAG["m7"]
-        self.assertTrue(chloe.immutable)
-        self.assertEqual(chloe.pinned_model, "opencode/ling-3.0-tiny-free")
-        self.assertEqual(chloe.pinned_mode, M7_AUDIT_MODE)
+    def test_no_agent_is_model_locked(self):
+        """The model/mode lock mechanism is gone: every agent (M1..M7)
+        is individually configurable from the settings screen."""
+        self.assertFalse(hasattr(agents, "IMMUTABLE_TAGS"))
+        for spec in agents.AGENT_SPECS:
+            self.assertFalse(hasattr(spec, "immutable"))
+            self.assertFalse(hasattr(spec, "pinned_model"))
+            self.assertFalse(hasattr(spec, "pinned_mode"))
 
 
 class RegistryDerivationTestCase(unittest.TestCase):
@@ -134,15 +136,41 @@ class RoutingTestCase(unittest.TestCase):
         self.assertIn(ARCHIVIST_MODE, agents.ALL_OPERATIONAL_MODES)
 
 
-class ImmutableResolutionTestCase(unittest.TestCase):
-    """The pinned model/mode now comes from the chloe spec, not hardcoded."""
+class ResolutionTestCase(unittest.TestCase):
+    """No agent is locked: resolution is uniform across the whole roster."""
 
-    def test_spec_lookup_resolves_m7_lock(self):
+    def test_resolve_without_overrides_uses_auto(self):
         from scripts.core.run_hub import HUB
 
         model, mode = HUB.resolve("m7", {})
-        self.assertEqual(model, "opencode/ling-3.0-tiny-free")
-        self.assertEqual(mode, M7_AUDIT_MODE)
+        self.assertIsNone(model)
+        self.assertEqual(mode, agents.AUTO_MODE)
+
+    def test_resolve_respects_m7_override_like_every_agent(self):
+        from scripts.core.run_hub import HUB
+
+        overrides = {
+            "master": {"model": "opencode/big-pickle", "mode": "plan"},
+            "m7": {"model": "opencode/deepseek-v4-flash-free", "mode": "docs"},
+        }
+        model, mode = HUB.resolve("m7", overrides)
+        self.assertEqual(model, "opencode/deepseek-v4-flash-free")
+        self.assertEqual(mode, "docs")
+
+
+    def test_mode_options_keep_native_modes_on_unlocked_models(self):
+        """Unlocking a model for an agent never strips its native modes: M7 on
+        a model whose generic matrix lacks her docs modes still offers them."""
+        from scripts.core.agents import mode_options_for
+
+        options = mode_options_for("opencode/deepseek-v4-flash-free", "m7")
+        self.assertIn("docs", options)
+        self.assertIn(agents.ARCHIVIST_MODE, options)
+        self.assertIn(agents.M7_AUDIT_MODE, options)
+        self.assertIn("build", options)  # deepseek's generic modes remain
+        # No target: plain capability-matrix modes only.
+        plain = mode_options_for("opencode/deepseek-v4-flash-free")
+        self.assertNotIn("docs", plain)
 
 
 if __name__ == "__main__":

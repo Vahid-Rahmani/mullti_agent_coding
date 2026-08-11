@@ -59,8 +59,23 @@ class StateTracker:
         """Merge ``fields`` into the on-disk state and write atomically."""
         return self._mutate(lambda data: data.update(fields))
 
-    def record_run(self, prompt: str, started: str) -> dict:
-        return self.update(phase="running", last_run={"prompt": prompt, "started": started})
+    def record_run(
+        self,
+        prompt: str,
+        started: str,
+        analyzer: dict | None = None,
+    ) -> dict:
+        """Record a dispatch; ``analyzer`` carries Analyzer Core telemetry.
+
+        ``analyzer`` is an optional plain dict (e.g. ``{"modules": 2,
+        "agents": ["alex", "david"]}``) persisted as a single ``analyzer:``
+        line in the Last Run section. ``None`` keeps the section exactly as
+        before (no analyzer line is written).
+        """
+        last_run = {"prompt": prompt, "started": started}
+        if analyzer is not None:
+            last_run["analyzer"] = analyzer
+        return self.update(phase="running", last_run=last_run)
 
     def record_finish(self, tag: str, ok: bool) -> dict:
         return self._mutate(
@@ -123,12 +138,23 @@ class StateTracker:
         if run_lines:
             prompt = ""
             started = ""
+            analyzer = None
             for line in run_lines:
                 if line.startswith("prompt:"):
                     prompt = _state_unescape(line[len("prompt:"):].strip())
                 elif line.startswith("started:"):
                     started = line[len("started:"):].strip()
+                elif line.startswith("analyzer:"):
+                    raw = line[len("analyzer:"):].strip()
+                    try:
+                        parsed = json.loads(raw)
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        parsed = None
+                    if isinstance(parsed, dict):
+                        analyzer = parsed
             last_run = {"prompt": prompt, "started": started}
+            if analyzer is not None:
+                last_run["analyzer"] = analyzer
 
         def bullets(name: str) -> list[str]:
             out = []
@@ -169,8 +195,13 @@ class StateTracker:
                 "## Last Run",
                 f"prompt: {_state_escape(str(last_run.get('prompt', '')))}",
                 f"started: {str(last_run.get('started', ''))}",
-                "",
             ]
+            analyzer = last_run.get("analyzer")
+            if isinstance(analyzer, dict) and analyzer:
+                lines.append(
+                    "analyzer: " + json.dumps(analyzer, sort_keys=True, separators=(",", ":"))
+                )
+            lines.append("")
         for key, heading in (
             ("completed", "Completed"),
             ("active_worktrees", "Active Worktrees"),

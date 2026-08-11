@@ -18,7 +18,7 @@
 ## Project at a Glance
 
 - **Phase:** Running — `feature/ui-loading-refactor`
-- **Active agents:** matthew, alex, sarah, david, elena, max, chloe (M7: immutable documentation audit)
+- **Active agents:** matthew, alex, sarah, david, elena, max, chloe (all 7 individually configurable — models and modes editable in the settings screen)
 - **Models:** All free-tier (`deepseek-v4-flash-free`, `big-pickle`, `ling-3.0-tiny-free`)
 - **UI:** ZOVA retro terminal (`python scripts/terminal_app.py`)
 - **Swarm:** ON by default (stale-peer detection + helper takeover)
@@ -47,7 +47,7 @@
 | M4 | `david` | David — QA, TDD, tests, and debugging | `big-pickle` |
 | M5 | `elena` | Elena — code quality and security audit (read-only) | `ling-3.0-tiny-free` |
 | M6 | `max` | Max — DevOps, automation, and environment stability | `deepseek-v4-flash-free` |
-| M7 | `chloe` | Chloe — documentation and Obsidian knowledge audit (immutable) | `ling-3.0-tiny-free` |
+| M7 | `chloe` | Chloe — documentation and Obsidian knowledge audit (read-only by role; model/mode configurable) | `ling-3.0-tiny-free` |
 
 ---
 

@@ -23,7 +23,6 @@ from .agents import (  # noqa: F401
     DEVOPS_MODES,
     DOCS_MODES,
     FRONTEND_MODES,
-    IMMUTABLE_TAGS,
     M7_AUDIT_MODE,
     MASTER_SPEC,
     MODELS_BY_AGENT,

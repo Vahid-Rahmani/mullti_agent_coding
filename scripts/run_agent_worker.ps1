@@ -20,6 +20,15 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
+# --- Optional TLS bypass for opencode (strictly opt-in) ---
+# Environments with self-signed or intercepting certificates (antivirus/EDR
+# web filters, corporate proxies) can set ZOVA_ALLOW_INSECURE_TLS=1 to run
+# opencode with NODE_TLS_REJECT_UNAUTHORIZED=0. Default keeps verification on.
+if ($env:ZOVA_ALLOW_INSECURE_TLS -match '^(1|true|yes)$') {
+    $env:NODE_TLS_REJECT_UNAUTHORIZED = '0'
+    Write-Host "Insecure TLS : ON (ZOVA_ALLOW_INSECURE_TLS=$env:ZOVA_ALLOW_INSECURE_TLS) - opencode cert verification disabled"
+}
+
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 
 if ($Title) {

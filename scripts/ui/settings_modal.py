@@ -23,7 +23,8 @@ from .palette import (
 from .theme import THEMES
 
 from ..core.agents import (
-    AGENTS, AUTO_MODEL, AUTO_MODE, IMMUTABLE_TAGS, M7_AUDIT_MODE,
+    AGENTS, AGENT_SPECS, AGENT_SPEC_BY_TAG, AUTO_MODEL, AUTO_MODE,
+    MASTER_SPEC, MODEL_OPTIONS, MODE_OPTIONS_BY_MODEL, mode_options_for,
 )
 
 if TYPE_CHECKING:
@@ -104,17 +105,96 @@ _COLOR_CYCLE: list[str] = [
     "#79c0ff", "#e6edf3", "#c9d1d9", "#6e7681",
 ]
 
-# Main settings screen rows: (field key, label). Order is the focus order.
-_SETTINGS_FIELDS: list[tuple[str, str]] = [
-    ("agent_mapping", "AGENT MAPPING"),
-    ("model", "AI MODEL"),
-    ("mode", "OPERATING MODE"),
-    ("theme", "COLOR THEME"),
-    ("density", "LAYOUT DENSITY"),
-    ("agent_toggles", "AGENT TOGGLES"),
-    ("save", "SAVE & APPLY"),
-    ("cancel", "CANCEL"),
-]
+# Main settings screen row groups. GENERAL holds the global execution mode
+# defaults (master-level model/mode + layout); each registry agent gets its
+# own row under AGENTS — INDIVIDUAL; the two action rows are always pinned.
+_SETTINGS_GROUPS: dict[str, str] = {
+    "general_model": "GENERAL — GLOBAL EXECUTION MODE",
+    "general_mode": "GENERAL — GLOBAL EXECUTION MODE",
+    "theme": "GENERAL — GLOBAL EXECUTION MODE",
+    "density": "GENERAL — GLOBAL EXECUTION MODE",
+    "agent_toggles": "GENERAL — GLOBAL EXECUTION MODE",
+}
+
+_AGENTS_GROUP = "AGENTS — INDIVIDUAL"
+
+
+def _is_agent_row(key: str) -> bool:
+    """True for per-agent rows (``agent_<tag>``); ``agent_toggles`` is a
+    GENERAL action row, not an agent row."""
+    return key.startswith("agent_") and key != "agent_toggles"
+
+
+def _agent_row_key(spec) -> str:
+    """Stable settings row key for one registry agent."""
+    return f"agent_{spec.tag}"
+
+
+def _settings_fields() -> list[str]:
+    """Main settings rows, derived live from the agent registry.
+
+    GENERAL (global execution mode) + one row per agent in the registry
+    (M1..M7, in roster order) + the pinned SAVE/CANCEL actions. Nothing is
+    hardcoded to a fixed seven-agent roster: adding or removing an agent from
+    ``scripts/core/agents/`` propagates here automatically.
+    """
+    fields = ["general_model", "general_mode", "theme", "density", "agent_toggles"]
+    fields += [_agent_row_key(spec) for spec in AGENT_SPECS]
+    fields += ["save", "cancel"]
+    return fields
+
+
+def _settings_label(key: str) -> str:
+    """Human label for a main-screen field key."""
+    if key == "general_model":
+        return "AI MODEL (GLOBAL DEFAULT)"
+    if key == "general_mode":
+        return "OPERATING MODE (GLOBAL)"
+    if key == "theme":
+        return "COLOR THEME"
+    if key == "density":
+        return "LAYOUT DENSITY"
+    if key == "agent_toggles":
+        return "AGENT TOGGLES"
+    if key == "save":
+        return "SAVE & APPLY"
+    if key == "cancel":
+        return "CANCEL"
+    if _is_agent_row(key):
+        spec = AGENT_SPEC_BY_TAG.get(key[len("agent_"):])
+        if spec is not None:
+            slot = next(
+                (i for i, s in enumerate(AGENT_SPECS) if s.tag == spec.tag), -1
+            ) + 1
+            return f"{slot}. {spec.name.upper()} · {spec.role.upper()}"
+    return key
+
+
+def _settings_group(key: str) -> str | None:
+    """Section header for a main-screen field key (None for the actions)."""
+    if _is_agent_row(key):
+        return _AGENTS_GROUP
+    return _SETTINGS_GROUPS.get(key)
+
+
+def _compact_model(model: str) -> str:
+    """Short display label for a model on the per-agent rows."""
+    if not model or model == AUTO_MODEL:
+        return "auto"
+    if model.startswith("opencode/"):
+        return model[len("opencode/"):]
+    if model.startswith("ollama/"):
+        return model[len("ollama/"):]
+    if model.startswith("mulerouter/"):
+        return model[len("mulerouter/"):]
+    return model
+
+
+def _compact_mode(mode: str) -> str:
+    """Short display label for a mode on the per-agent rows."""
+    if not mode or mode == AUTO_MODE:
+        return "auto"
+    return mode
 
 _DEFAULT_TERMINAL_SETTINGS: dict = {
     "theme": "classic",
@@ -141,6 +221,11 @@ class SettingsModal:
         self.settings_open = False
         self.agent_menu_open = False
         self.theme_menu_open = False
+        # Per-agent / global model-mode submenu (opened from a GENERAL or
+        # AGENTS row on the main screen).
+        self.submenu_open = False
+        self.submenu_target: str = "master"
+        self.submenu_focus = 0
         self.settings_focus = 0
         self.agent_focus = 0
         self.theme_focus = 0
@@ -169,6 +254,9 @@ class SettingsModal:
         self.settings_focus = 0
         self.agent_focus = 0
         self.theme_focus = 0
+        self.submenu_open = False
+        self.submenu_target = "master"
+        self.submenu_focus = 0
         self._theme_history.clear()
 
     def _invalidate(self) -> None:
@@ -193,6 +281,7 @@ class SettingsModal:
         self.settings_open = True
         self.agent_menu_open = False
         self.theme_menu_open = False
+        self.submenu_open = False
         self._init_draft()
         # Drop any dropdown menu so the modal renders cleanly on top.
         try:
@@ -207,6 +296,9 @@ class SettingsModal:
         self.settings_open = False
         self.agent_menu_open = False
         self.theme_menu_open = False
+        self.submenu_open = False
+        self.submenu_target = "master"
+        self.submenu_focus = 0
         if save:
             self._apply_draft()
             self._persist()
@@ -217,29 +309,24 @@ class SettingsModal:
         self._invalidate()
 
     def handle_escape(self) -> None:
-        """Esc walks up: theme customizer -> agent toggles -> main -> close."""
+        """Esc walks up: theme customizer -> agent toggles -> agent/global
+        model-mode submenu -> main -> close."""
         if self.theme_menu_open:
             self.close_theme_menu()
         elif self.agent_menu_open:
             self.close_agent_menu()
+        elif self.submenu_open:
+            self.close_agent_submenu()
         elif self.settings_open:
             self.close_settings(save=False)
 
     # ---------------------------------------------------------- main settings
 
     def _settings_fields(self) -> list[str]:
-        return [key for key, _label in _SETTINGS_FIELDS]
+        return _settings_fields()
 
-    def _settings_value(self, key: str) -> str:
-        target = self.settings_draft.get("target", "master")
-        if target in IMMUTABLE_TAGS:
-            from ..core.agents import AGENT_SPEC_BY_TAG
-            spec = AGENT_SPEC_BY_TAG[target]
-            if key == "model":
-                return spec.pinned_model or "opencode/ling-3.0-tiny-free"
-            if key == "mode":
-                return spec.pinned_mode or M7_AUDIT_MODE
-            return ""
+    def _resolve_target_value(self, target: str, key: str) -> str:
+        """Effective value for a target: draft override > committed > auto."""
         over = self.settings_draft.get("overrides", {}).get(target, {})
         if key == "model":
             value = over.get("model")
@@ -255,20 +342,44 @@ class SettingsModal:
             return mode or AUTO_MODE
         return ""
 
-    def _settings_set_mapping(self, key: str, value: str) -> None:
-        target = self.settings_draft.get("target", "master")
-        if target in IMMUTABLE_TAGS:
-            return
+    def _settings_value(self, key: str) -> str:
+        """Value for the currently selected mapping target (master by default)."""
+        return self._resolve_target_value(
+            self.settings_draft.get("target", "master"), key
+        )
+
+    def _settings_set_mapping_for(self, target: str, key: str, value: str) -> None:
         self.settings_draft.setdefault("overrides", {}).setdefault(target, {})[key] = value
+        self._invalidate()
+
+    def _settings_set_mapping(self, key: str, value: str) -> None:
+        """Write a model/mode override into the draft for the selected target.
+
+        Every agent (M1..M7) plus the master default is individually
+        configurable — there are no locked targets anymore. Kept alongside
+        ``_settings_value`` as the legacy ``target``-based mapping surface
+        (the submenu uses ``_settings_set_mapping_for`` directly).
+        """
+        self._settings_set_mapping_for(self.settings_draft.get("target", "master"), key, value)
+
+    def _effective_model(self, target: str) -> str:
+        """Model whose mode options should be offered (draft override wins)."""
+        over = self.settings_draft.get("overrides", {}).get(target, {})
+        model = over.get("model")
+        if model and model != AUTO_MODEL:
+            return model
+        resolved, _mode = self.app.hub.resolve(target, self.app.overrides)
+        return resolved or AUTO_MODEL
 
     def _field_value(self, key: str) -> str:
         draft = self.settings_draft
-        if key == "agent_mapping":
-            return str(draft.get("target", "master"))
-        if key == "model":
-            return self._settings_value("model")
-        if key == "mode":
-            return self._settings_value("mode")
+        if key == "general_model":
+            return self._resolve_target_value("master", "model")
+        if key == "general_mode":
+            return self._resolve_target_value("master", "mode")
+        if _is_agent_row(key):
+            tag = key[len("agent_"):]
+            return f"{_compact_model(self._resolve_target_value(tag, 'model'))} · {_compact_mode(self._resolve_target_value(tag, 'mode'))}"
         if key == "theme":
             return str(draft.get("theme", ""))
         if key == "density":
@@ -286,6 +397,12 @@ class SettingsModal:
             self.close_settings(save=True)
         elif key == "cancel":
             self.close_settings(save=False)
+        elif key == "general_model":
+            self.open_agent_submenu("master", 0)
+        elif key == "general_mode":
+            self.open_agent_submenu("master", 1)
+        elif _is_agent_row(key):
+            self.open_agent_submenu(key[len("agent_"):], 0)
         else:
             fields = self._settings_fields()
             if key in fields:
@@ -299,10 +416,16 @@ class SettingsModal:
         if self.agent_menu_open:
             self._agent_cycle(delta)
             return
+        if self.submenu_open:
+            self._submenu_cycle(delta)
+            return
         fields = self._settings_fields()
         focus = min(max(0, self.settings_focus), len(fields) - 1)
         key = fields[focus]
-        if key in ("theme", "agent_toggles", "save", "cancel"):
+        if _is_agent_row(key) or key in (
+            "general_model", "general_mode",
+            "theme", "agent_toggles", "save", "cancel",
+        ):
             self._activate_settings_field(key)
         else:
             self.settings_focus = (focus + delta) % len(fields)
@@ -341,6 +464,65 @@ class SettingsModal:
             self._invalidate()
         elif field == "back":
             self.close_agent_menu()
+
+    # -------------------------------------------------- agent/global submenu
+
+    def _submenu_fields(self) -> list[str]:
+        return ["model", "mode", "back"]
+
+    def open_agent_submenu(self, tag: str, focus: int = 0) -> None:
+        """Open the model/mode submenu for one target (an agent tag or master).
+
+        ``master`` is the GENERAL execution-mode section: its model/mode act
+        as the global defaults every agent inherits unless they have their own
+        override. Every other target is a specific registry agent (M1..M7).
+        """
+        self.submenu_open = True
+        self.submenu_target = tag
+        self.submenu_focus = focus
+        self._invalidate()
+
+    def close_agent_submenu(self) -> None:
+        self.submenu_open = False
+        self.submenu_target = "master"
+        self.submenu_focus = 0
+        self._invalidate()
+
+    def _submenu_title(self) -> str:
+        spec = AGENT_SPEC_BY_TAG.get(self.submenu_target) or MASTER_SPEC
+        return f" {spec.name.upper()} · {spec.role.upper()} SETTINGS "
+
+    def _submenu_cycle(self, delta: int = 1) -> None:
+        fields = self._submenu_fields()
+        if not fields:
+            return
+        focus = min(max(0, self.submenu_focus), len(fields) - 1)
+        field = fields[focus]
+        if field == "model":
+            self._cycle_target_value(self.submenu_target, "model", delta)
+        elif field == "mode":
+            self._cycle_target_value(self.submenu_target, "mode", delta)
+        elif field == "back":
+            self.close_agent_submenu()
+
+    def _cycle_target_value(self, target: str, key: str, delta: int = 1) -> None:
+        """Advance the draft value of a target's model/mode by ``delta``."""
+        if key == "model":
+            options = list(MODEL_OPTIONS)
+            current = self._resolve_target_value(target, "model")
+            index = options.index(current) if current in options else -1
+            next_value = options[(index + delta) % len(options)]
+            self._settings_set_mapping_for(target, "model", next_value)
+            return
+        if key == "mode":
+            model = self._effective_model(target)
+            # The target agent's own modes stay available regardless of the
+            # chosen model, so unlocking a model never hides native modes.
+            options = mode_options_for(model, target)
+            current = self._resolve_target_value(target, "mode")
+            index = options.index(current) if current in options else -1
+            next_value = options[(index + delta) % len(options)]
+            self._settings_set_mapping_for(target, "mode", next_value)
 
     # -------------------------------------------------------- theme customizer
 
@@ -448,11 +630,39 @@ class SettingsModal:
             return self._theme_fragments()
         if self.agent_menu_open:
             return self._agent_fragments()
+        if self.submenu_open:
+            return self._submenu_fragments()
         return self._main_fragments()
 
     def _row(self, text: str, width: int) -> str:
         inner = max(1, width - 2)
         return "│" + text[:inner].ljust(inner) + "│"
+
+    def _main_visible_fields(self, fields: list[str]) -> list[str]:
+        """Slice the main-screen rows to fit ``settings_height`` rows.
+
+        The last two action rows (save, cancel) are always pinned to the
+        bottom; the section headers and the rows above them scroll and always
+        include the focus (mirrors the theme customizer's behavior).
+
+        Fixed chrome per render: title + 2 spacer rows + hint + bottom border
+        (5 rows) plus the 2 pinned action rows, so the scrollable budget is
+        ``height - 7`` minus the section headers that can appear.
+        """
+        count = len(fields)
+        height = max(6, int(self.settings_height))
+        header_count = len({_settings_group(key) for key in fields if _settings_group(key)})
+        body_budget = max(1, height - 7 - header_count)
+        action_start = max(0, count - 2)
+        focus = min(max(0, self.settings_focus), count - 1)
+        if focus >= action_start:
+            start = max(0, action_start - body_budget)
+        else:
+            start = min(focus, max(0, action_start - body_budget))
+        start = min(start, action_start)
+        indices = list(range(start, min(start + body_budget, action_start)))
+        indices += list(range(action_start, count))
+        return [fields[i] for i in indices]
 
     def _main_fragments(self) -> list[tuple]:
         width = self._modal_width()
@@ -464,22 +674,62 @@ class SettingsModal:
         frags.append((border, "╭─" + title[:inner].ljust(inner, "─") + "╮\n"))
         frags.append((border, self._row("", width) + "\n"))
         frags.append((border, self._row("", width) + "\n"))
-        # Keep the field list within the available height (5 fixed rows).
-        max_fields = max(0, height - 5)
-        fields = _SETTINGS_FIELDS[:max_fields] if 0 < max_fields < len(_SETTINGS_FIELDS) else _SETTINGS_FIELDS
-        for index, (key, label) in enumerate(fields):
-            text = f" [{index + 1}] {label}"
+        all_fields = self._settings_fields()
+        fields = self._main_visible_fields(all_fields)
+        prev_group: str | None = None
+        for index, key in enumerate(fields):
+            global_index = all_fields.index(key)
+            group = _settings_group(key)
+            if group and group != prev_group:
+                frags.append((
+                    "class:retro.muted",
+                    self._row("  ── " + group + " ──", width) + "\n",
+                ))
+                prev_group = group
+            label = _settings_label(key)
+            text = f" [{global_index + 1}] {label}"
             value = self._field_value(key)
             if value:
                 text += f"   {value}"
             def click(_event=None, _key=key) -> None:
                 self._activate_settings_field(_key)
             style = (
-                "class:retro.tab.active" if index == self.settings_focus
+                "class:retro.tab.active" if global_index == self.settings_focus
                 else "class:retro.menu.item"
             )
             frags.append((style, self._row(text, width) + "\n", click))
         hint = " ENTER TO CUSTOMIZE  •  [↑/↓] navigate  •  Esc close "
+        frags.append(("class:retro.muted", self._row(hint, width) + "\n"))
+        frags.append((border, "╰" + "─" * max(0, width - 2) + "╯\n"))
+        return frags
+
+    def _submenu_fragments(self) -> list[tuple]:
+        width = self._modal_width()
+        height = max(6, int(self.settings_height))
+        border = "class:retro.menu.border"
+        frags: list[tuple] = []
+        title = self._submenu_title()
+        inner = max(2, width - 4)
+        frags.append((border, "╭─" + title[:inner].ljust(inner, "─") + "╮\n"))
+        target = self.submenu_target
+        rows: list[tuple[str, str]] = [
+            ("model", f"AI MODEL   {self._resolve_target_value(target, 'model')}"),
+            ("mode", f"OPERATING MODE   {self._resolve_target_value(target, 'mode')}"),
+            ("back", "BACK TO SETTINGS"),
+        ]
+        max_rows = max(0, height - 3)
+        if 0 < max_rows < len(rows):
+            rows = rows[:max_rows]
+        for index, (field, label) in enumerate(rows):
+            def click(_event=None, _field=field) -> None:
+                self.submenu_focus = self._submenu_fields().index(_field)
+                self._submenu_cycle(1)
+            style = (
+                "class:retro.tab.active" if index == min(self.submenu_focus, len(rows) - 1)
+                else "class:retro.menu.item"
+            )
+            frags.append((style, self._row(" " + label, width) + "\n", click))
+        hint = " ENTER CYCLES  •  [↑/↓] navigate  •  Esc back "
         frags.append(("class:retro.muted", self._row(hint, width) + "\n"))
         frags.append((border, "╰" + "─" * max(0, width - 2) + "╯\n"))
         return frags
@@ -582,8 +832,6 @@ class SettingsModal:
         app = self.app
         app.enabled_agents = set(draft.get("enabled_agents", app.enabled_agents))
         for target, over in draft.get("overrides", {}).items():
-            if target in IMMUTABLE_TAGS:
-                continue
             app.overrides.setdefault(target, {}).update(over)
         terminal = self.terminal_settings
         terminal["theme"] = draft.get("theme", terminal.get("theme", "classic"))
@@ -707,7 +955,7 @@ class SettingsModal:
             for target, over in overrides.items():
                 if target not in valid_tags and target != "master":
                     continue
-                if target in IMMUTABLE_TAGS or not isinstance(over, dict):
+                if not isinstance(over, dict):
                     continue
                 clean = {
                     key: str(value)
@@ -748,6 +996,9 @@ class SettingsModal:
         elif self.agent_menu_open:
             fields = self._agent_toggle_fields()
             self.agent_focus = (self.agent_focus + delta) % max(1, len(fields))
+        elif self.submenu_open:
+            fields = self._submenu_fields()
+            self.submenu_focus = (self.submenu_focus + delta) % max(1, len(fields))
         elif self.settings_open:
             fields = self._settings_fields()
             self.settings_focus = (self.settings_focus + delta) % max(1, len(fields))

@@ -67,11 +67,22 @@ python scripts/terminal_app.py --smoke   # headless build check
   render grey, busy/error states orange.
 - **Model status bar** — active tab / model / mode / dispatch target /
   running count, embedded in the rounded prompt box's top border.
+- **Decoupled settings screen** (Ctrl+Shift+S or `/settings`) — a GENERAL
+  section holds the global execution mode (master-level model/mode defaults
+  plus layout), while an AGENTS section lists every agent straight from the
+  live registry (M1..M7) with its own model/mode submenu. All seven agents
+  are individually configurable — there are no locked models.
 - **Rounded prompt box** — Enter submits, Ctrl+J inserts a newline,
   Ctrl+C clears the input (press again to quit), PageUp/PageDown scrolls the
   active tab's console, `/` starts a command with tab completion.
 - **Workspace-aware** — agents run `opencode run --agent <agent> --auto
   "<prompt>"` with the current workspace as their working directory.
+- **Analyzer Core (mandatory pre-dispatch)** — before any dispatch, a
+  host-side analyzer produces a modular master plan (requirements → decoupled
+  modules → one component per agent) that is injected into every agent
+  prompt; the module map is handed to Chloe's archivist for persistent
+  `docs/architecture/` mapping. Preview with `/plan <prompt>` or
+  `python -m scripts.core.analyzer "<prompt>"`.
   `--auto` auto-approves tool permissions (`opencode run` has no `--yes`/`-y`).
 
 **Slash commands:** `/tab [tag]`, `/help`, `/cd <path>`, `/model [name]`,
@@ -117,6 +128,38 @@ Disable rotation with `--no-swarm`; skip the brief injection by passing
 
 ---
 
+## Troubleshooting: "self signed certificate in certificate chain"
+
+If agent runs fail with this opencode/Node error, a self-signed or
+**intercepting certificate** (antivirus/EDR web filter, corporate proxy, or
+network gateway) is in the chain of the LLM endpoint opencode talks to. Node
+uses its own bundled CA store, so it rejects the injected root even though
+browsers and `curl` succeed on the same machine.
+
+Quick unblock (strictly opt-in; disables certificate verification **for the
+opencode process only** — do not enable on untrusted networks):
+
+```bat
+set ZOVA_ALLOW_INSECURE_TLS=1
+launch_agents.bat        :: or launch_terminal.bat / launch_web.bat
+```
+
+The toggle is honored by the 7-window inbox workers
+(`scripts/run_agent_worker.ps1` / `.sh`) and by the ZOVA terminal's dispatch
+engine (`scripts/core/run_hub.py`), which set
+`NODE_TLS_REJECT_UNAUTHORIZED=0` for every `opencode run` they spawn. It is
+**off by default** — leave it unset or `0` for normal TLS verification.
+
+Preferred fix (keeps verification on): export the intercepting root CA from
+the Windows certificate store (`certmgr.msc` → Trusted Root / your AV's cert →
+Base-64 PEM) and point Node at it:
+
+```bat
+set NODE_EXTRA_CA_CERTS=C:\path\to\intercept-root.pem
+```
+
+---
+
 ## Installing the `myagent` Command (Windows)
 
 Make the ZOVA terminal globally runnable from any folder:
@@ -157,6 +200,7 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 │   │   │   ├── matthew.py … chloe.py  # M1–M7 specialized agents
 │   │   │   ├── master.py      # Master coordinator spec
 │   │   └── __main__.py    # CLI: resolve per-agent models for the launcher workers
+│   │   ├── analyzer.py    # Analyzer Core — mandatory pre-dispatch master plan
 │   │   ├── run_hub.py     # Thread-safe multi-agent execution engine
 │   │   ├── state_tracker.py   # Session state (state.md)
 │   │   └── archivist.py   # Chloe's Obsidian archivist engine
