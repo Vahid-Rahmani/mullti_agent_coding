@@ -4,12 +4,11 @@
 running
 
 ## Last Run
-prompt: hi
-started: 2026-08-11T13:33:28
+prompt: gi
+started: 2026-08-11T22:37:43
 
 ## Completed
 - … 1 earlier finishes compressed
-- m4: failed
 - m4: failed
 - m7: ok
 - m4: failed
@@ -29,6 +28,7 @@ started: 2026-08-11T13:33:28
 - m2: ok
 - m1: ok
 - m6: ok
+- m7: failed
 
 ## Active Worktrees
 
@@ -4529,6 +4529,8 @@ started: 2026-08-11T13:33:28
 - interrupted: m2 terminated by user
 - interrupted: terminated by user
 - interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
 - interrupted: terminated by user
 - interrupted: terminated by user
 - interrupted: terminated by user
