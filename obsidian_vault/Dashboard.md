@@ -1,94 +1,80 @@
+---
+type: system
+status: active
+owner: all
+created: 2026-08-11
+updated: 2026-08-11
+related: [System_Core, Architecture_Home, Agents_Home, Tasks_Home, Testing_Home]
+---
+
 # Dashboard — MultiAgentCoding
 
-> **Control plane for a self-evolving multi-agent coding system.**
-> 7 specialized agents · Swarm protocol · Retro terminal UI · Obsidian-powered docs
+> **Control plane knowledge graph — entry point.**
+> Human-authored header: edit freely. The section below between the GENERATED
+> markers is rebuilt by `python scripts/generate_dashboard.py`.
+
+- ↑ Root: [[System_Core]]
+- Navigate: [[Architecture_Home]] · [[Agents_Home]] · [[Tasks_Home]] · [[Decisions_Home]] · [[Documentation_Home]] · [[Testing_Home]]
 
 ---
 
-## Quick Links
+<!-- GENERATED: dashboard -->
+## Project Status
+- **Vault:** 36 managed nodes · schema validated
+- **Task lifecycle:** [[Tasks_Home]] · [[Task_Backlog]]
+- **Agents:** [[Agents_Home]] · **Architecture:** [[System_Architecture]]
 
-| Page | Description |
-|------|-------------|
-| [[Roadmap]] | High-level project roadmap with checklist phases |
-| [[prompts/]] | Individual prompt tracking notes |
-| [[agents_logs/]] | Per-agent work logs and run records |
+## Active / In-Progress Tasks
+| Task | Status |
+|---|---|
 
----
+**Counts:** planned=0, ready=0, in_progress=0, blocked=0, completed=0, failed=0
 
-## Project at a Glance
+_No task nodes yet — see [[Task_Backlog]]._
 
-- **Phase:** Running — `feature/ui-loading-refactor`
-- **Active agents:** matthew, alex, sarah, david, elena, max, chloe (all 7 individually configurable — models and modes editable in the settings screen)
-- **Models:** All free-tier (`deepseek-v4-flash-free`, `big-pickle`, `ling-3.0-tiny-free`)
-- **UI:** ZOVA retro terminal (`python scripts/terminal_app.py`)
-- **Swarm:** ON by default (stale-peer detection + helper takeover)
+## Active Agents
+- [[Agent_Alex]] — opencode/deepseek-v4-flash-free
+- [[Agent_Chloe]] — opencode/ling-3.0-tiny-free
+- [[Agent_David]] — opencode/big-pickle
+- [[Agent_Elena]] — opencode/ling-3.0-tiny-free
+- [[Agent_Matthew]] — opencode/deepseek-v4-flash-free
+- [[Agent_Max]] — opencode/deepseek-v4-flash-free
+- [[Agent_Sarah]] — opencode/deepseek-v4-flash-free
 
----
+## Recent Executions
+**Orchestrator log (last 5):**
 
-## Key Files (Repo Root)
+- `[2026-08-11T19:49:15] set-status Task_Demo: ready -> in_progress`
+- `[2026-08-11T19:49:15] set-status Task_Demo: planned -> ready`
+- `[2026-08-11T19:49:15] set-status Task_Demo: ready -> in_progress`
+- `[2026-08-11T19:49:15] report Task_Demo: recorded failed`
+- `[2026-08-11T19:49:15] set-status Task_Demo: planned -> ready`
 
-| File | Purpose |
-|------|---------|
-| `PLAN.md` | Detailed implementation plan & architecture decisions |
-| `TASKS.json` | Structured task tracking (dependencies, owners, status) |
-| `AGENTS.md` | Agent roles, workflow, conventions, fallback policy |
-| `opencode.json` | Agent definitions, model assignments, provider config |
-| `state.md` | Runtime state (phase, last run, completion log, restart log) |
+**Sync log (last 3):**
 
----
+- `{"ts": "2026-08-11T19:48:49", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
+- `{"ts": "2026-08-11T19:49:02", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
+- `{"ts": "2026-08-11T19:49:13", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
 
-## Agent Roster
+## Recent Changes
+**Vault changes (last 3):**
 
-| Tag | Agent | Role | Model |
-|-----|-------|------|-------|
-| M1 | `matthew` | Matthew — architecture + master coordination (read-only) | `deepseek-v4-flash-free` |
-| M2 | `alex` | Alex — backend, APIs, Python logic, and data handling | `deepseek-v4-flash-free` |
-| M3 | `sarah` | Sarah — TUI, frontend, UX, and rendering | `deepseek-v4-flash-free` |
-| M4 | `david` | David — QA, TDD, tests, and debugging | `big-pickle` |
-| M5 | `elena` | Elena — code quality and security audit (read-only) | `ling-3.0-tiny-free` |
-| M6 | `max` | Max — DevOps, automation, and environment stability | `deepseek-v4-flash-free` |
-| M7 | `chloe` | Chloe — documentation and Obsidian knowledge audit (read-only by role; model/mode configurable) | `ling-3.0-tiny-free` |
+- `{"ts": "2026-08-11T19:49:15", "caller": "test", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmp99c9hc6y\\vault\\03-`
+- `{"ts": "2026-08-11T19:49:15", "caller": "test-caller", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmp8yx47ayq\\vau`
+- `{"ts": "2026-08-11T19:49:15", "caller": "test", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpurgyzn2a\\vault\\03-`
 
----
+## Testing Status
+- See [[Testing_Home]] and [[Test_Report_Suite]] — current suite: `python -m unittest discover -s test/tests`
 
-## Slash Commands (ZOVA Terminal)
+## Architecture Status
+- Map: [[System_Architecture]]
+- **Known gaps (reported by `knowledge_sync check-conflicts`, not auto-fixed):**
+- `orchestrator.py` — real module with no `Component_*` node yet
+- `vault_bridge.py` — real module with no `Component_*` node yet
+- `context_resolver.py` — real module with no `Component_*` node yet
+- `change_detector.py` — real module with no `Component_*` node yet
+- `knowledge_sync.py` — real module with no `Component_*` node yet
 
-`/tab` `/help` `/cd` `/model` `/mode` `/agents` `/agents-log` `/status` `/clear` `/stop` `/swarm` `/proposals` `/evolve` `/audit` `/quit`
-
----
-
-## Recent Activity (Dataview)
-
-```dataview
-TABLE file.ctime as "Created", target_agent as "Agent", status as "Status"
-FROM "prompts"
-SORT file.ctime DESC
-LIMIT 10
-```
-
-```dataview
-TABLE agent_role as "Role", last_updated as "Last Active", status as "Status"
-FROM "agents_logs"
-WHERE agent_tag
-SORT last_updated DESC
-```
-
----
-
-## Vault Structure
-
-```
-obsidian_vault/
-├── Dashboard.md          ← you are here
-├── Roadmap.md            ← phased project plan
-├── prompts/              ← auto-generated prompt logs
-│   ├── _TEMPLATE.md
-│   └── prompt-NNN.md
-└── agents_logs/          ← per-agent run logs
-    ├── _TEMPLATE.md
-    └── M{N}_{Role}.md
-```
-
----
-
-*Open this vault in [Obsidian](https://obsidian.md) for graph view, backlinks, and wiki-link navigation. Enable the Dataview plugin for live query tables.*
+## Blocked / Needs Attention
+- _None currently — see [[Task_Backlog]] for full status._
+<!-- /GENERATED -->

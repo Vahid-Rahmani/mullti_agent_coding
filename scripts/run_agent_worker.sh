@@ -16,11 +16,8 @@ Options:
   --title <text>        Terminal tab title (default: none)
   --slot <n>            Slot number 1-7 (default: 1)
   --smoke               Process one task then exit (for launcher smoke tests)
-  --no-swarm            Simple view; no swarm chatter (default)
-  --swarm               Opt-in: reuse scripts/swarm.py state/feedback helpers
   --model-override <m>  Use <m> instead of the agent's configured model (scripts/core/agents specs)
   --workspace <dir>     Run opencode from <dir> instead of the project root
-  --stale <secs>        Stale-task threshold in seconds (default: 30)
   --dry                 Print resolved configuration and exit (no polling)
   -h, --help            Show this help
 EOF
@@ -58,10 +55,8 @@ AGENT=""
 TITLE=""
 SLOT=1
 SMOKE=0
-SWARM=0
 MODEL_OVERRIDE=""
 WORKSPACE=""
-STALE=30
 DRY=0
 
 while [ $# -gt 0 ]; do
@@ -73,14 +68,10 @@ while [ $# -gt 0 ]; do
         --slot) need_value "$@"; SLOT="$2"; shift 2 ;;
         --slot=*) SLOT="${1#--slot=}"; shift ;;
         --smoke) SMOKE=1; shift ;;
-        --no-swarm) SWARM=0; shift ;;
-        --swarm) SWARM=1; shift ;;
         --model-override) need_value "$@"; MODEL_OVERRIDE="$2"; shift 2 ;;
         --model-override=*) MODEL_OVERRIDE="${1#--model-override=}"; shift ;;
         --workspace) need_value "$@"; WORKSPACE="$2"; shift 2 ;;
         --workspace=*) WORKSPACE="${1#--workspace=}"; shift ;;
-        --stale) need_value "$@"; STALE="$2"; shift 2 ;;
-        --stale=*) STALE="${1#--stale=}"; shift ;;
         --dry) DRY=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "run_agent_worker.sh: unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -159,29 +150,9 @@ echo "Inbox : $TASK_FILE"
 echo "Log   : $LOG_FILE"
 
 if [ "$DRY" -eq 1 ]; then
-    echo "Dry run: configuration OK (agent=$AGENT model=$MODEL slot=$SLOT smoke=$SMOKE swarm=$SWARM stale=$STALE workspace=${WORKSPACE:-<project root>})"
+    echo "Dry run: configuration OK (agent=$AGENT model=$MODEL slot=$SLOT smoke=$SMOKE workspace=${WORKSPACE:-<project root>})"
     exit 0
 fi
-
-SWARM_PY="$PROJECT_ROOT/scripts/swarm.py"
-SWARM_DIR="$LOGS_DIR/swarm"
-FEEDBACK_FILE="$LOGS_DIR/swarm_feedback.jsonl"
-
-swarm_state() {
-    [ "$SWARM" -eq 1 ] && [ -f "$SWARM_PY" ] || return 0
-    local py
-    py="$(find_python)" || return 0
-    "$py" "$(winpath "$SWARM_PY")" state --swarm "$(winpath "$SWARM_DIR")" --slot "$SLOT" --json "{\"status\":\"$1\"}" >/dev/null 2>&1 || true
-}
-
-swarm_feedback() {
-    [ "$SWARM" -eq 1 ] && [ -f "$SWARM_PY" ] || return 0
-    local py
-    py="$(find_python)" || return 0
-    "$py" "$(winpath "$SWARM_PY")" feedback --file "$(winpath "$FEEDBACK_FILE")" --slot "$SLOT" --agent "$AGENT" --mode own --ok "$1" --duration "$2" --task "$3" >/dev/null 2>&1 || true
-}
-
-swarm_state idle
 
 idle_shown=0
 while true; do
@@ -201,8 +172,6 @@ while true; do
                 echo "[$stamp] TASK RECEIVED ($AGENT)"
                 echo "$task"
             } >> "$LOG_FILE"
-
-            swarm_state working
 
             cmd=(opencode run --agent "$AGENT" --auto -m "$MODEL")
             if [[ "$task" == -* ]]; then
@@ -230,11 +199,6 @@ while true; do
 
             echo "[$(ts)] TASK COMPLETE (ok=$ok)"
             echo "[$(ts)] TASK COMPLETE (ok=$ok)" >> "$LOG_FILE"
-
-            okword=false
-            [ "$ok" -eq 0 ] && okword=true
-            swarm_feedback "$okword" "$duration" "$task"
-            swarm_state idle
 
             if [ "$SMOKE" -eq 1 ]; then
                 echo "SMOKE: task processed. Exiting."

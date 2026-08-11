@@ -1,54 +1,52 @@
 # AGENTS.md — MultiAgentCoding Control Plane
 
-This repository is the **control plane** for a self-evolving multi-agent coding
-system. It holds the MultiAgentCoding configuration, agent definitions, skills,
-and memory used to drive software projects (typically under `projects/`).
+This repository is the **control plane** for a multi-agent coding system. It
+holds the MultiAgentCoding configuration, agent definitions, and memory used to
+drive software projects.
 
-## Roles
+**Baseline-zero status:** the system is a plain, unopinionated slate. Seven
+agents are defined by identity and model only — no roles, operational modes,
+specialized prompts, or behavioral wrappers. Dispatch is plain
+(`opencode run --agent <a> -m <model> "<prompt>"`). All external integrations
+(Obsidian archivist, analyzer, swarm, self-evolve) have been removed. The
+intent is to rebuild capabilities deliberately, step by step.
 
-| Agent | Role | Model |
-|---|---|---|
-| `matthew` | Matthew — lead architecture + master coordination (read-only) | opencode/deepseek-v4-flash-free |
-| `alex` | Alex — backend, APIs, Python logic, and data handling | opencode/deepseek-v4-flash-free |
-| `sarah` | Sarah — TUI, frontend, UX, and rendering | opencode/deepseek-v4-flash-free |
-| `david` | David — QA, TDD, tests, and debugging | opencode/big-pickle |
-| `elena` | Elena — code quality and security audit (read-only) | opencode/ling-3.0-tiny-free |
-| `max` | Max — DevOps, automation, and environment stability | opencode/deepseek-v4-flash-free |
-| `chloe` | Chloe — Architectural Obsidian Archivist (read-only): filters conversation from architecture, stores `docs/architecture/` notes with Mermaid maps per project, keeps lean `Evolution.md` | opencode/ling-3.0-tiny-free |
+## Agents
 
-Every agent has an explicit `fallback_models` chain (see [Fallback Policy](#fallback-policy)).
+| Agent | Model |
+|---|---|
+| `matthew` | opencode/deepseek-v4-flash-free |
+| `alex` | opencode/deepseek-v4-flash-free |
+| `sarah` | opencode/deepseek-v4-flash-free |
+| `david` | opencode/big-pickle |
+| `elena` | opencode/ling-3.0-tiny-free |
+| `max` | opencode/deepseek-v4-flash-free |
+| `chloe` | opencode/ling-3.0-tiny-free |
+
+Every agent carries an explicit `fallback_models` chain (see
+[Fallback Policy](#fallback-policy)). All models are free (no paid credits).
 
 ## Workflow
 
-1. **Coordinate** — `matthew` defines architecture, routing, and handoffs.
-2. **Build backend** — `alex` implements Python, APIs, data, and file operations.
-3. **Build interface** — `sarah` implements TUI/frontend behavior and UX.
-4. **Verify** — `david` writes and runs tests using a TDD workflow.
-5. **Audit quality** — `elena` reviews code and security; `max` stabilizes automation.
-6. **Document** — `chloe` audits state, plans, and the Obsidian vault, then reports drift.
-7. **Deploy** — defined per-project (see `skills/deploy` when present).
+There is no fixed pipeline: any task typed into the terminal is dispatched to
+the active tab's agent (or, on MASTER, to all agents) with that agent's
+configured model. The operator sequences handoffs by dispatching the next task
+after a previous run completes.
 
 ## Conventions
 
 - Never commit secrets. Keys live only in `~/.local/share/opencode/auth.json`.
 - Never commit `knowledge/index.jsonl` or anything under `_logs/`.
-- Consult `knowledge/` (via the `knowledge` reference) before planning or reviewing.
+- Consult `knowledge/` (via the `knowledge` reference) before planning or
+  reviewing.
 - Keep `PLAN.md` and `TASKS.json` at the project root of the target project.
 - Commits are small and single-purpose; branch pattern `feature/{agent}-{task}`.
 - Agent definitions live in `scripts/core/agents/` — one `AgentSpec` module per
   agent (`matthew.py` … `chloe.py`) plus `master.py`. The `registry` derives the
-  roster, tab order, and mode routing from those specs, so edit an agent there
-  (not in `terminal_app.py` or `opencode.json`) to keep each agent independently
+  roster and tab order from those specs, so edit an agent there (not in
+  `terminal_app.py` or `opencode.json`) to keep each agent independently
   configurable, testable, and modifiable. `python -m scripts.core.agents verify`
   checks the specs stay in sync with `opencode.json` (exit 1 on drift).
-- The Analyzer Core (`scripts/core/analyzer.py`) runs a **mandatory pre-dispatch
-  phase** on every structural prompt: Phase 1 gathers requirements (gaps are
-  reported, nothing assumed), Phase 2 enforces modular decoupling (one module
-  per concern, no monolithic files), Phase 3 assigns exactly one component per
-  agent via the canonical routing. The resulting master plan is injected into
-  every dispatch prompt and its module map is handed to Chloe's archivist for
-  persistent `docs/architecture/` mapping. Preview with
-  `python -m scripts.core.analyzer "<prompt>"` or the `/plan` terminal command.
 
 ## Fallback Policy
 
@@ -75,7 +73,7 @@ itself only retries the same model, so this plugin is what makes failover real.
 
 ## Execution Environment (Windows)
 
-This repo ships a human-facing 7-window launcher that runs the seven roles side
+This repo ships a human-facing 7-window launcher that runs the seven agents side
 by side, each listening for tasks in its own inbox.
 
 - **Launch** — run `launch_agents.bat` at the repo root, or in VS Code use the
@@ -89,9 +87,9 @@ by side, each listening for tasks in its own inbox.
   interval is 3s.
 - **Window map** — `M1` matthew, `M2` alex, `M3` sarah,
   `M4` david, `M5` elena, `M6` max, `M7` chloe.
-- **Event-driven handoff** — each role processes its inbox independently. To
-  hand work to the next role, drop the next task into that role's inbox after
-  the previous role logs completion. There is no shared queue; the operator (or
+- **Event-driven handoff** — each agent processes its inbox independently. To
+  hand work to the next agent, drop the next task into that agent's inbox after
+  the previous one logs completion. There is no shared queue; the operator (or
   a driving agent) sequences the drops.
 - **TLS note** — if agent runs fail with `self signed certificate in
   certificate chain` (opencode/Node rejecting a self-signed or intercepting
@@ -101,28 +99,19 @@ by side, each listening for tasks in its own inbox.
 - **Models** — the worker resolves each agent's configured model from its
   `AgentSpec` (`scripts/core/agents/`, via `python -m scripts.core.agents
   model <agent>`; see the [Conventions](#conventions) note on agent
-  definitions) and passes it explicitly (`-m`) so the role's own model is
+  definitions) and passes it explicitly (`-m`) so the agent's own model is
   used. `opencode.json` remains the OpenCode runtime config but is no longer
   parsed by the launcher. `-m` pins the session to the primary model at
   launch, but the model-fallback plugin still applies its chain on any
   failure within that session (see [Fallback Policy](#fallback-policy)).
-  Model assignment is a hybrid of the three free models:
-  - `opencode/ling-3.0-tiny-free` — ultra-fast routing/summarization: used for
-    `compaction`, `elena`, and `chloe` (quick audit/documentation checks).
-  - `opencode/deepseek-v4-flash-free` — heavy reasoning & coding:
-    `matthew`, `alex`, `sarah`, and `max`.
-  - `opencode/big-pickle` — QA and fallback reasoning: `david`.
-  All three are free (no paid credits required). The MuleRouter provider block
-  remains defined in `opencode.json` but is no longer used by default; its API
-  key lives only in `~/.local/share/opencode/auth.json` (never committed).
+  The MuleRouter provider block remains defined in `opencode.json` but is no
+  longer used by default; its API key lives only in
+  `~/.local/share/opencode/auth.json` (never committed).
 - **Mode note** — all 7 agents are `mode: all`: they can be invoked standalone
   (`opencode run --agent X`) and still be used as subagents by other agents.
-  The read-only annotations on `matthew`, `elena`, and `chloe` are permission-based
-  (`edit: deny`) and are unaffected by the mode change.
 
-## Memory & evolution
+## Memory
 
-- Architecture decisions and lessons learned are appended to `knowledge/adr/` and
-  `knowledge/lessons/`.
-- After a milestone, run the retro command to summarize the session, prune
-  stale memory, and update these conventions.
+Architecture decisions and lessons learned are appended to `knowledge/adr/` and
+`knowledge/lessons/`. After a milestone, summarize the session, prune stale
+memory, and update these conventions.

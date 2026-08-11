@@ -1,4 +1,10 @@
-# PLAN.md — Dynamic Swarm Role-Swapping & Peer-Assistance Protocol
+# PLAN.md — Dynamic Swarm Role-Swapping & Peer-Assistance Protocol (ARCHIVED)
+
+> **ARCHIVED (2026-08-11):** superseded by the baseline-zero structural reset.
+> The swarm role-swapping protocol, self-evolve machinery, Obsidian archivist
+> integration, and web dashboard were all removed. The system is now a plain
+> 7-agent dispatch (see `AGENTS.md`); this plan is kept only as a historical
+> record of the removed design.
 
 > **Checkpoint (2026-08-09):** Core implementation is complete and green
 > (264 tests OK). This plan is reconciled with the **actual implemented design**,

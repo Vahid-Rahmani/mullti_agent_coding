@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "M1 - System Architect",
+            "label": "M1 - Matthew",
             "type": "shell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent system-architect -Title \"M1 - System Architect\" -Slot 1",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent matthew -Title \"M1 - Matthew\" -Slot 1",
             "presentation": {
                 "panel": "new",
                 "group": "agents",
@@ -13,9 +13,9 @@
             "problemMatcher": []
         },
         {
-            "label": "M2 - Analyst",
+            "label": "M2 - Alex",
             "type": "shell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent analyst -Title \"M2 - Analyst\" -Slot 2",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent alex -Title \"M2 - Alex\" -Slot 2",
             "presentation": {
                 "panel": "new",
                 "group": "agents",
@@ -24,9 +24,9 @@
             "problemMatcher": []
         },
         {
-            "label": "M3 - Planner",
+            "label": "M3 - Sarah",
             "type": "shell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent planner -Title \"M3 - Planner\" -Slot 3",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent sarah -Title \"M3 - Sarah\" -Slot 3",
             "presentation": {
                 "panel": "new",
                 "group": "agents",
@@ -35,9 +35,9 @@
             "problemMatcher": []
         },
         {
-            "label": "M4 - Backend Dev",
+            "label": "M4 - David",
             "type": "shell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent backend-dev -Title \"M4 - Backend Dev\" -Slot 4",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent david -Title \"M4 - David\" -Slot 4",
             "presentation": {
                 "panel": "new",
                 "group": "agents",
@@ -46,9 +46,9 @@
             "problemMatcher": []
         },
         {
-            "label": "M5 - Frontend Dev",
+            "label": "M5 - Elena",
             "type": "shell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent frontend-dev -Title \"M5 - Frontend Dev\" -Slot 5",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent elena -Title \"M5 - Elena\" -Slot 5",
             "presentation": {
                 "panel": "new",
                 "group": "agents",
@@ -57,9 +57,9 @@
             "problemMatcher": []
         },
         {
-            "label": "M6 - Tester",
+            "label": "M6 - Max",
             "type": "shell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent tester -Title \"M6 - Tester\" -Slot 6",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent max -Title \"M6 - Max\" -Slot 6",
             "presentation": {
                 "panel": "new",
                 "group": "agents",
@@ -68,9 +68,9 @@
             "problemMatcher": []
         },
         {
-            "label": "M7 - Reviewer",
+            "label": "M7 - Chloe",
             "type": "shell",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent reviewer -Title \"M7 - Reviewer\" -Slot 7",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/run_agent_worker.ps1 -Agent chloe -Title \"M7 - Chloe\" -Slot 7",
             "presentation": {
                 "panel": "new",
                 "group": "agents",
@@ -81,13 +81,13 @@
         {
             "label": "Launch All Agents",
             "dependsOn": [
-                "M1 - System Architect",
-                "M2 - Analyst",
-                "M3 - Planner",
-                "M4 - Backend Dev",
-                "M5 - Frontend Dev",
-                "M6 - Tester",
-                "M7 - Reviewer"
+                "M1 - Matthew",
+                "M2 - Alex",
+                "M3 - Sarah",
+                "M4 - David",
+                "M5 - Elena",
+                "M6 - Max",
+                "M7 - Chloe"
             ],
             "dependsOrder": "parallel",
             "presentation": {

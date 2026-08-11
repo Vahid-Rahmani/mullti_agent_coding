@@ -1,7 +1,11 @@
-"""Run hub — thread-safe execution engine for the multi-agent swarm.
+"""Run hub — thread-safe execution engine for the multi-agent system.
 
 RunHub spawns one worker thread per target agent; each thread streams
 ``opencode run`` output into per-tag buffers via subprocess management.
+
+Baseline-zero: dispatch is plain. Every agent runs its configured model from
+the specs; there are no operational modes, no analyzer pre-dispatch, and no
+external integrations (no Obsidian vault logging, no self-evolve).
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ import time
 from pathlib import Path
 
 from .agents import (
-    AGENTS, _AGENT_TAGS, AUTO_MODE, AUTO_MODEL, MODE_TO_AGENT, PROJECT_ROOT,
+    AGENTS, _AGENT_TAGS, AGENT_SPEC_BY_AGENT, PROJECT_ROOT,
     STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE, STATUS_THINKING,
 )
 from .progress import (
@@ -104,12 +108,10 @@ def _insecure_tls_env() -> dict[str, str] | None:
 
 
 def _build_run_command(
-    exe: str, agent: str, prompt: str, model: str | None, mode: str | None = None
+    exe: str, agent: str, prompt: str, model: str | None = None
 ) -> list[str]:
-    """Build the ``opencode run`` argv for one agent."""
-    chosen_agent = mode if mode and mode != AUTO_MODE else agent
-    chosen_agent = MODE_TO_AGENT.get(chosen_agent, chosen_agent)
-    cmd = [exe, "run", "--agent", chosen_agent, "--auto"]
+    """Build the ``opencode run`` argv for one agent (plain dispatch)."""
+    cmd = [exe, "run", "--agent", agent, "--auto"]
     if model:
         cmd += ["-m", model]
     prompt = _sanitize_prompt(prompt)
@@ -143,11 +145,7 @@ class RunHub:
         self.session_tags: set[str] = set()
         self.progress_weights: dict[str, float] = dict(DEFAULT_PROGRESS_WEIGHTS)
         self.workspace: Path = PROJECT_ROOT
-        self._audit_thread: threading.Thread | None = None
-        self._evolve_thread: threading.Thread | None = None
         self._abort_event = threading.Event()
-        # Analyzer Core: the most recent pre-dispatch master plan (if any).
-        self.last_plan = None
 
     # ------------------------------------------------------------ state writes
 
@@ -201,47 +199,35 @@ class RunHub:
 
     # ------------------------------------------------------------ running
 
-    def resolve(self, tag: str, overrides: dict[str, dict[str, str]]) -> tuple[str | None, str]:
-        """Resolve (model, mode) for a tag: tag override > master override > auto.
+    def resolve(self, tag: str, overrides: dict[str, dict[str, str]] | None = None) -> tuple[str | None, str]:
+        """Resolve (model, mode) for a tag.
 
-        Every agent (M1..M7) is configurable individually; there are no locked
-        agents, so resolution is uniform across the whole roster.
+        Baseline-zero: every agent uses its configured spec model; the mode is
+        always plain ``"auto"`` (no operational modes exist). ``overrides`` is
+        accepted for backward compatibility but ignored.
         """
-        tab = overrides.get(tag, {})
-        master = overrides.get("master", {})
-        tab_model = tab.get("model")
-        master_model = master.get("model")
-        if tab_model and tab_model != AUTO_MODEL:
-            model = tab_model
-        elif master_model and master_model != AUTO_MODEL:
-            model = master_model
-        else:
-            model = None
-        tab_mode = tab.get("mode")
-        master_mode = master.get("mode")
-        if tab_mode and tab_mode != AUTO_MODE:
-            mode = tab_mode
-        elif master_mode and master_mode != AUTO_MODE:
-            mode = master_mode
-        else:
-            mode = AUTO_MODE
-        return model, mode
+        spec = AGENT_SPEC_BY_AGENT.get(tag)
+        if spec is None and tag != "master":
+            spec = next(
+                (s for s in (AGENT_SPEC_BY_AGENT.get(a) for _, _, a in AGENTS) if s and s.tag == tag),
+                None,
+            )
+        model = spec.model if spec is not None else None
+        return model, "auto"
 
     def run(
         self,
         prompt: str,
-        overrides: dict[str, dict[str, str]],
+        overrides: dict[str, dict[str, str]] | None = None,
         agents: list[str] | None = None,
         system_prompts: dict[str, str] | None = None,
         enabled_agents: set[str] | list[str] | tuple[str, ...] | None = None,
-        analyze: bool = True,
     ) -> str | None:
-        """Spawn one worker thread per target agent.
+        """Spawn one worker thread per target agent (plain dispatch).
 
-        ``analyze`` enables the Analyzer Core pre-dispatch phase: prompts with
-        a structural signal get a mandatory modular master plan injected into
-        every dispatch prompt, and the module map is handed to M7's archivist
-        after the run.
+        ``overrides`` and ``system_prompts`` are accepted for backward
+        compatibility but ignored: agents always run their configured spec
+        model with the raw prompt.
         """
         if not prompt.strip():
             return "Prompt must not be empty."
@@ -252,47 +238,9 @@ class RunHub:
         ]
         if not targets:
             return "No agents matched the /agents filter."
-        # Log the prompt into the Obsidian vault (best-effort).
-        try:
-            import prompt_logger
-
-            _log_tab = agents[0] if agents and len(agents) == 1 else "master"
-            _target_tags = [t[0] for t in targets] if agents else None
-            _prompt_path = prompt_logger.log_prompt(
-                prompt, target_agents=_target_tags, active_tab=_log_tab,
-            )
-            _prompt_log_id = _prompt_path.stem
-            import agent_logger
-
-            agent_logger.ensure_agent_logs([t[0] for t in targets])
-        except Exception:
-            _prompt_log_id = None
         self.append_line("master", f"▶ {prompt}")
         pruned = prune_prompt(prompt)
-        # Analyzer Core — mandatory pre-dispatch planning phase (Phases 1-3).
-        # Conversational prompts carry no structural signal and are dispatched
-        # untouched (plan.applicable is False).
-        plan_text = ""
-        analyzer_metrics = None
-        if analyze:
-            from .analyzer import build_master_plan
-
-            plan = build_master_plan(pruned, workspace=self.workspace)
-            self.last_plan = plan
-            if plan.applicable:
-                plan_text = plan.to_text()
-                self.append_line("master", plan.summary_line())
-                # Analyzer telemetry — how many decoupled modules and which
-                # agents were assigned, persisted into state.md Last Run.
-                analyzer_metrics = {
-                    "modules": len(plan.modules),
-                    "agents": plan.agents,
-                }
-        _state_tracker.STATE.record_run(
-            pruned, time.strftime("%Y-%m-%dT%H:%M:%S"), analyzer=analyzer_metrics,
-        )
-        system_prompts = system_prompts or {}
-        dispatch_prompts: dict[str, str] = {}
+        _state_tracker.STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
         with self.lock:
             if self.running == 0:
                 self.session_tags.clear()
@@ -301,43 +249,23 @@ class RunHub:
             self.session_tags.update(tag for tag, _name, _agent in targets)
             self.running += len(targets)
             for tag, _name, _agent in targets:
-                specialized = system_prompts.get(tag) or system_prompts.get("master")
-                if specialized and specialized.strip():
-                    dispatch_prompt = "[SPECIALIZED SYSTEM PROMPT]\n" + specialized.strip()
-                    if plan_text:
-                        dispatch_prompt += "\n\n" + plan_text
-                    dispatch_prompt += "\n\n[USER TASK]\n" + pruned
-                elif plan_text:
-                    dispatch_prompt = plan_text + "\n\n[USER TASK]\n" + pruned
-                else:
-                    dispatch_prompt = pruned
-                dispatch_prompts[tag] = dispatch_prompt
+                dispatch_prompt = pruned
                 self.progress[tag] = 5
                 self.token_usage[tag] = _estimate_token_percent(dispatch_prompt, [])
                 self.prompts[tag] = dispatch_prompt
         for tag, _name, agent in targets:
             self._emit(tag, "run", f"{tag.upper()}::{_sanitize_prompt(prompt)[:60]}")
-            model, mode = self.resolve(tag, overrides)
+            model, _mode = self.resolve(tag)
             self.set_status(tag, STATUS_THINKING)
-            dispatch_prompt = dispatch_prompts.get(tag, pruned)
             threading.Thread(
                 target=self._run_agent,
-                args=(tag, agent, dispatch_prompt, model, mode, _prompt_log_id),
+                args=(tag, agent, pruned, model),
                 name=f"term-{tag}",
                 daemon=True,
             ).start()
         return None
 
-    def _run_agent(
-        self,
-        tag: str,
-        agent: str,
-        prompt: str,
-        model: str | None,
-        mode: str | None,
-        prompt_log_id: str | None = None,
-    ) -> None:
-        _start = time.time()
+    def _run_agent(self, tag: str, agent: str, prompt: str, model: str | None) -> None:
         ok = False
         _killed = False
         try:
@@ -347,7 +275,7 @@ class RunHub:
                     "opencode executable not found on PATH. Install opencode or "
                     "add it to PATH before using the terminal."
                 )
-            cmd = _build_run_command(exe, agent, prompt, model, mode)
+            cmd = _build_run_command(exe, agent, prompt, model)
             with self.lock:
                 if tag in self._cancelled_tags:
                     self._cancelled_tags.discard(tag)
@@ -402,19 +330,6 @@ class RunHub:
                     self.session_tags.clear()
             if not _killed:
                 _state_tracker.STATE.record_finish(tag, ok)
-            try:
-                if prompt_log_id:
-                    import agent_logger
-
-                    agent_logger.append_agent_run(
-                        tag, prompt, prompt_log_id,
-                        status="ok" if ok else "failed",
-                        duration_s=time.time() - _start,
-                    )
-            except Exception:
-                pass
-            if tag == "m7" and ok and not _killed:
-                self._run_m7_audit(prompt)
 
     def aggregate_progress(self) -> int:
         """Return the current weighted Master progress under the hub lock."""
@@ -494,10 +409,6 @@ class RunHub:
     def force_ui_idle(self) -> None:
         """Reset every UI telemetry field to idle."""
         self._abort_event.set()
-        if self._audit_thread is not None and self._audit_thread.is_alive():
-            self._audit_thread.join(timeout=2.0)
-        self._audit_thread = None
-        self._evolve_thread = None
         with self.lock:
             self.running = 0
             self.session_tags.clear()
@@ -506,103 +417,5 @@ class RunHub:
                 self.progress[tag] = 0
                 self.token_usage[tag] = 0
 
-    def _run_m7_audit(self, prompt: str = "") -> None:
-        """Run the M7 vault audit + archivist sync (best-effort; never blocks)."""
-        def _audit() -> None:
-            try:
-                import obsidian_auditor
-
-                result = obsidian_auditor.audit_run()
-                if self._abort_event.is_set() or self._tag_cancelled("m7"):
-                    return
-                self.append_line("master", result["summary"])
-                if not result["ok"]:
-                    for issue in result.get("integrity", {}).get("issues", []):
-                        self.append_line("m7", f"AUDIT: {issue}")
-                    for orphan in result.get("cross_ref", {}).get("orphaned_prompts", []):
-                        self.append_line("m7", f"AUDIT: orphaned prompt {orphan}")
-            except Exception as exc:  # noqa: BLE001
-                if not self._abort_event.is_set() and not self._tag_cancelled("m7"):
-                    self.append_line("m7", f"AUDIT ERROR: {exc}")
-            # Architectural Obsidian Archivist — rules 1-5 (filter, store,
-            # mermaid map, maintenance, lean evolution).
-            if self._abort_event.is_set() or self._tag_cancelled("m7"):
-                return
-            try:
-                from .archivist import archivist_run
-
-                arch = archivist_run(
-                    prompt, workspace=self.workspace, plan=self.last_plan,
-                )
-                if self._abort_event.is_set() or self._tag_cancelled("m7"):
-                    return
-                for line in arch["summary"].splitlines():
-                    self.append_line("m7", f"ARCHIVIST: {line}")
-            except Exception as exc:  # noqa: BLE001
-                if not self._abort_event.is_set() and not self._tag_cancelled("m7"):
-                    self.append_line("m7", f"ARCHIVIST ERROR: {exc}")
-
-        t = threading.Thread(target=_audit, name="m7-audit", daemon=True)
-        self._audit_thread = t
-        t.start()
-
 
 HUB = RunHub()
-
-
-def build_overrides_table(
-    overrides: dict[str, dict[str, str]], hub: RunHub | None = None
-) -> str:
-    """Render every tab's effective model/mode as an aligned table."""
-    if hub is None:
-        hub = HUB
-    from .agents import TABS
-
-    rows: list[tuple[str, str, str, str]] = []
-    for tag, _name, _agent in TABS:
-        model, mode = hub.resolve(tag, overrides)
-        model_text = model or "auto"
-        mode_text = "auto" if mode == AUTO_MODE else mode
-        over = overrides.get(tag, {})
-        master = overrides.get("master", {})
-        explicit = (
-            over.get("model") not in (None, AUTO_MODEL)
-            or over.get("mode") not in (None, AUTO_MODE)
-        )
-        master_has = (
-            master.get("model") not in (None, AUTO_MODEL)
-            or master.get("mode") not in (None, AUTO_MODE)
-        )
-        src = "set" if explicit else ("master" if master_has else "auto")
-        rows.append((tag.upper(), model_text, mode_text, src))
-    label_w = max(len(r[0]) for r in rows)
-    model_w = max(len(r[1]) for r in rows)
-    mode_w = max(len(r[2]) for r in rows)
-
-    def fmt(label: str, model: str, mode: str, src: str) -> str:
-        return f"{label:<{label_w}}  {model:<{model_w}}  {mode:<{mode_w}}  {src}"
-
-    header = fmt("TAB", "MODEL", "MODE", "SRC")
-    lines = [header, "-" * len(header)]
-    lines += [fmt(*row) for row in rows]
-    return "\n".join(lines)
-
-
-def _agent_tab_identity(
-    tag: str,
-    overrides: dict[str, dict[str, str]] | None = None,
-    hub: RunHub | None = None,
-) -> tuple[str, str]:
-    """Return the effective display name and role badge for an agent tab."""
-    from .agents import AGENTS, _AGENT_PERSONAS, MODE_TO_AGENT, AUTO_MODE
-
-    base = next(((name, agent) for item, name, agent in AGENTS if item == tag), (tag.upper(), tag))
-    persona_key = base[1]
-    mode = None
-    if overrides is not None:
-        if hub is None:
-            hub = HUB
-        _model, mode = hub.resolve(tag, overrides)
-    if mode and mode != AUTO_MODE:
-        persona_key = MODE_TO_AGENT.get(mode, persona_key)
-    return _AGENT_PERSONAS.get(persona_key, (base[0], mode or tag.upper()))
