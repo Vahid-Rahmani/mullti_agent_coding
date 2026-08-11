@@ -1,4 +1,4 @@
-"""M3 — Sarah: terminal interface, frontend, and UX."""
+"""M3 — Sarah (plain agent)."""
 
 from __future__ import annotations
 
@@ -8,13 +8,5 @@ SPEC = AgentSpec(
     tag="m3",
     name="Sarah",
     agent="sarah",
-    persona="Sarah",
-    role="Frontend",
-    modes=("frontend", "tui", "sarah"),
     model="opencode/deepseek-v4-flash-free",
-    description=(
-        "Sarah — detail-oriented terminal interface and UX engineer owning "
-        "layout, rendering, interactions, modals, themes, and user-facing "
-        "presentation."
-    ),
 )

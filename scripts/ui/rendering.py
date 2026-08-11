@@ -24,13 +24,13 @@ from .palette import (
 )
 
 from ..core.agents import (
-    AGENTS, TABS, AUTO_MODE, AUTO_MODEL, STATUS_IDLE, STATUS_THINKING,
+    AGENTS, TABS, STATUS_IDLE, STATUS_THINKING,
     STATUS_ACTIVE, STATUS_ERROR,
 )
 from ..core.progress import (
     _estimate_token_percent, _weighted_progress, _PROGRESS_BAR_WIDTH, WORKING_LABEL,
 )
-from ..core.run_hub import HUB, _sanitize_prompt, _agent_tab_identity
+from ..core.run_hub import HUB, _sanitize_prompt
 
 # Ensure status symbols are initialized before any rendering that uses them.
 _init_status_symbol()
@@ -60,30 +60,27 @@ def _dir_line(workspace: Path) -> str:
 
 
 def _model_bar(
-    overrides: dict[str, dict[str, str]],
-    agents_filter: list[str] | None,
     current_tab: str = "master",
+    agents_filter: list[str] | None = None,
 ) -> str:
     """Plain status-bar text for compatibility and command output."""
-    return "".join(text for _style, text in _model_bar_fragments(overrides, agents_filter, current_tab))
+    return "".join(text for _style, text in _model_bar_fragments(current_tab, agents_filter))
 
 
 def _model_bar_fragments(
-    overrides: dict[str, dict[str, str]],
-    agents_filter: list[str] | None,
     current_tab: str = "master",
+    agents_filter: list[str] | None = None,
     on_control_click=None,
     compact: bool = False,
     ultra_compact: bool = False,
     esc_pending_tag: str | None = None,
-    terminal_settings: dict | None = None,
 ) -> list[tuple]:
     """Render bottom chrome segments, optionally attaching mouse actions.
 
-    ``terminal_settings`` (when provided) appends a read-only LAYOUT/SET
-    segment so persisted theme/density/font overrides are visible at a glance.
+    Baseline-zero: agents run their configured spec models; the bar shows the
+    resolved model (read-only) — no mode, no overrides, no settings segment.
     """
-    model, mode = HUB.resolve(current_tab, overrides)
+    model, _mode = HUB.resolve(current_tab)
     target = current_tab if current_tab != "master" else (
         ",".join(agents_filter) if agents_filter else "all"
     )
@@ -96,30 +93,25 @@ def _model_bar_fragments(
     else:
         esc_suffix = ""
     if ultra_compact:
-        model_text = "Auto" if not model or model == AUTO_MODEL else model.split("/")[-1]
-        mode_text = "Auto" if not mode or mode == AUTO_MODE else mode
+        model_text = (model or "auto").split("/")[-1]
         controls = [
             ("tab", f"T:{current_tab.upper()}"),
             ("model", f"M:{model_text}"),
-            ("mode", f"D:{mode_text}"),
             ("target", f"G:{target[:8]}"),
             ("run", f"R:{running}/{len(AGENTS)}{esc_suffix}"),
         ]
     elif compact:
-        model_text = "Auto" if not model or model == AUTO_MODEL else model
-        mode_text = "Auto" if mode == AUTO_MODE else (mode or AUTO_MODE)
+        model_text = model or "auto"
         controls = [
             ("tab", f"TAB {current_tab.upper()}"),
             ("model", f"AI MODEL {model_text}"),
-            ("mode", f"MODE {mode_text}"),
             ("target", f"TARGET {target}"),
             ("run", f"RUN {running}/{len(AGENTS)}{esc_suffix}"),
         ]
     else:
         controls = [
             ("tab", f"TAB {current_tab.upper()}"),
-            ("model", f"AI MODEL {model or AUTO_MODEL}"),
-            ("mode", f"MODE {mode or AUTO_MODE}"),
+            ("model", f"AI MODEL {model or 'auto'}"),
             ("target", f"TARGET {target}"),
             ("run", f"RUN {running}/{len(AGENTS)}{esc_suffix}"),
         ]
@@ -128,12 +120,12 @@ def _model_bar_fragments(
         if index:
             fragments.append(("class:retro.model", " ▍"))
         handler = None
-        if on_control_click is not None and kind in {"tab", "model", "mode", "target"}:
+        if on_control_click is not None and kind in {"tab", "target"}:
             def click(event, _kind=kind):
                 on_control_click(_kind, event)
             handler = click
-        style = "class:retro.control" if kind in {"tab", "model", "mode", "target"} else "class:retro.model"
-        if kind in {"tab", "model", "mode", "target"}:
+        style = "class:retro.control" if kind in {"tab", "target"} else "class:retro.model"
+        if kind in {"tab", "target"}:
             visible = f"⟦ {label} ⟧ "
         else:
             visible = f"{label} "
@@ -141,18 +133,6 @@ def _model_bar_fragments(
             fragments.append((style, visible))
         else:
             fragments.append((style, visible, handler))
-    if terminal_settings is not None:
-        theme = str(terminal_settings.get("theme") or "classic")
-        density = str(terminal_settings.get("density") or "comfortable")
-        font = str(terminal_settings.get("font_size") or "medium")
-        fragments.append(("class:retro.model", " ▍"))
-        if ultra_compact:
-            label = f"SET {theme[:1]}/{density[:1]}/{font[:1]}"
-        elif compact:
-            label = f"SET {theme}/{density}"
-        else:
-            label = f"SET {theme}·{density}·{font}"
-        fragments.append(("class:retro.model", label + " "))
     return fragments
 
 
@@ -164,7 +144,6 @@ def _dashboard_fragments(
     current_tab: str = "master",
     on_tab_click=None,
     width: int | None = None,
-    overrides: dict[str, dict[str, str]] | None = None,
     enabled_agents: set[str] | list[str] | tuple[str, ...] | None = None,
 ) -> list[tuple]:
     """Render MASTER/M1..M7 as visibly bordered tab buttons.
@@ -174,16 +153,14 @@ def _dashboard_fragments(
     """
     fragments: list[tuple] = []
     row_width = 0
-    for tag, _name_key, _agent in TABS:
+    for tag, name, _agent in TABS:
         if enabled_agents is not None and tag != "master" and tag not in enabled_agents:
             continue
         status = statuses.get(tag, STATUS_IDLE)
         symbol, _color = STATUS_SYMBOL.get(status, STATUS_SYMBOL[STATUS_IDLE])
         active = tag == current_tab
-        # Resolve dynamic persona name+role for this tab
         if tag != "master":
-            display_name, role = _agent_tab_identity(tag, overrides or {})
-            label = f"{tag.upper()}: {display_name} [{role}]"
+            label = f"{tag.upper()}: {name}"
         else:
             label = "MASTER"
         cell = f"⟦{symbol} {label}⟧ "

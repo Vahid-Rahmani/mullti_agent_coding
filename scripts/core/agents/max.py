@@ -1,4 +1,4 @@
-"""M6 — Max: DevOps, automation, and environment stability."""
+"""M6 — Max (plain agent)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,5 @@ SPEC = AgentSpec(
     tag="m6",
     name="Max",
     agent="max",
-    persona="Max",
-    role="DevOps",
-    modes=("devops", "automation", "max"),
     model="opencode/deepseek-v4-flash-free",
-    description=(
-        "Max — systematic DevOps and automation specialist owning launchers, "
-        "workers, execution paths, configuration plumbing, and build stability."
-    ),
 )

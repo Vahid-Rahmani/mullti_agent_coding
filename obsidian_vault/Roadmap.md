@@ -1,9 +1,17 @@
 # Roadmap — MultiAgentCoding Control Plane
 
-> **Last updated:** 2026-08-11 10:30 UTC
-> **Current branch:** `full`
+> **Last updated:** 2026-08-11 UTC
+> **Current branch:** `baseline-zero`
 
 ---
+
+## Phase Zero — Complete Structural Reset (BASELINE ZERO)
+
+- [x] Wiped all agent capabilities: agents are plain (identity + model only; no roles, modes, or specialized prompts)
+- [x] Revoked external integrations: Obsidian archivist link (M7), analyzer, swarm, self-evolve, agent/prompt loggers, web dashboard — all removed
+- [x] Removed all mode menus & toggles: settings modal, mode routing, override machinery, specialized-prompt commands
+- [x] Launchers and terminal stripped to plain dispatch (`opencode run --agent <a> -m <model> "<prompt>"`)
+- [x] Tests rewritten for the plain contract; suite green
 
 ## Phase A — Foundation: Swarm Coordinator Core
 

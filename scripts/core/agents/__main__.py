@@ -7,9 +7,8 @@ source of truth.
 
 Usage:
     python -m scripts.core.agents list                 # agent keys, one per line
-    python -m scripts.core.agents roster               # slot table: tag agent name role model
+    python -m scripts.core.agents roster               # slot table: tag agent name model
     python -m scripts.core.agents model <tag-or-key>   # configured default model
-    python -m scripts.core.agents models <tag-or-key>  # models that can run it
     python -m scripts.core.agents verify               # drift-check specs vs opencode.json
 
 ``<tag-or-key>`` accepts either a tag (``m1``) or an agent key (``matthew``).
@@ -35,7 +34,6 @@ from scripts.core.agents import (  # noqa: E402
     AGENT_SPEC_BY_TAG,
     AGENT_SPECS,
     AGENTS,
-    MODELS_BY_AGENT,
 )
 
 
@@ -56,13 +54,13 @@ def _cmd_list() -> int:
 
 
 def _cmd_roster() -> int:
-    """Print one slot-aligned line per specialist: tag agent name role model.
+    """Print one slot-aligned line per agent: tag agent name model.
 
-    ``launch_agents.bat`` parses this with ``for /f "tokens=1-5"`` to build
+    ``launch_agents.bat`` parses this with ``for /f "tokens=1-4"`` to build
     the 7-window launcher arrays instead of hardcoding the roster.
     """
     for spec in AGENT_SPECS:
-        print(f"{spec.tag} {spec.agent} {spec.name} {spec.role} {spec.model or ''}")
+        print(f"{spec.tag} {spec.agent} {spec.name} {spec.model or ''}")
     return 0
 
 
@@ -73,16 +71,6 @@ def _cmd_model(name: str) -> int:
         print(f"error: unknown agent '{name}' (valid: {valid})", file=sys.stderr)
         return 2
     print(spec.model or "")
-    return 0
-
-
-def _cmd_models(name: str) -> int:
-    spec = _resolve(name)
-    if spec is None:
-        valid = ", ".join(sorted(AGENT_SPEC_BY_AGENT))
-        print(f"error: unknown agent '{name}' (valid: {valid})", file=sys.stderr)
-        return 2
-    print(" ".join(MODELS_BY_AGENT.get(spec.agent, ())))
     return 0
 
 
@@ -109,8 +97,7 @@ def _cmd_verify() -> int:
                 f"{spec.agent}: spec model {spec.model!r} != opencode.json {entry.get('model')!r}"
             )
     # Flag opencode agents that are not part of the roster. "compaction" is an
-    # internal OpenCode agent (context compaction) routed to Chloe in MODE_TO_AGENT,
-    # so it is intentionally exempt.
+    # internal OpenCode agent (context compaction) and is intentionally exempt.
     for key in runtime:
         if key != "compaction" and key not in AGENT_SPEC_BY_AGENT:
             issues.append(f"{key}: in opencode.json but not in scripts/core/agents specs")
@@ -137,12 +124,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_roster()
     if cmd == "verify":
         return _cmd_verify()
-    if cmd in ("model", "models"):
+    if cmd == "model":
         if len(argv) < 2:
-            print(f"error: {cmd} requires an agent tag or key", file=sys.stderr)
+            print("error: model requires an agent tag or key", file=sys.stderr)
             return 2
-        return _cmd_model(argv[1]) if cmd == "model" else _cmd_models(argv[1])
-    print(f"error: unknown command '{cmd}' (try: list, roster, model, models, verify)", file=sys.stderr)
+        return _cmd_model(argv[1])
+    print(f"error: unknown command '{cmd}' (try: list, roster, model, verify)", file=sys.stderr)
     return 2
 
 

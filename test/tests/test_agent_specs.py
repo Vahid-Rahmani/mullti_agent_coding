@@ -2,12 +2,10 @@
 
 A shared base class verifies the invariants every agent must satisfy; one
 subclass per agent (M1..M7 plus the master coordinator) pins the exact
-identity, mode set, configured model, and routing, so a change to one agent's
-spec surfaces in that agent's test class only.
+identity and configured model.
 
 Also verifies the launcher contract: every spec's configured model must match
-``opencode.json`` (the runtime OpenCode config) and must be a model the agent
-can actually run (``MODELS_BY_AGENT`` capability matrix).
+``opencode.json`` (the runtime OpenCode config).
 """
 
 import json
@@ -38,9 +36,6 @@ class _AgentSpecTestCase(unittest.TestCase):
     tag = ""
     name = ""
     agent = ""
-    role = ""
-    modes = ()
-    extra_modes = ()
     model = ""
 
     @classmethod
@@ -57,47 +52,17 @@ class _AgentSpecTestCase(unittest.TestCase):
         self.assertEqual(self.spec.tag, self.tag)
         self.assertEqual(self.spec.name, self.name)
         self.assertEqual(self.spec.agent, self.agent)
-        self.assertEqual(self.spec.role, self.role)
-        self.assertEqual(self.spec.persona, self.name)
 
-    def test_modes_declared(self):
-        self.assertEqual(tuple(self.spec.modes), tuple(self.modes))
-        self.assertEqual(tuple(self.spec.extra_modes), tuple(self.extra_modes))
-
-    def test_all_modes_are_unique(self):
-        all_modes = self.spec.all_modes
-        self.assertEqual(len(all_modes), len(set(all_modes)))
-
-    def test_operational_modes_route_to_self(self):
-        for mode in self.spec.modes:
-            self.assertEqual(agents.MODE_TO_AGENT[mode], self.agent, mode)
-
-    def test_extra_modes_route_to_self(self):
-        for mode in self.spec.extra_modes:
-            self.assertEqual(agents.MODE_TO_AGENT[mode], self.agent, mode)
-
-    def test_operational_modes_offered_to_auto_model(self):
-        for mode in self.spec.modes:
-            self.assertIn(mode, agents.ALL_OPERATIONAL_MODES, mode)
-
-    def test_extra_modes_not_operational(self):
-        for mode in self.spec.extra_modes:
-            self.assertNotIn(mode, agents.ALL_OPERATIONAL_MODES, mode)
-
-    def test_model_configured_and_valid(self):
+    def test_model_configured(self):
         self.assertEqual(self.spec.model, self.model)
-        self.assertIn(self.spec.model, agents.MODEL_OPTIONS)
 
-    def test_configured_model_is_capable(self):
-        """The agent must be able to run on its own configured model."""
-        self.assertIn(self.spec.model, agents.MODELS_BY_AGENT[self.agent])
-
-    def test_description_mentions_agent(self):
-        self.assertIn(self.name.lower(), self.spec.description.lower())
-
-    def test_no_model_lock_fields(self):
-        """The model/mode lock mechanism was removed from every AgentSpec:
-        each agent (M1..M7) is individually configurable."""
+    def test_plain_fields_only(self):
+        """No specialized fields survive on any agent spec."""
+        self.assertFalse(hasattr(self.spec, "modes"))
+        self.assertFalse(hasattr(self.spec, "extra_modes"))
+        self.assertFalse(hasattr(self.spec, "persona"))
+        self.assertFalse(hasattr(self.spec, "role"))
+        self.assertFalse(hasattr(self.spec, "description"))
         self.assertFalse(hasattr(self.spec, "immutable"))
         self.assertFalse(hasattr(self.spec, "pinned_model"))
         self.assertFalse(hasattr(self.spec, "pinned_mode"))
@@ -112,8 +77,6 @@ class TestMatthewSpec(_AgentSpecTestCase):
     tag = "m1"
     name = "Matthew"
     agent = "matthew"
-    role = "Architect"
-    modes = ("architect", "analyze", "plan", "matthew")
     model = "opencode/deepseek-v4-flash-free"
 
 
@@ -122,8 +85,6 @@ class TestAlexSpec(_AgentSpecTestCase):
     tag = "m2"
     name = "Alex"
     agent = "alex"
-    role = "Builder"
-    modes = ("backend", "api", "build", "alex")
     model = "opencode/deepseek-v4-flash-free"
 
 
@@ -132,8 +93,6 @@ class TestSarahSpec(_AgentSpecTestCase):
     tag = "m3"
     name = "Sarah"
     agent = "sarah"
-    role = "Frontend"
-    modes = ("frontend", "tui", "sarah")
     model = "opencode/deepseek-v4-flash-free"
 
 
@@ -142,8 +101,6 @@ class TestDavidSpec(_AgentSpecTestCase):
     tag = "m4"
     name = "David"
     agent = "david"
-    role = "QA"
-    modes = ("qa", "test", "tester", "david")
     model = "opencode/big-pickle"
 
 
@@ -152,8 +109,6 @@ class TestElenaSpec(_AgentSpecTestCase):
     tag = "m5"
     name = "Elena"
     agent = "elena"
-    role = "Security"
-    modes = ("security", "review", "reviewer", "elena")
     model = "opencode/ling-3.0-tiny-free"
 
 
@@ -162,8 +117,6 @@ class TestMaxSpec(_AgentSpecTestCase):
     tag = "m6"
     name = "Max"
     agent = "max"
-    role = "DevOps"
-    modes = ("devops", "automation", "max")
     model = "opencode/deepseek-v4-flash-free"
 
 
@@ -172,22 +125,16 @@ class TestChloeSpec(_AgentSpecTestCase):
     tag = "m7"
     name = "Chloe"
     agent = "chloe"
-    role = "Archivist"
-    modes = ("docs", "documentation", "chloe", agents.ARCHIVIST_MODE)
-    extra_modes = (agents.M7_AUDIT_MODE, "compact", "compaction")
     model = "opencode/ling-3.0-tiny-free"
 
 
 class TestMasterSpec(_AgentSpecTestCase):
-    """Master is the coordinator: no OpenCode agent, no model, no modes."""
+    """Master is the coordinator: no OpenCode agent, no model."""
 
     module_name = "master"
     tag = "master"
     name = "Master"
     agent = None
-    role = "Coordinator"
-    modes = ()
-    extra_modes = ()
     model = None
 
     def test_no_opencode_agent(self):
@@ -202,50 +149,6 @@ class TestMasterSpec(_AgentSpecTestCase):
         # Master is the coordinator tab, not a specialist: no tag/agent lookups.
         self.assertNotIn("master", agents.AGENT_SPEC_BY_TAG)
         self.assertIs(agents.MASTER_SPEC, self.spec)
-
-    def test_operational_modes_route_to_self(self):  # no modes to route
-        pass
-
-    def test_extra_modes_route_to_self(self):
-        pass
-
-    def test_model_configured_and_valid(self):
-        self.assertIsNone(self.spec.model)
-
-    def test_configured_model_is_capable(self):
-        pass  # master has no model by design
-
-
-class ModelCapabilityTestCase(unittest.TestCase):
-    """The capability matrix and its inverse are consistent."""
-
-    def test_modes_by_agent_covers_every_agent(self):
-        for spec in agents.AGENT_SPECS:
-            self.assertIn(spec.agent, agents.MODELS_BY_AGENT)
-            self.assertTrue(agents.MODELS_BY_AGENT[spec.agent], spec.agent)
-
-    def test_auto_model_can_run_every_agent(self):
-        for spec in agents.AGENT_SPECS:
-            self.assertIn(
-                agents.AUTO_MODEL, agents.MODELS_BY_AGENT[spec.agent], spec.agent
-            )
-
-    def test_ling_only_offers_fast_audit_agents(self):
-        ling = agents.MODELS_BY_AGENT
-        self.assertIn("opencode/ling-3.0-tiny-free", ling["elena"])
-        self.assertIn("opencode/ling-3.0-tiny-free", ling["chloe"])
-        self.assertNotIn("opencode/ling-3.0-tiny-free", ling["matthew"])
-        self.assertNotIn("opencode/ling-3.0-tiny-free", ling["alex"])
-        self.assertNotIn("opencode/ling-3.0-tiny-free", ling["david"])
-
-    def test_matrix_and_inverse_agree(self):
-        for agent_key, models in agents.MODELS_BY_AGENT.items():
-            for model in models:
-                spec = agents.AGENT_SPEC_BY_AGENT[agent_key]
-                self.assertTrue(
-                    any(mode in agents.MODE_OPTIONS_BY_MODEL[model] for mode in spec.all_modes),
-                    f"{model} offers no mode for {agent_key}",
-                )
 
 
 class SpecModelConsistencyTestCase(unittest.TestCase):
@@ -296,11 +199,11 @@ class SpecCliTestCase(unittest.TestCase):
         rows = [row.split() for row in out.splitlines() if row.strip()]
         self.assertEqual(len(rows), 7)
         for row in rows:
-            self.assertEqual(len(row), 5)  # tag agent name role model
+            self.assertEqual(len(row), 4)  # tag agent name model
         self.assertEqual(rows[0][0], "m1")
         self.assertEqual(rows[0][1], "matthew")
         self.assertEqual(rows[3][1], "david")
-        self.assertEqual(rows[3][4], "opencode/big-pickle")
+        self.assertEqual(rows[3][3], "opencode/big-pickle")
 
     def test_model_by_key_and_tag(self):
         code, out, _ = self._capture(["model", "matthew"])
@@ -309,13 +212,6 @@ class SpecCliTestCase(unittest.TestCase):
         code, out, _ = self._capture(["model", "m7"])
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "opencode/ling-3.0-tiny-free")
-
-    def test_models_lists_capable_models(self):
-        code, out, _ = self._capture(["models", "chloe"])
-        self.assertEqual(code, 0)
-        models = out.split()
-        self.assertIn("opencode/ling-3.0-tiny-free", models)
-        self.assertNotIn("opencode/deepseek-v4-flash-free", models)
 
     def test_unknown_agent_exits_2(self):
         code, _out, err = self._capture(["model", "nobody"])

@@ -1,31 +1,35 @@
 # MultiAgentCoding — Control Plane
 
-A self-evolving multi-agent coding system. This repository is the **control
-plane** that defines the agents, skills, configuration, and memory used to drive
-software projects. It ships two ways to interact with the agent swarm: a
-retro-CRT **ZOVA terminal** and a 7-window inbox launcher.
+A multi-agent coding system. This repository is the **control plane** that
+defines the agents, configuration, and memory used to drive software projects.
+It ships two ways to interact with the agents: a retro-CRT **ZOVA terminal**
+and a 7-window inbox launcher.
+
+> **Baseline-zero:** agents are plain (identity + model only), dispatch is
+> plain, and all external integrations (Obsidian archivist, analyzer, swarm,
+> self-evolve) have been removed. This is an unopinionated slate for
+> step-by-step rebuilding.
 
 ---
 
 ## Overview
 
-The control plane defines seven humanified specialists—Matthew, Alex, Sarah,
-David, Elena, Max, and Chloe—that collaborate to build software. Each has a
-distinct operational role, model assignment, and permission scope configured in
-[`opencode.json`](opencode.json).
+The control plane defines seven agents — Matthew, Alex, Sarah, David, Elena,
+Max, and Chloe — configured in [`opencode.json`](opencode.json). Each has a
+model assignment and an explicit fallback chain.
 
-| Agent | Role | Model |
-|---|---|---|
-| `matthew` | Matthew — architecture + master coordination (read-only) | opencode/deepseek-v4-flash-free |
-| `alex` | Alex — backend, APIs, Python logic, and data handling | opencode/deepseek-v4-flash-free |
-| `sarah` | Sarah — TUI, frontend, UX, and rendering | opencode/deepseek-v4-flash-free |
-| `david` | David — QA, TDD, tests, and debugging | opencode/big-pickle |
-| `elena` | Elena — code quality and security audit (read-only) | opencode/ling-3.0-tiny-free |
-| `max` | Max — DevOps, automation, and environment stability | opencode/deepseek-v4-flash-free |
-| `chloe` | Chloe — Architectural Obsidian Archivist (read-only): filters conversation from architecture, stores `docs/architecture/` notes with Mermaid maps per project, keeps lean `Evolution.md` | opencode/ling-3.0-tiny-free |
+| Agent | Model |
+|---|---|
+| `matthew` | opencode/deepseek-v4-flash-free |
+| `alex` | opencode/deepseek-v4-flash-free |
+| `sarah` | opencode/deepseek-v4-flash-free |
+| `david` | opencode/big-pickle |
+| `elena` | opencode/ling-3.0-tiny-free |
+| `max` | opencode/deepseek-v4-flash-free |
+| `chloe` | opencode/ling-3.0-tiny-free |
 
 All agents use **free** models (no paid credits required). See
-[`AGENTS.md`](AGENTS.md) for full role, workflow, and fallback-policy details.
+[`AGENTS.md`](AGENTS.md) for workflow and fallback-policy details.
 
 ---
 
@@ -40,11 +44,10 @@ per-tab scrollable console, and a rounded prompt box at the bottom for typing
 coding tasks or slash commands.
 
 **Tabbed agent workspace** — the seven agents each get their own dedicated
-tab (M1 Matthew … M7 Chloe) inside the single unified window, so
-they operate independently. `F1`–`F7` select an agent tab, `F8` selects
-MASTER (all agents), `Ctrl+T` cycles tabs, or use `/tab <tag>`. A task typed
-on an agent tab dispatches to that agent only; on the MASTER tab it goes to
-all agents (or the `/agents` filter). Each tab has its own console showing
+tab (M1 Matthew … M7 Chloe) inside the single unified window. `F1`–`F7` select
+an agent tab, `F8` selects MASTER (all agents), `Ctrl+T` cycles tabs, or use
+`/tab <tag>`. A task typed on an agent tab dispatches to that agent only; on
+the MASTER tab it goes to all agents. Each tab has its own console showing
 only that agent's output.
 
 **Strict color scheme** — the UI uses exactly four colors and nothing else:
@@ -65,66 +68,32 @@ python scripts/terminal_app.py --smoke   # headless build check
 - **Agent tabs** — live M1–M7 status per tab (● idle / ◐ thinking / ● active /
   ✕ error); the active tab is bracket-highlighted in neon, inactive tabs
   render grey, busy/error states orange.
-- **Model status bar** — active tab / model / mode / dispatch target /
-  running count, embedded in the rounded prompt box's top border.
-- **Decoupled settings screen** (Ctrl+Shift+S or `/settings`) — a GENERAL
-  section holds the global execution mode (master-level model/mode defaults
-  plus layout), while an AGENTS section lists every agent straight from the
-  live registry (M1..M7) with its own model/mode submenu. All seven agents
-  are individually configurable — there are no locked models.
+- **Model status bar** — active tab / model / dispatch target / running count,
+  embedded in the rounded prompt box's top border.
 - **Rounded prompt box** — Enter submits, Ctrl+J inserts a newline,
   Ctrl+C clears the input (press again to quit), PageUp/PageDown scrolls the
   active tab's console, `/` starts a command with tab completion.
 - **Workspace-aware** — agents run `opencode run --agent <agent> --auto
-  "<prompt>"` with the current workspace as their working directory.
-- **Analyzer Core (mandatory pre-dispatch)** — before any dispatch, a
-  host-side analyzer produces a modular master plan (requirements → decoupled
-  modules → one component per agent) that is injected into every agent
-  prompt; the module map is handed to Chloe's archivist for persistent
-  `docs/architecture/` mapping. Preview with `/plan <prompt>` or
-  `python -m scripts.core.analyzer "<prompt>"`.
-  `--auto` auto-approves tool permissions (`opencode run` has no `--yes`/`-y`).
+  -m <model> "<prompt>"` with the current workspace as their working
+  directory. `--auto` auto-approves tool permissions (`opencode run` has no
+  `--yes`/`-y`).
 
-**Slash commands:** `/tab [tag]`, `/help`, `/cd <path>`, `/model [name]`,
-`/mode [name]`, `/agents [tags]`, `/status`, `/clear`, `/stop`, `/swarm`,
-`/proposals`, `/evolve <prompt>`, `/quit`.
+**Slash commands:** `/tab [tag]`, `/help`, `/cd <path>`, `/status`, `/clear`,
+`/stop`, `/theme [name]`, `/quit`.
 
 ### 2. 7-Window Inbox Launcher
 
-Runs the seven roles side by side, each listening for tasks in its own inbox,
-with **Dynamic Swarm Role-Swapping & Peer-Assistance** built in.
+Runs the seven agents side by side, each listening for tasks in its own inbox.
 
 ```bat
-launch_agents.bat            # launch all 7 agent windows (swarm mode ON)
+launch_agents.bat            # launch all 7 agent windows
 launch_agents.bat --smoke    # seed SMOKE tasks and run once
 launch_agents.bat --dry      # print the launch commands only
-launch_agents.bat --no-swarm # disable helper rotation
-launch_agents.bat --stale N  # treat a peer's task as lagging after N s (default 20)
 ```
 
 Drop a single-line task into `_inbox/<agent>.task` (e.g. `_inbox/alex.task`).
 The agent's window polls the inbox, runs the task, appends output to
 `_logs/<agent>.log`, and moves the consumed task to `_inbox/done/`.
-
-**Swarm protocol** (implemented in `scripts/swarm.py` + `scripts/run_agent_worker.ps1`):
-
-1. **Role rotation on completion** — after finishing its own task, an idle
-   worker scans `_inbox/` for *lagging peers* (tasks unclaimed for
-   `--stale N` seconds). It atomically claims one and executes it with the
-   peer's own agent identity (`--agent <peer>`), logging into the peer's
-   `_logs/<peer>.log`.
-2. **Dynamic tab renaming** — the window title updates in real time to show
-   the cooperative role, e.g. `M3 - Sarah` → `M3-Helper->M1`, and the live
-   role is persisted per slot in `_logs/swarm/m<slot>.json` so any UI can
-   reflect it.
-3. **Inter-agent learning & feedback loop** — every run (own or assisted)
-   appends a JSONL record to `_logs/swarm_feedback.jsonl` (who, mode, ok,
-   duration). Before each run the worker injects a "swarm brief" built from
-   recent records + live helpers into the prompt, so agents share context
-   across execution cycles.
-
-Disable rotation with `--no-swarm`; skip the brief injection by passing
-`-NoBrief` to `scripts/run_agent_worker.ps1` directly.
 
 ---
 
@@ -141,7 +110,7 @@ opencode process only** — do not enable on untrusted networks):
 
 ```bat
 set ZOVA_ALLOW_INSECURE_TLS=1
-launch_agents.bat        :: or launch_terminal.bat / launch_web.bat
+launch_agents.bat        :: or launch_terminal.bat
 ```
 
 The toggle is honored by the 7-window inbox workers
@@ -186,31 +155,26 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 
 ```
 .
-├── AGENTS.md              # Agent roles, workflow, fallback policy, conventions
-├── opencode.json          # Agent definitions, models, providers, permissions
-├── launch_agents.bat      # 7-window inbox launcher (swarm mode ON)
+├── AGENTS.md              # Agent roster, workflow, fallback policy, conventions
+├── opencode.json          # Agent definitions, models, providers
+├── launch_agents.bat      # 7-window inbox launcher
 ├── launch_terminal.bat    # ZOVA retro terminal launcher
 ├── scripts/
 │   ├── terminal_app.py    # ZOVA retro terminal entry point (thin shim → core/ + ui/)
-│   ├── core/              # Decoupled engine: agents, run hub, state, routing
+│   ├── core/              # Decoupled engine: agents, run hub, state
 │   │   ├── agents/        # Per-agent definitions — one AgentSpec module per agent
-│   │   │   ├── base.py        # AgentSpec dataclass
-│   │   │   ├── registry.py    # Roster + tab order + mode routing derived from the specs
-│   │   ├── models.py      # Model capability matrix (which modes each model may run)
-│   │   │   ├── matthew.py … chloe.py  # M1–M7 specialized agents
+│   │   │   ├── base.py        # AgentSpec dataclass (plain: identity + model)
+│   │   │   ├── registry.py    # Roster + tab order derived from the specs
+│   │   │   ├── matthew.py … chloe.py  # M1–M7 plain agents
 │   │   │   ├── master.py      # Master coordinator spec
-│   │   └── __main__.py    # CLI: resolve per-agent models for the launcher workers
-│   │   ├── analyzer.py    # Analyzer Core — mandatory pre-dispatch master plan
-│   │   ├── run_hub.py     # Thread-safe multi-agent execution engine
+│   │   │   └── __main__.py    # CLI: resolve per-agent models for the launcher workers
+│   │   ├── run_hub.py     # Thread-safe multi-agent execution engine (plain dispatch)
 │   │   ├── state_tracker.py   # Session state (state.md)
-│   │   └── archivist.py   # Chloe's Obsidian archivist engine
-│   ├── ui/                # Decoupled terminal UI (palette, rendering, modal, theme)
-│   ├── swarm.py           # Swarm coordinator (role rotation, feedback, briefs)
+│   │   └── command_parser.py  # Slash-command parsing + help text
+│   ├── ui/                # Decoupled terminal UI (palette, rendering, theme)
 │   ├── run_agent_worker.ps1  # Inbox-polling worker (Windows, 7-window launcher)
 │   ├── run_agent_worker.sh   # Inbox-polling worker (Git Bash)
-│   ├── intent_router.py   # Intent classification/routing for the swarm
-│   └── self_evolve.py     # Self-evolution engine (verify + restart marker)
-├── knowledge/             # Swarm memory (ADRs, lessons, metrics)
+├── knowledge/             # Project memory (ADRs, lessons, metrics)
 ├── .opencode/             # opencode plugins/config (e.g. model fallback)
 └── .vscode/               # VS Code tasks (Launch All Agents / ZOVA Retro Terminal)
 ```
@@ -226,7 +190,7 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 
 ---
 
-## Memory & Evolution
+## Memory
 
 Architecture decisions and lessons learned are appended to `knowledge/adr/` and
 `knowledge/lessons/`. After a milestone, run the retro to summarize the session,

@@ -1,13 +1,17 @@
 """Base specification for a single control-plane agent.
 
-Every specialized agent (M1..M7) and the master coordinator is described by an
+Every agent (M1..M7) and the master coordinator is described by an
 ``AgentSpec`` instance living in its own module under ``scripts/core/agents/``.
 This keeps each agent independently configurable, testable, and modifiable.
+
+Baseline-zero contract: agents are **plain** — an identity (tag/name/agent key)
+plus a configured model. No roles, operational modes, system prompts, or other
+specialized behavior wrappers.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -18,32 +22,12 @@ class AgentSpec:
         tag: Unique short tab tag, e.g. ``"m1"``.
         name: Human display name, e.g. ``"Matthew"``.
         agent: OpenCode agent key, e.g. ``"matthew"`` (``None`` for master).
-        persona: Persona display name used for tab identity badges.
-        role: Short role badge, e.g. ``"Architect"``.
-        modes: Operational modes routed to this agent (shown in pickers).
-        extra_modes: Routing-only modes (in ``MODE_TO_AGENT`` but not offered
-            as operational picker options), e.g. Chloe's audit/compact modes.
-        description: Long-form role description for Obsidian agent logs.
         model: The agent's configured default model (mirrors ``opencode.json``;
             used by the launcher workers and the terminal). ``None`` for the
             master coordinator, which has no OpenCode agent.
-
-    Every agent is individually configurable: the settings screen resolves each
-    agent's model/mode from the live registry and lets the user override them
-    per agent (no hardcoded model locks exist anymore).
     """
 
     tag: str
     name: str
     agent: str | None
-    persona: str
-    role: str
-    modes: tuple[str, ...] = field(default_factory=tuple)
-    extra_modes: tuple[str, ...] = field(default_factory=tuple)
-    description: str = ""
     model: str | None = None
-
-    @property
-    def all_modes(self) -> tuple[str, ...]:
-        """Every mode this agent accepts (operational + routing-only)."""
-        return self.modes + self.extra_modes

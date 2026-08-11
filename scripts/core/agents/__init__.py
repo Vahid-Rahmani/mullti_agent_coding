@@ -1,29 +1,24 @@
 """Agent definitions package — one module per agent, plus the registry.
 
-Each specialized agent (M1..M7) and the master coordinator has its own
+Each agent (M1..M7) and the master coordinator has its own
 ``SPEC: AgentSpec`` module (``matthew.py``, ``alex.py``, ... ``chloe.py``,
 ``master.py``), so every agent can be configured, tested, and modified
-independently. The ``registry`` module derives the shared roster, routing,
-and mode matrices from those specs.
+independently. The ``registry`` module derives the shared roster from those
+specs.
+
+Baseline-zero: agents are plain — identity plus a configured model. No modes,
+personas, or role descriptions.
 """
 
 from __future__ import annotations
 
 from .base import AgentSpec
 from .constants import (
-    AUTO_MODE,
-    AUTO_MODEL,
-    MODEL_OPTIONS,
     PROJECT_ROOT,
     STATUS_ACTIVE,
     STATUS_ERROR,
     STATUS_IDLE,
     STATUS_THINKING,
-)
-from .chloe import (
-    ARCHIVIST_MODE,
-    COMPACT_MODES,
-    M7_AUDIT_MODE,
 )
 from .matthew import SPEC as MATTHEW
 from .alex import SPEC as ALEX
@@ -37,41 +32,20 @@ from .registry import (
     AGENT_SPECS,
     AGENT_SPEC_BY_AGENT,
     AGENT_SPEC_BY_TAG,
-    AGENT_ROSTER_VERSION,
     AGENTS,
-    ALL_OPERATIONAL_MODES,
-    ARCHITECT_MODES,
-    BACKEND_MODES,
     DEFAULT_ENABLED_AGENTS,
-    DEVOPS_MODES,
-    DOCS_MODES,
-    FRONTEND_MODES,
     MASTER_SPEC,
-    MODELS_BY_AGENT,
-    MODE_OPTIONS_BY_MODEL,
-    MODE_TO_AGENT,
-    QA_MODES,
-    ROLE_DESCRIPTIONS,
-    SECURITY_MODES,
     TABS,
-    _AGENT_PERSONAS,
     _AGENT_TAGS,
-    mode_options_for,
 )
 
 __all__ = [
     "AgentSpec",
-    "AUTO_MODE",
-    "AUTO_MODEL",
-    "MODEL_OPTIONS",
     "PROJECT_ROOT",
     "STATUS_ACTIVE",
     "STATUS_ERROR",
     "STATUS_IDLE",
     "STATUS_THINKING",
-    "ARCHIVIST_MODE",
-    "COMPACT_MODES",
-    "M7_AUDIT_MODE",
     "MATTHEW",
     "ALEX",
     "SARAH",
@@ -83,24 +57,9 @@ __all__ = [
     "AGENT_SPECS",
     "AGENT_SPEC_BY_AGENT",
     "AGENT_SPEC_BY_TAG",
-    "AGENT_ROSTER_VERSION",
     "AGENTS",
-    "ALL_OPERATIONAL_MODES",
-    "ARCHITECT_MODES",
-    "BACKEND_MODES",
     "DEFAULT_ENABLED_AGENTS",
-    "DEVOPS_MODES",
-    "DOCS_MODES",
-    "FRONTEND_MODES",
     "MASTER_SPEC",
-    "MODELS_BY_AGENT",
-    "MODE_OPTIONS_BY_MODEL",
-    "MODE_TO_AGENT",
-    "QA_MODES",
-    "ROLE_DESCRIPTIONS",
-    "SECURITY_MODES",
     "TABS",
-    "_AGENT_PERSONAS",
     "_AGENT_TAGS",
-    "mode_options_for",
 ]
