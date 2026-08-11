@@ -32,7 +32,7 @@ for _path in (_PROJECT_ROOT, _SCRIPT_DIR):
 # ── Re-export from core ──────────────────────────────────────────────
 from scripts.core.agents import (  # noqa: F401, E402
     AGENTS, AGENT_ROSTER_VERSION, ALL_OPERATIONAL_MODES, ARCHIVIST_MODE,
-    AUTO_MODE, AUTO_MODEL, DEFAULT_ENABLED_AGENTS, IMMUTABLE_TAGS,
+    AUTO_MODE, AUTO_MODEL, DEFAULT_ENABLED_AGENTS,
     M7_AUDIT_MODE, MODEL_OPTIONS, MODE_OPTIONS_BY_MODEL, MODE_TO_AGENT,
     PROJECT_ROOT, STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE,
     STATUS_THINKING, TABS,
@@ -53,8 +53,9 @@ from scripts.core.progress import (  # noqa: F401, E402
 )
 from scripts.core.run_hub import (  # noqa: F401, E402
     HUB, RunHub,
-    _agent_tab_identity, _build_run_command, _opencode_command,
-    _sanitize_prompt, _strip_ansi, build_overrides_table, prune_prompt,
+    _agent_tab_identity, _build_run_command, _insecure_tls_env,
+    _opencode_command, _sanitize_prompt, _strip_ansi, build_overrides_table,
+    prune_prompt,
 )
 from scripts.core.state_tracker import StateTracker, STATE  # noqa: F401, E402
 from scripts.core.self_evolve_bridge import (  # noqa: F401, E402

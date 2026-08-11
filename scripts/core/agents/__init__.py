@@ -46,7 +46,6 @@ from .registry import (
     DEVOPS_MODES,
     DOCS_MODES,
     FRONTEND_MODES,
-    IMMUTABLE_TAGS,
     MASTER_SPEC,
     MODELS_BY_AGENT,
     MODE_OPTIONS_BY_MODEL,
@@ -57,6 +56,7 @@ from .registry import (
     TABS,
     _AGENT_PERSONAS,
     _AGENT_TAGS,
+    mode_options_for,
 )
 
 __all__ = [
@@ -92,7 +92,6 @@ __all__ = [
     "DEVOPS_MODES",
     "DOCS_MODES",
     "FRONTEND_MODES",
-    "IMMUTABLE_TAGS",
     "MASTER_SPEC",
     "MODELS_BY_AGENT",
     "MODE_OPTIONS_BY_MODEL",
@@ -103,4 +102,5 @@ __all__ = [
     "TABS",
     "_AGENT_PERSONAS",
     "_AGENT_TAGS",
+    "mode_options_for",
 ]

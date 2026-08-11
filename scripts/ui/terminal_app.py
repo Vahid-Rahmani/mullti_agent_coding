@@ -29,9 +29,9 @@ from .rendering import (
 )
 from .settings_modal import SettingsModal
 from ..core.agents import (
-    AGENTS, TABS, AUTO_MODE, AUTO_MODEL, IMMUTABLE_TAGS, M7_AUDIT_MODE,
+    AGENTS, TABS, AUTO_MODE, AUTO_MODEL,
     MODEL_OPTIONS, MODE_OPTIONS_BY_MODEL, PROJECT_ROOT, STATUS_IDLE,
-    STATUS_THINKING, STATUS_ACTIVE, STATUS_ERROR,
+    STATUS_THINKING, STATUS_ACTIVE, STATUS_ERROR, mode_options_for,
 )
 from ..core.command_parser import parse_command, build_help_text, _swarm_state
 from ..core.intent_classifier import _format_proposals
@@ -154,7 +154,7 @@ class RetroTerminalApp:
         commands = [
             "tab", "help", "cd", "model", "mode", "prompt", "prompts",
             "agents", "status", "overrides", "settings", "clear", "stop",
-            "swarm", "proposals", "evolve", "archive", "quit", "exit", "theme",
+            "swarm", "proposals", "plan", "evolve", "archive", "quit", "exit", "theme",
         ]
         completer = WordCompleter(commands + MODEL_OPTIONS + [t for t, _, _ in TABS], ignore_case=True)
 
@@ -464,6 +464,14 @@ class RetroTerminalApp:
         self.settings.theme_focus = value
 
     @property
+    def submenu_focus(self) -> int:
+        return self.settings.submenu_focus
+
+    @submenu_focus.setter
+    def submenu_focus(self, value: int) -> None:
+        self.settings.submenu_focus = value
+
+    @property
     def settings_height(self) -> int:
         return self.settings.settings_height
 
@@ -557,7 +565,7 @@ class RetroTerminalApp:
             self.menu_options = list(MODEL_OPTIONS)
         elif kind == "mode":
             model, _mode = self.hub.resolve(self.menu_target, self.overrides)
-            self.menu_options = list(MODE_OPTIONS_BY_MODEL.get(model or AUTO_MODEL, [AUTO_MODE]))
+            self.menu_options = mode_options_for(model, self.menu_target)
         elif kind == "target":
             self.menu_options = ["all"] + [tag for tag, _name, _agent in AGENTS]
         elif kind == "tab":
@@ -675,7 +683,7 @@ class RetroTerminalApp:
         elif kind == "mode":
             target = self.menu_target or self.current_tab
             model, _mode = self.hub.resolve(target, self.overrides)
-            valid = MODE_OPTIONS_BY_MODEL.get(model or AUTO_MODEL, [AUTO_MODE])
+            valid = mode_options_for(model, target)
             if option in valid:
                 self._set_override(target, "mode", option)
         elif kind == "target":
@@ -855,14 +863,15 @@ class RetroTerminalApp:
         return self.current_tab, arg
 
     def _set_override(self, target: str, key: str, value: str) -> None:
+        """Write a model/mode override for a target (tab, ``master`` or ``all``).
+
+        Every agent (M1..M7) is individually configurable; ``all`` fans out to
+        the whole roster including the master default.
+        """
         if target == "all":
             for tag, _, _ in TABS:
-                if tag in IMMUTABLE_TAGS:
-                    continue
                 self.overrides.setdefault(tag, {})[key] = value
         else:
-            if target in IMMUTABLE_TAGS:
-                return
             self.overrides.setdefault(target, {})[key] = value
 
     def _explicit_overrides(self, key: str | None = None) -> list[str]:
@@ -896,8 +905,6 @@ class RetroTerminalApp:
 
     def _cmd_model(self, arg: str) -> str:
         target, value = self._split_override_arg(arg)
-        if target in IMMUTABLE_TAGS and value:
-            return f"ERROR: {target.upper()} is immutable — model cannot be changed"
         if target == "all":
             if not value:
                 over = self._explicit_overrides("model")
@@ -922,8 +929,6 @@ class RetroTerminalApp:
 
     def _cmd_mode(self, arg: str) -> str:
         target, value = self._split_override_arg(arg)
-        if target in IMMUTABLE_TAGS and value:
-            return f"ERROR: {target.upper()} is immutable — mode cannot be changed"
         if target == "all":
             if not value:
                 over = self._explicit_overrides("mode")
@@ -937,7 +942,7 @@ class RetroTerminalApp:
             self._set_override("all", "mode", value)
             return f"MODE: {value} (all tabs)"
         model, _mode = self.hub.resolve(target, self.overrides)
-        modes = MODE_OPTIONS_BY_MODEL.get(model or AUTO_MODEL, [AUTO_MODE])
+        modes = mode_options_for(model, target)
         if not value:
             self.open_menu("mode", target)
             return self._mode_status_line(target) + " (menu opened)"
@@ -1071,6 +1076,31 @@ class RetroTerminalApp:
     def _cmd_proposals(self, _arg: str) -> str:
         return _format_proposals()
 
+    def _cmd_plan(self, arg: str) -> str:
+        """Analyzer Core — preview the mandatory pre-dispatch master plan.
+
+        ``/plan <prompt>`` analyzes the given text; ``/plan`` analyzes the
+        text currently in the input buffer. Shows Phase 1 (requirements),
+        Phase 2 (modular decoupling) and Phase 3 (one component per agent).
+        """
+        prompt = arg.strip()
+        if not prompt:
+            prompt = self.buffer.text.strip()
+        if not prompt:
+            return "ERROR: nothing to analyze — type a prompt or use /plan <prompt>"
+        try:
+            from ..core.analyzer import build_master_plan
+
+            plan = build_master_plan(prompt, workspace=self.hub.workspace)
+        except Exception as exc:
+            return f"ERROR: analyzer failed: {exc}"
+        text = plan.to_text()
+        if plan.applicable and plan.gaps:
+            text += "\n\nREQUIREMENTS GAPS (Phase 1):\n" + "\n".join(
+                f"  - {gap}" for gap in plan.gaps
+            )
+        return text
+
     def _cmd_evolve(self, arg: str) -> str:
         err = run_self_evolve(arg, self.overrides, self.system_prompts, self.enabled_agents)
         return err if err else "self-evolve dispatched"
@@ -1092,14 +1122,19 @@ class RetroTerminalApp:
 
         Optional ``arg`` is the prompt/decision text to capture; without it
         the archivist still refreshes the project's architecture map and
-        lean Evolution file (rules 1-5).
+        lean Evolution file (rules 1-5). When the text carries a structural
+        signal, the Analyzer Core first builds the mandatory master plan and
+        its module map (one component per agent) is persisted into
+        ``docs/architecture/`` alongside the captured decisions.
         """
         if self.hub.running > 0:
             return "Agents are still running — archive will run automatically when M7 completes."
         try:
             from ..core.archivist import archivist_run
+            from ..core.analyzer import build_master_plan
 
-            result = archivist_run(arg, workspace=self.hub.workspace)
+            plan = build_master_plan(arg, workspace=self.hub.workspace)
+            result = archivist_run(arg, workspace=self.hub.workspace, plan=plan)
             return result["summary"]
         except Exception as exc:
             return f"Archive error: {exc}"

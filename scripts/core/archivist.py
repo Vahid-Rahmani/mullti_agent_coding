@@ -500,12 +500,15 @@ def archivist_run(
     prompt: str = "",
     workspace: Path | None = None,
     project_dir: Path | None = None,
+    plan: object | None = None,
 ) -> dict:
     """Run the full archivist pipeline for one dispatch (or the /archive command).
 
     Always syncs the architecture map (Rule 4); only captures decisions and
-    milestones when the prompt carries architectural signal (Rule 1). Writes
-    land under the resolved project's ``docs/architecture/`` (Rule 2).
+    milestones when the prompt carries architectural signal (Rule 1). When the
+    Analyzer Core provided a ``MasterPlan``, its module map (one component per
+    agent) is persisted first as the architecture mapping for the task.
+    Writes land under the resolved project's ``docs/architecture/`` (Rule 2).
     """
     workspace = Path(workspace) if workspace is not None else PROJECT_ROOT
     filtered = filter_archival_content(prompt)
@@ -515,9 +518,13 @@ def archivist_run(
         else resolve_project_dir(prompt, workspace)
     )
 
-    sync = sync_architecture_docs(project, entries=filtered["entries"], prompt=prompt)
-    if filtered["archived"]:
-        evolution = consolidate_evolution(project, filtered["entries"], prompt=prompt)
+    entries = list(filtered["entries"])
+    plan_entries = getattr(plan, "archivist_entries", lambda: [])() if plan is not None else []
+    entries = list(plan_entries) + entries
+
+    sync = sync_architecture_docs(project, entries=entries, prompt=prompt)
+    if filtered["archived"] or plan_entries:
+        evolution = consolidate_evolution(project, entries, prompt=prompt)
     else:
         evolution = {
             "ok": True,
@@ -526,12 +533,15 @@ def archivist_run(
             "total": 0,
         }
 
-    summary = "\n".join([
+    summary_lines = [
         f"Archivist (M7): project={project}",
         f"  filter: {filtered['reason']}",
         f"  architecture map: {'regenerated (structure changed)' if sync['map_regenerated'] else 'up to date'}",
         f"  evolution: +{evolution['appended']} entry(ies) → {evolution['evolution_path']}",
-    ])
+    ]
+    if plan_entries:
+        summary_lines.append(f"  analyzer plan: {len(plan_entries)} module mapping(s) persisted")
+    summary = "\n".join(summary_lines)
 
     return {
         "ok": True,

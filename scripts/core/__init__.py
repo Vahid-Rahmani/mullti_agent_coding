@@ -14,7 +14,6 @@ from .agents import (  # noqa: F401
     AUTO_MODE,
     AUTO_MODEL,
     DEFAULT_ENABLED_AGENTS,
-    IMMUTABLE_TAGS,
     M7_AUDIT_MODE,
     MASTER_SPEC,
     MODEL_OPTIONS,
@@ -33,6 +32,10 @@ from .command_parser import (
     build_help_text,
     parse_command,
 )
+# NOTE: the Analyzer Core (scripts/core/analyzer.py) is intentionally NOT
+# imported here — eager import would make `python -m scripts.core.analyzer`
+# re-execute the module (runpy double-import warning). It is importable as
+# `scripts.core.analyzer` and loaded lazily by run_hub.
 from .intent_classifier import (
     INTENT_CASUAL,
     INTENT_GREETING,

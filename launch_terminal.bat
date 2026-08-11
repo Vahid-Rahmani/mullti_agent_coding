@@ -2,6 +2,18 @@
 setlocal
 cd /d "%~dp0"
 
+rem --- Optional TLS bypass for opencode (strictly opt-in): environments with
+rem --- self-signed or intercepting certificates set ZOVA_ALLOW_INSECURE_TLS=1
+rem --- (also accepts true/yes, case-insensitive). Children inherit the var.
+if /i "%ZOVA_ALLOW_INSECURE_TLS%"=="1" goto :tls_on
+if /i "%ZOVA_ALLOW_INSECURE_TLS%"=="true" goto :tls_on
+if /i "%ZOVA_ALLOW_INSECURE_TLS%"=="yes" goto :tls_on
+goto :tls_skip
+:tls_on
+echo [launch_terminal] ZOVA_ALLOW_INSECURE_TLS=%ZOVA_ALLOW_INSECURE_TLS% - opencode cert verification DISABLED
+set "NODE_TLS_REJECT_UNAUTHORIZED=0"
+:tls_skip
+
 set "WORKSPACE="
 set "SMOKE="
 

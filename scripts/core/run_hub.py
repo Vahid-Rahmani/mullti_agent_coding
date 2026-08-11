@@ -16,8 +16,7 @@ import time
 from pathlib import Path
 
 from .agents import (
-    AGENTS, _AGENT_TAGS, AGENT_SPEC_BY_TAG, AUTO_MODE, AUTO_MODEL,
-    IMMUTABLE_TAGS, M7_AUDIT_MODE, MODE_TO_AGENT, PROJECT_ROOT,
+    AGENTS, _AGENT_TAGS, AUTO_MODE, AUTO_MODEL, MODE_TO_AGENT, PROJECT_ROOT,
     STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE, STATUS_THINKING,
 )
 from .progress import (
@@ -87,6 +86,23 @@ def _sanitize_prompt(prompt: str) -> str:
     return _CONTROL_CHARS_RE.sub("", prompt).lstrip()
 
 
+def _insecure_tls_env() -> dict[str, str] | None:
+    """Env override for opencode subprocesses when the TLS bypass is on.
+
+    ``ZOVA_ALLOW_INSECURE_TLS=1`` (or ``true``/``yes``) sets
+    ``NODE_TLS_REJECT_UNAUTHORIZED=0`` so the opencode CLI skips certificate
+    verification. Strictly opt-in for environments with self-signed or
+    intercepting certificates (antivirus/EDR web filters, corporate proxies):
+    default (unset or 0) leaves Node's TLS verification fully enabled.
+    Returns ``None`` when disabled, so subprocesses inherit the environment
+    unchanged.
+    """
+    raw = os.environ.get("ZOVA_ALLOW_INSECURE_TLS", "").strip().lower()
+    if raw not in ("1", "true", "yes"):
+        return None
+    return {**os.environ, "NODE_TLS_REJECT_UNAUTHORIZED": "0"}
+
+
 def _build_run_command(
     exe: str, agent: str, prompt: str, model: str | None, mode: str | None = None
 ) -> list[str]:
@@ -130,6 +146,8 @@ class RunHub:
         self._audit_thread: threading.Thread | None = None
         self._evolve_thread: threading.Thread | None = None
         self._abort_event = threading.Event()
+        # Analyzer Core: the most recent pre-dispatch master plan (if any).
+        self.last_plan = None
 
     # ------------------------------------------------------------ state writes
 
@@ -184,10 +202,11 @@ class RunHub:
     # ------------------------------------------------------------ running
 
     def resolve(self, tag: str, overrides: dict[str, dict[str, str]]) -> tuple[str | None, str]:
-        """Resolve (model, mode) for a tag: tag override > master override > auto."""
-        if tag in IMMUTABLE_TAGS:
-            spec = AGENT_SPEC_BY_TAG[tag]
-            return (spec.pinned_model or "opencode/ling-3.0-tiny-free", spec.pinned_mode or M7_AUDIT_MODE)
+        """Resolve (model, mode) for a tag: tag override > master override > auto.
+
+        Every agent (M1..M7) is configurable individually; there are no locked
+        agents, so resolution is uniform across the whole roster.
+        """
         tab = overrides.get(tag, {})
         master = overrides.get("master", {})
         tab_model = tab.get("model")
@@ -215,8 +234,15 @@ class RunHub:
         agents: list[str] | None = None,
         system_prompts: dict[str, str] | None = None,
         enabled_agents: set[str] | list[str] | tuple[str, ...] | None = None,
+        analyze: bool = True,
     ) -> str | None:
-        """Spawn one worker thread per target agent."""
+        """Spawn one worker thread per target agent.
+
+        ``analyze`` enables the Analyzer Core pre-dispatch phase: prompts with
+        a structural signal get a mandatory modular master plan injected into
+        every dispatch prompt, and the module map is handed to M7's archivist
+        after the run.
+        """
         if not prompt.strip():
             return "Prompt must not be empty."
         enabled = set(enabled_agents) if enabled_agents is not None else set(_AGENT_TAGS)
@@ -243,7 +269,28 @@ class RunHub:
             _prompt_log_id = None
         self.append_line("master", f"▶ {prompt}")
         pruned = prune_prompt(prompt)
-        _state_tracker.STATE.record_run(pruned, time.strftime("%Y-%m-%dT%H:%M:%S"))
+        # Analyzer Core — mandatory pre-dispatch planning phase (Phases 1-3).
+        # Conversational prompts carry no structural signal and are dispatched
+        # untouched (plan.applicable is False).
+        plan_text = ""
+        analyzer_metrics = None
+        if analyze:
+            from .analyzer import build_master_plan
+
+            plan = build_master_plan(pruned, workspace=self.workspace)
+            self.last_plan = plan
+            if plan.applicable:
+                plan_text = plan.to_text()
+                self.append_line("master", plan.summary_line())
+                # Analyzer telemetry — how many decoupled modules and which
+                # agents were assigned, persisted into state.md Last Run.
+                analyzer_metrics = {
+                    "modules": len(plan.modules),
+                    "agents": plan.agents,
+                }
+        _state_tracker.STATE.record_run(
+            pruned, time.strftime("%Y-%m-%dT%H:%M:%S"), analyzer=analyzer_metrics,
+        )
         system_prompts = system_prompts or {}
         dispatch_prompts: dict[str, str] = {}
         with self.lock:
@@ -255,14 +302,15 @@ class RunHub:
             self.running += len(targets)
             for tag, _name, _agent in targets:
                 specialized = system_prompts.get(tag) or system_prompts.get("master")
-                dispatch_prompt = pruned
                 if specialized and specialized.strip():
-                    dispatch_prompt = (
-                        "[SPECIALIZED SYSTEM PROMPT]\n"
-                        + specialized.strip()
-                        + "\n\n[USER TASK]\n"
-                        + pruned
-                    )
+                    dispatch_prompt = "[SPECIALIZED SYSTEM PROMPT]\n" + specialized.strip()
+                    if plan_text:
+                        dispatch_prompt += "\n\n" + plan_text
+                    dispatch_prompt += "\n\n[USER TASK]\n" + pruned
+                elif plan_text:
+                    dispatch_prompt = plan_text + "\n\n[USER TASK]\n" + pruned
+                else:
+                    dispatch_prompt = pruned
                 dispatch_prompts[tag] = dispatch_prompt
                 self.progress[tag] = 5
                 self.token_usage[tag] = _estimate_token_percent(dispatch_prompt, [])
@@ -315,6 +363,7 @@ class RunHub:
                     errors="replace",
                     bufsize=1,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                    env=_insecure_tls_env(),
                 )
                 self.procs[tag] = proc
             try:
@@ -482,7 +531,9 @@ class RunHub:
             try:
                 from .archivist import archivist_run
 
-                arch = archivist_run(prompt, workspace=self.workspace)
+                arch = archivist_run(
+                    prompt, workspace=self.workspace, plan=self.last_plan,
+                )
                 if self._abort_event.is_set() or self._tag_cancelled("m7"):
                     return
                 for line in arch["summary"].splitlines():

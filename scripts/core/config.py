@@ -119,17 +119,15 @@ class SessionConfig:
             self.enabled_agents.discard(tag)
 
     def set_override(self, target: str, key: str, value: str) -> None:
-        """Write a per-tab model/mode override."""
-        from .agents import IMMUTABLE_TAGS
+        """Write a per-tab model/mode override.
 
+        Every agent (M1..M7) is individually configurable — there are no
+        locked agents, so ``all`` fans out to the entire roster.
+        """
         if target == "all":
             for tag, _, _ in AGENTS:
-                if tag in IMMUTABLE_TAGS:
-                    continue
                 self.overrides.setdefault(tag, {})[key] = value
         else:
-            if target in IMMUTABLE_TAGS:
-                return
             self.overrides.setdefault(target, {})[key] = value
 
     def resolve(self, tag: str, hub=None) -> tuple[str | None, str]:

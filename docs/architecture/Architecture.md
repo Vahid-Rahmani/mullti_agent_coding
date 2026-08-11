@@ -1,8 +1,8 @@
 # multi_agent_coding — Architecture
 
 > Maintained by the Architectural Obsidian Archivist (M7).
-> Last synced: 2026-08-11 06:20 UTC
-<!-- fingerprint: eb2c1ee4868e -->
+> Last synced: 2026-08-11 09:50 UTC
+<!-- fingerprint: df176e814992 -->
 
 ## Decisions & Milestones
 
@@ -28,6 +28,22 @@ flowchart TD
     N_scripts --> N_scripts_core["scripts/core"]
     N_scripts_core --> N_scripts_core___init___py["scripts/core/__init__.py"]
     N_scripts_core --> N_scripts_core_agent_definitions_py["scripts/core/agent_definitions.py"]
+    N_scripts_core --> N_scripts_core_agents["scripts/core/agents"]
+    N_scripts_core_agents --> N_scripts_core_agents___init___py["scripts/core/agents/__init__.py"]
+    N_scripts_core_agents --> N_scripts_core_agents___main___py["scripts/core/agents/__main__.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_alex_py["scripts/core/agents/alex.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_base_py["scripts/core/agents/base.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_chloe_py["scripts/core/agents/chloe.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_constants_py["scripts/core/agents/constants.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_david_py["scripts/core/agents/david.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_elena_py["scripts/core/agents/elena.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_master_py["scripts/core/agents/master.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_matthew_py["scripts/core/agents/matthew.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_max_py["scripts/core/agents/max.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_models_py["scripts/core/agents/models.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_registry_py["scripts/core/agents/registry.py"]
+    N_scripts_core_agents --> N_scripts_core_agents_sarah_py["scripts/core/agents/sarah.py"]
+    N_scripts_core --> N_scripts_core_analyzer_py["scripts/core/analyzer.py"]
     N_scripts_core --> N_scripts_core_archivist_py["scripts/core/archivist.py"]
     N_scripts_core --> N_scripts_core_command_parser_py["scripts/core/command_parser.py"]
     N_scripts_core --> N_scripts_core_config_py["scripts/core/config.py"]
@@ -57,19 +73,4 @@ flowchart TD
     ROOT --> N_test["test"]
     N_test --> N_test___init___py["test/__init__.py"]
     N_test --> N_test_app_py["test/app.py"]
-    N_test --> N_test_expense_manager_py["test/expense_manager.py"]
-    N_test --> N_test_expense_tracker_py["test/expense_tracker.py"]
-    N_test --> N_test_PLAN_md["test/PLAN.md"]
-    N_test --> N_test_README_md["test/README.md"]
-    N_test --> N_test_TASKS_json["test/TASKS.json"]
-    N_test --> N_test_test_expense_tracker_py["test/test_expense_tracker.py"]
-    N_test --> N_test_tests["test/tests"]
-    N_test_tests --> N_test_tests___init___py["test/tests/__init__.py"]
-    N_test_tests --> N_test_tests_test_archivist_py["test/tests/test_archivist.py"]
-    N_test_tests --> N_test_tests_test_expense_manager_py["test/tests/test_expense_manager.py"]
-    N_test_tests --> N_test_tests_test_intent_router_py["test/tests/test_intent_router.py"]
-    N_test_tests --> N_test_tests_test_self_evolve_py["test/tests/test_self_evolve.py"]
-    N_test_tests --> N_test_tests_test_swarm_py["test/tests/test_swarm.py"]
-    N_test_tests --> N_test_tests_test_terminal_app_py["test/tests/test_terminal_app.py"]
-    N_test_tests --> N_test_tests_test_web_app_py["test/tests/test_web_app.py"]
 ```

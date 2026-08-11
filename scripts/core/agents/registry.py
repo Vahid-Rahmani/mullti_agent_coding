@@ -17,6 +17,7 @@ re-exported here unchanged so legacy imports keep working.
 from __future__ import annotations
 
 from .base import AgentSpec
+from .constants import AUTO_MODE, AUTO_MODEL
 from .matthew import SPEC as MATTHEW
 from .alex import SPEC as ALEX
 from .sarah import SPEC as SARAH
@@ -58,10 +59,7 @@ DEFAULT_ENABLED_AGENTS = frozenset(_AGENT_TAGS)
 # Persisted settings tied to this exact seven-agent roster.
 AGENT_ROSTER_VERSION = "2026-08-humanified-v1"
 
-# Agent tags whose model and mode cannot be changed by the user.
-IMMUTABLE_TAGS: set[str] = {spec.tag for spec in AGENT_SPECS if spec.immutable}
-
-# Lookups for runtime code (e.g. resolving a locked agent's pinned model/mode).
+# Lookups for runtime code (resolving each agent's default model/mode).
 AGENT_SPEC_BY_TAG: dict[str, AgentSpec] = {spec.tag: spec for spec in AGENT_SPECS}
 AGENT_SPEC_BY_AGENT: dict[str, AgentSpec] = {
     spec.agent: spec for spec in AGENT_SPECS if spec.agent is not None
@@ -84,3 +82,24 @@ MODE_TO_AGENT: dict[str, str] = {}
 for spec in AGENT_SPECS:
     for mode in spec.all_modes:
         MODE_TO_AGENT[mode] = spec.agent  # type: ignore[assignment]
+
+
+def mode_options_for(model: str | None, target: str | None = None) -> list[str]:
+    """Modes offered to the mode pickers for a resolved ``model``.
+
+    Returns the model's capability-matrix modes, then — because every agent
+    is individually configurable — also keeps the target agent's own modes
+    (``spec.all_modes``) available. Unlocking a model for an agent therefore
+    never strips that agent of its native operational modes: e.g. M7 (Chloe)
+    switched to ``opencode/deepseek-v4-flash-free`` can still pick her
+    ``docs`` / ``archivist`` modes even though deepseek's generic matrix does
+    not list them.
+    """
+    options = list(MODE_OPTIONS_BY_MODEL.get(model or AUTO_MODEL, [AUTO_MODE]))
+    if target:
+        spec = AGENT_SPEC_BY_TAG.get(target)
+        if spec is not None:
+            for mode in spec.all_modes:
+                if mode not in options:
+                    options.append(mode)
+    return options

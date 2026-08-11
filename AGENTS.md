@@ -39,7 +39,16 @@ Every agent has an explicit `fallback_models` chain (see [Fallback Policy](#fall
   agent (`matthew.py` … `chloe.py`) plus `master.py`. The `registry` derives the
   roster, tab order, and mode routing from those specs, so edit an agent there
   (not in `terminal_app.py` or `opencode.json`) to keep each agent independently
-  configurable, testable, and modifiable.
+  configurable, testable, and modifiable. `python -m scripts.core.agents verify`
+  checks the specs stay in sync with `opencode.json` (exit 1 on drift).
+- The Analyzer Core (`scripts/core/analyzer.py`) runs a **mandatory pre-dispatch
+  phase** on every structural prompt: Phase 1 gathers requirements (gaps are
+  reported, nothing assumed), Phase 2 enforces modular decoupling (one module
+  per concern, no monolithic files), Phase 3 assigns exactly one component per
+  agent via the canonical routing. The resulting master plan is injected into
+  every dispatch prompt and its module map is handed to Chloe's archivist for
+  persistent `docs/architecture/` mapping. Preview with
+  `python -m scripts.core.analyzer "<prompt>"` or the `/plan` terminal command.
 
 ## Fallback Policy
 
@@ -84,6 +93,11 @@ by side, each listening for tasks in its own inbox.
   hand work to the next role, drop the next task into that role's inbox after
   the previous role logs completion. There is no shared queue; the operator (or
   a driving agent) sequences the drops.
+- **TLS note** — if agent runs fail with `self signed certificate in
+  certificate chain` (opencode/Node rejecting a self-signed or intercepting
+  cert), set `ZOVA_ALLOW_INSECURE_TLS=1` before launching to run opencode
+  with `NODE_TLS_REJECT_UNAUTHORIZED=0` (opt-in; off by default). See
+  `README.md` → Troubleshooting for the preferred `NODE_EXTRA_CA_CERTS` fix.
 - **Models** — the worker resolves each agent's configured model from its
   `AgentSpec` (`scripts/core/agents/`, via `python -m scripts.core.agents
   model <agent>`; see the [Conventions](#conventions) note on agent

@@ -138,6 +138,17 @@ fi
 
 mkdir -p "$DONE_DIR" "$LOGS_DIR"
 
+# --- Optional TLS bypass for opencode (strictly opt-in) ---
+# Environments with self-signed or intercepting certificates (antivirus/EDR
+# web filters, corporate proxies) can set ZOVA_ALLOW_INSECURE_TLS=1 to run
+# opencode with NODE_TLS_REJECT_UNAUTHORIZED=0. Default keeps verification on.
+case "${ZOVA_ALLOW_INSECURE_TLS:-}" in
+    1|true|TRUE|yes|YES)
+        export NODE_TLS_REJECT_UNAUTHORIZED=0
+        echo "Insecure TLS : ON (ZOVA_ALLOW_INSECURE_TLS=${ZOVA_ALLOW_INSECURE_TLS}) - opencode cert verification disabled"
+        ;;
+esac
+
 if [ -n "$TITLE" ] && [ -t 1 ]; then
     printf '\033]0;%s\007' "$TITLE"
 fi

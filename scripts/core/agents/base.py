@@ -27,9 +27,10 @@ class AgentSpec:
         model: The agent's configured default model (mirrors ``opencode.json``;
             used by the launcher workers and the terminal). ``None`` for the
             master coordinator, which has no OpenCode agent.
-        immutable: When true the model/mode are locked (``pinned_model``/``pinned_mode``).
-        pinned_model: Locked model for immutable agents (e.g. Chloe).
-        pinned_mode: Locked mode for immutable agents (e.g. Chloe's audit mode).
+
+    Every agent is individually configurable: the settings screen resolves each
+    agent's model/mode from the live registry and lets the user override them
+    per agent (no hardcoded model locks exist anymore).
     """
 
     tag: str
@@ -41,9 +42,6 @@ class AgentSpec:
     extra_modes: tuple[str, ...] = field(default_factory=tuple)
     description: str = ""
     model: str | None = None
-    immutable: bool = False
-    pinned_model: str | None = None
-    pinned_mode: str | None = None
 
     @property
     def all_modes(self) -> tuple[str, ...]:

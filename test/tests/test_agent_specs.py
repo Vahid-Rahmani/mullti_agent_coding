@@ -42,9 +42,6 @@ class _AgentSpecTestCase(unittest.TestCase):
     modes = ()
     extra_modes = ()
     model = ""
-    immutable = False
-    pinned_model = None
-    pinned_mode = None
 
     @classmethod
     def setUpClass(cls):
@@ -98,14 +95,12 @@ class _AgentSpecTestCase(unittest.TestCase):
     def test_description_mentions_agent(self):
         self.assertIn(self.name.lower(), self.spec.description.lower())
 
-    def test_immutable_lock(self):
-        self.assertEqual(self.spec.immutable, self.immutable)
-        if self.immutable:
-            self.assertEqual(self.spec.pinned_model, self.pinned_model)
-            self.assertEqual(self.spec.pinned_mode, self.pinned_mode)
-        else:
-            self.assertIsNone(self.spec.pinned_model)
-            self.assertIsNone(self.spec.pinned_mode)
+    def test_no_model_lock_fields(self):
+        """The model/mode lock mechanism was removed from every AgentSpec:
+        each agent (M1..M7) is individually configurable."""
+        self.assertFalse(hasattr(self.spec, "immutable"))
+        self.assertFalse(hasattr(self.spec, "pinned_model"))
+        self.assertFalse(hasattr(self.spec, "pinned_mode"))
 
     def test_registry_consistency(self):
         self.assertIs(agents.AGENT_SPEC_BY_TAG[self.tag], self.spec)
@@ -181,9 +176,6 @@ class TestChloeSpec(_AgentSpecTestCase):
     modes = ("docs", "documentation", "chloe", agents.ARCHIVIST_MODE)
     extra_modes = (agents.M7_AUDIT_MODE, "compact", "compaction")
     model = "opencode/ling-3.0-tiny-free"
-    immutable = True
-    pinned_model = "opencode/ling-3.0-tiny-free"
-    pinned_mode = agents.M7_AUDIT_MODE
 
 
 class TestMasterSpec(_AgentSpecTestCase):
@@ -335,6 +327,9 @@ class SpecCliTestCase(unittest.TestCase):
         self.assertEqual(code, 2)
 
     def test_verify_reports_in_sync(self):
+        # Coupled to the live opencode.json by design: this is the drift
+        # contract. A legitimate config change requires a matching spec
+        # change, or this (and SpecModelConsistencyTestCase) fail on purpose.
         code, out, _ = self._capture(["verify"])
         self.assertEqual(code, 0)
         self.assertIn("in sync", out)
