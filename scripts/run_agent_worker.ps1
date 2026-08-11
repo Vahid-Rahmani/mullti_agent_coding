@@ -61,19 +61,26 @@ catch {
     Write-Host "Warning: window placement skipped ($($_.Exception.Message))"
 }
 
-# --- Resolve humanified agent model from opencode.json (unless overridden) ---
-$configPath = Join-Path $ProjectRoot 'opencode.json'
-if (-not (Test-Path $configPath)) {
-    Write-Error "opencode.json not found at $configPath"
-    exit 1
+# --- Resolve agent model from the canonical specs (unless overridden) ---
+# scripts/core/agents/ is the single source of truth for the roster and each
+# agent's configured model; opencode.json is no longer parsed by the launcher.
+function Invoke-AgentsCli {
+    param([string[]]$CliArgs)
+    Push-Location $ProjectRoot
+    try {
+        & python -m scripts.core.agents @CliArgs 2>&1
+    }
+    finally {
+        Pop-Location
+    }
 }
-$config = Get-Content $configPath -Raw | ConvertFrom-Json
-if (-not $config.agent.PSObject.Properties[$Agent]) {
-    Write-Error "Unknown agent '$Agent'. Valid agents: $($config.agent.PSObject.Properties.Name -join ', ')"
+$validAgents = @(Invoke-AgentsCli @('list'))
+if ($validAgents -notcontains $Agent) {
+    Write-Error "Unknown agent '$Agent'. Valid agents: $($validAgents -join ', ')"
     exit 1
 }
 function Get-AgentModel([string]$AgentName) {
-    $m = [string]$config.agent.$AgentName.model
+    $m = @((Invoke-AgentsCli @('model', $AgentName) | Select-Object -First 1))
     return $m
 }
 if (-not $ModelOverride) {

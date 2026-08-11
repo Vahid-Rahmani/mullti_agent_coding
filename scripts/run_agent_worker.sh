@@ -18,7 +18,7 @@ Options:
   --smoke               Process one task then exit (for launcher smoke tests)
   --no-swarm            Simple view; no swarm chatter (default)
   --swarm               Opt-in: reuse scripts/swarm.py state/feedback helpers
-  --model-override <m>  Use <m> instead of the model from opencode.json
+  --model-override <m>  Use <m> instead of the agent's configured model (scripts/core/agents specs)
   --workspace <dir>     Run opencode from <dir> instead of the project root
   --stale <secs>        Stale-task threshold in seconds (default: 30)
   --dry                 Print resolved configuration and exit (no polling)
@@ -116,44 +116,24 @@ LOGS_DIR="$PROJECT_ROOT/_logs"
 TASK_FILE="$INBOX/$AGENT.task"
 LOG_FILE="$LOGS_DIR/$AGENT.log"
 
-CFG="$PROJECT_ROOT/opencode.json"
-if [ ! -f "$CFG" ]; then
-    echo "ERROR: opencode.json not found at $CFG" >&2
-    exit 1
-fi
-
 PY="$(find_python)"
 if [ -z "$PY" ]; then
-    echo "ERROR: python not found; cannot resolve model from $CFG" >&2
+    echo "ERROR: python not found; cannot resolve agent model from scripts/core/agents specs" >&2
     exit 1
 fi
 
-MODEL_RESULT="$( "$PY" -c 'import json, sys
-cfg = json.load(open(sys.argv[1], encoding="utf-8"))
-agents = cfg.get("agent", {})
-name = sys.argv[2]
-if name not in agents:
-    sys.stderr.write("Unknown agent: %s (valid: %s)\n" % (name, ", ".join(sorted(agents))))
-    sys.exit(2)
-override = sys.argv[3]
-if override:
-    print(override)
-    sys.exit(0)
-model = agents[name].get("model")
-if not model:
-    sys.stderr.write("Agent %s has no model configured.\n" % name)
-    sys.exit(3)
-print(model)
-sys.exit(0)' "$(winpath "$CFG")" "$AGENT" "$MODEL_OVERRIDE" 2>&1 )"
-RC=$?
-if [ $RC -ne 0 ]; then
-    echo "ERROR: $MODEL_RESULT" >&2
-    exit 1
-fi
-MODEL="$MODEL_RESULT"
-if [ -z "$MODEL" ]; then
-    echo "ERROR: no model for agent '$AGENT'" >&2
-    exit 1
+# The canonical agent specs in scripts/core/agents/ are the single source of
+# truth for each agent's model; opencode.json is no longer parsed here.
+if [ -n "$MODEL_OVERRIDE" ]; then
+    MODEL="$MODEL_OVERRIDE"
+else
+    MODEL_RESULT="$(cd "$PROJECT_ROOT" && "$PY" -m scripts.core.agents model "$AGENT" 2>&1)"
+    RC=$?
+    if [ "$RC" -ne 0 ] || [ -z "$MODEL_RESULT" ]; then
+        echo "ERROR: $MODEL_RESULT" >&2
+        exit 1
+    fi
+    MODEL="$MODEL_RESULT"
 fi
 
 mkdir -p "$DONE_DIR" "$LOGS_DIR"

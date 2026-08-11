@@ -13,7 +13,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from .agent_definitions import PROJECT_ROOT
+from .agents import PROJECT_ROOT
 
 
 def _state_escape(text: str) -> str:

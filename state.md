@@ -5,25 +5,25 @@ running
 
 ## Last Run
 prompt: my coding task
-started: 2026-08-10T17:06:32
+started: 2026-08-11T11:03:19
 
 ## Completed
-- … 1 earlier finishes compressed
-- m4: failed
-- m4: failed
-- m7: ok
+- … 2 earlier finishes compressed
 - m4: failed
 - m4: ok
 - m4: failed
 - m4: failed
 - m4: failed
-- m7: ok
 - m4: failed
 - m4: ok
 - m4: failed
 - m4: failed
 - m4: failed
-- m7: ok
+- m4: failed
+- m4: ok
+- m4: failed
+- m4: failed
+- m4: failed
 - m4: failed
 - m4: ok
 - m4: failed
@@ -1935,6 +1935,1941 @@ started: 2026-08-10T17:06:32
 - interrupted: terminated by user
 - interrupted: terminated by user
 - interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- verify: exception: boom
+- verify: failed: py_compile scripts/terminal_app.py failed
+- verify: exception: boom
+- verify: failed: py_compile scripts/terminal_app.py failed
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- verify: exception: boom
+- verify: failed: py_compile scripts/terminal_app.py failed
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- verify: exception: boom
+- verify: failed: py_compile scripts/terminal_app.py failed
+- verify: failed: py_compile scripts/terminal_app.py failed
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- verify: exception: boom
+- verify: failed: py_compile scripts/terminal_app.py failed
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- verify: exception: boom
+- verify: failed: py_compile scripts/terminal_app.py failed
+- verify: failed: py_compile scripts/terminal_app.py failed
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m4 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: m2 terminated by user
+- interrupted: terminated by user
+- interrupted: m3 terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
+- interrupted: terminated by user
 
 ## Settings
-{"agents_filter":null,"enabled_agents":["m1"],"overrides":{"m1":{"mode":"architect"},"master":{"mode":"analyze","model":"Auto (Smart Hybrid Routing)"}},"roster_version":"2026-08-humanified-v1","terminal":{"density":"comfortable","font_size":"standard","panel_borders":true,"theme":"mono","theme_colors":{"mono":{"execution_logs":"#58a6ff"},"zova":{"button_highlights":"#ffb000","command_box_borders":"#58a6ff","execution_logs":"#f85149","header_accents":"#ffb000","inactive_tabs":"#ffb000","prompt_backgrounds":"#0d1117"}}}}
+{"enabled_agents":["m1","m2","m3","m4","m5","m6","m7"],"overrides":{"master":{"mode":"Auto (Default)","model":"Auto (Smart Hybrid Routing)"}},"terminal":{"density":"comfortable","font_size":"medium","panel_borders":true,"theme":"classic","theme_colors":{}}}

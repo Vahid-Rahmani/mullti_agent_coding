@@ -14,7 +14,7 @@ and memory used to drive software projects (typically under `projects/`).
 | `david` | David — QA, TDD, tests, and debugging | opencode/big-pickle |
 | `elena` | Elena — code quality and security audit (read-only) | opencode/ling-3.0-tiny-free |
 | `max` | Max — DevOps, automation, and environment stability | opencode/deepseek-v4-flash-free |
-| `chloe` | Chloe — documentation and Obsidian knowledge audit (read-only) | opencode/ling-3.0-tiny-free |
+| `chloe` | Chloe — Architectural Obsidian Archivist (read-only): filters conversation from architecture, stores `docs/architecture/` notes with Mermaid maps per project, keeps lean `Evolution.md` | opencode/ling-3.0-tiny-free |
 
 Every agent has an explicit `fallback_models` chain (see [Fallback Policy](#fallback-policy)).
 
@@ -35,6 +35,11 @@ Every agent has an explicit `fallback_models` chain (see [Fallback Policy](#fall
 - Consult `knowledge/` (via the `knowledge` reference) before planning or reviewing.
 - Keep `PLAN.md` and `TASKS.json` at the project root of the target project.
 - Commits are small and single-purpose; branch pattern `feature/{agent}-{task}`.
+- Agent definitions live in `scripts/core/agents/` — one `AgentSpec` module per
+  agent (`matthew.py` … `chloe.py`) plus `master.py`. The `registry` derives the
+  roster, tab order, and mode routing from those specs, so edit an agent there
+  (not in `terminal_app.py` or `opencode.json`) to keep each agent independently
+  configurable, testable, and modifiable.
 
 ## Fallback Policy
 
@@ -79,12 +84,15 @@ by side, each listening for tasks in its own inbox.
   hand work to the next role, drop the next task into that role's inbox after
   the previous role logs completion. There is no shared queue; the operator (or
   a driving agent) sequences the drops.
-- **Models** — the worker reads each agent's configured model from
-  `opencode.json` and passes it explicitly (`-m`) so the role's own model is
-  used. `-m` pins the session to the primary model at launch, but the
-  model-fallback plugin still applies its chain on any failure within that
-  session (see [Fallback Policy](#fallback-policy)). Model assignment is a
-  hybrid of the three free models:
+- **Models** — the worker resolves each agent's configured model from its
+  `AgentSpec` (`scripts/core/agents/`, via `python -m scripts.core.agents
+  model <agent>`; see the [Conventions](#conventions) note on agent
+  definitions) and passes it explicitly (`-m`) so the role's own model is
+  used. `opencode.json` remains the OpenCode runtime config but is no longer
+  parsed by the launcher. `-m` pins the session to the primary model at
+  launch, but the model-fallback plugin still applies its chain on any
+  failure within that session (see [Fallback Policy](#fallback-policy)).
+  Model assignment is a hybrid of the three free models:
   - `opencode/ling-3.0-tiny-free` — ultra-fast routing/summarization: used for
     `compaction`, `elena`, and `chloe` (quick audit/documentation checks).
   - `opencode/deepseek-v4-flash-free` — heavy reasoning & coding:
