@@ -322,6 +322,25 @@ class ApiTestCase(VaultTestCase):
         data = self.ctx.get("/api/events").json()
         self.assertEqual(len(data["events"]), 1)
 
+    def test_settings_endpoints(self):
+        meta = self.ctx.get("/api/settings").json()
+        self.assertIn("connections", meta["sections"])
+        self.assertTrue(any(p["id"] == "google" for p in meta["simple_providers"]))
+        conns = self.ctx.get("/api/settings/connections").json()["providers"]
+        self.assertTrue(any(c["id"] == "google" and "configured" in c for c in conns))
+        self.assertTrue(all("key" not in c for c in conns), "keys must never leave the backend")
+
+    def test_settings_endpoint_validation(self):
+        r = self.ctx.post("/api/settings/connections/test", json={"provider": "zzz"})
+        self.assertEqual(r.status_code, 404)
+        # invalid inputs are rejected before any file write
+        r = self.ctx.post("/api/settings/models", json={"agent": "zzz", "model": "opencode/x"})
+        self.assertEqual(r.status_code, 409)
+        r = self.ctx.post("/api/settings/models", json={"agent": "matthew", "model": "no-slash"})
+        self.assertEqual(r.status_code, 409)
+        r = self.ctx.post("/api/settings/agents/matthew/mode", json={"mode": "architect"})
+        self.assertEqual(r.status_code, 409)
+
 
 class UiAssetsTestCase(unittest.TestCase):
     """Static-asset checks for the dashboard UI (index.html / app.css / app.js)."""
@@ -486,6 +505,51 @@ class UiAssetsTestCase(unittest.TestCase):
         self.assertIn("row-resize", self.css)
         self.assertIn("cursor: move", self.css)
         self.assertIn("pointer-events: none", self.css)
+
+    # ── Phase 25: settings modal (AI connections, models, modes) ─────
+    def test_settings_assets(self):
+        self.assertIn('id="settings-btn"', self.index)
+        for ident in ("settings-backdrop", "settings-modal", "settings-nav",
+                      "settings-content", "settings-close"):
+            self.assertIn(f'id="{ident}"', self.index)
+        self.assertIn('<script src="/static/settings.js"></script>', self.index)
+        self.assertIn("window.MACSettings", self.js)  # settings.js loaded before app.js
+
+    def test_settings_modal_css(self):
+        for cls in (".settings-modal", ".settings-nav", ".conn-wizard",
+                    ".sec-table", ".model-chips", ".adv-fields", ".verify-badge"):
+            self.assertIn(cls, self.css)
+
+    # ── Agent-output session persistence (regression) ────────────────
+    def test_agent_event_persists_session_before_panel_render(self):
+        """onAgentEvent must persist into Ag.sessions[tag] BEFORE any DOM lookup,
+        so events for agents without a rendered panel are never dropped."""
+        js = self.js
+        self.assertIn("Ag.sessions[tag] = Ag.sessions[tag] || []", js)
+        self.assertIn("const card = panelEl(tag);", js)
+        self.assertLess(
+            js.index("Ag.sessions[tag] = Ag.sessions[tag] || []"),
+            js.index("const card = panelEl(tag);"),
+            "session persistence must precede the panel lookup")
+        self.assertIn("if (!card) return;", js)
+        # no wrap-and-drop path may remain in onAgentEvent
+        self.assertNotIn("if (card) {", js)
+
+    def test_agent_event_dedupe_and_tail(self):
+        """Live events are de-duplicated by backend seq and capped by tail."""
+        self.assertIn("e.n !== undefined && e.n === ev.n", self.js)
+        self.assertIn("const SESSION_TAIL = 800;", self.js)
+
+    def test_load_sessions_merges_never_replaces(self):
+        """loadSessions merges the init snapshot over live events (never reverts
+        already-received output)."""
+        js = self.js
+        self.assertIn("Merge, never replace", js)
+        self.assertIn("Ag.sessions[tag] = merged;", js)
+
+    def test_window_macapp_test_hook(self):
+        """The headless test hook mirrors window.MACSettings."""
+        self.assertIn("window.MACApp", self.js)
 
 
 if __name__ == "__main__":

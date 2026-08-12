@@ -16,6 +16,7 @@ from pathlib import Path
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
+from scripts.core import agents  # noqa: E402
 from scripts.core import orchestrator as orch  # noqa: E402
 
 TASK_TEXT = """---
@@ -147,7 +148,7 @@ class TestAgentResolution(OrchestratorTestCase):
     def test_resolve_known_agent(self):
         fields, _b, _r = orch.read_task(self.task_path)
         resolved = orch.resolve_agent_node(fields)
-        self.assertEqual(resolved, ("matthew", "opencode/deepseek-v4-flash-free"))
+        self.assertEqual(resolved, ("matthew", agents.AGENT_SPEC_BY_AGENT["matthew"].model))
 
     def test_resolve_unknown_agent_none(self):
         self.assertIsNone(orch.resolve_agent_node({"assigned_agent": "Agent_Nobody"}))
@@ -180,7 +181,7 @@ class TestDispatch(OrchestratorTestCase):
         self.assertEqual(code, 0)
         self.assertIn("DRY-RUN", text)
         self.assertIn("--agent matthew --auto", text)
-        self.assertIn("-m opencode/deepseek-v4-flash-free", text)
+        self.assertIn("-m " + agents.AGENT_SPEC_BY_AGENT["matthew"].model, text)
         # Node untouched by dry-run:
         self.assertIn("status: ready", self.task_path.read_text(encoding="utf-8"))
 

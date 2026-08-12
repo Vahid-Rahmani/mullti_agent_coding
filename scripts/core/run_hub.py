@@ -19,6 +19,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import opencode_cfg
 from .agents import (
     AGENTS, _AGENT_TAGS, AGENT_SPEC_BY_AGENT, PROJECT_ROOT,
     STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE, STATUS_THINKING,
@@ -212,7 +213,12 @@ class RunHub:
                 (s for s in (AGENT_SPEC_BY_AGENT.get(a) for _, _, a in AGENTS) if s and s.tag == tag),
                 None,
             )
-        model = spec.model if spec is not None else None
+        # "Full effect now": read the persisted AgentSpec file so a model
+        # save is honored by the next dispatch without an application restart.
+        if spec is not None and spec.agent:
+            model = opencode_cfg.read_spec_model(spec.agent) or spec.model
+        else:
+            model = spec.model if spec is not None else None
         return model, "auto"
 
     def run(

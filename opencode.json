@@ -3,7 +3,9 @@
   "default_agent": "matthew",
   "model": "opencode/big-pickle",
   "small_model": "opencode/ling-3.0-tiny-free",
-  "instructions": ["AGENTS.md"],
+  "instructions": [
+    "AGENTS.md"
+  ],
   "references": {
     "knowledge": {
       "path": "./knowledge",
@@ -14,64 +16,110 @@
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Ollama (local)",
-      "options": {"baseURL": "http://localhost:11434/v1"},
-      "models": {"qwen2.5-coder:7b": {"name": "Qwen2.5 Coder 7B (local)"}}
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "qwen2.5-coder:7b": {
+          "name": "Qwen2.5 Coder 7B (local)"
+        }
+      }
     },
     "mulerouter": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "MuleRouter",
-      "options": {"baseURL": "https://api.mulerouter.ai/vendors/openai/v1"},
+      "options": {
+        "baseURL": "https://api.mulerouter.ai/vendors/openai/v1"
+      },
       "models": {
-        "gpt-5.5": {"name": "GPT 5.5"},
-        "gpt-5.4-mini": {"name": "GPT 5.4 Mini"},
-        "qwen3-max": {"name": "Qwen3 Max"},
-        "qwen3.7-max": {"name": "Qwen3.7 Max"}
+        "gpt-5.5": {
+          "name": "GPT 5.5"
+        },
+        "gpt-5.4-mini": {
+          "name": "GPT 5.4 Mini"
+        },
+        "qwen3-max": {
+          "name": "Qwen3 Max"
+        },
+        "qwen3.7-max": {
+          "name": "Qwen3.7 Max"
+        }
       }
     }
   },
   "agent": {
-    "compaction": {"model": "opencode/ling-3.0-tiny-free"},
+    "compaction": {
+      "model": "opencode/ling-3.0-tiny-free"
+    },
     "matthew": {
-      "description": "M1 — plain agent.",
-      "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
-      "fallback_models": ["opencode/big-pickle", "opencode/deepseek-v4-flash-free", "ollama/qwen2.5-coder:7b"]
+      "description": "M1 \u2014 plain agent.",
+      "mode": "primary",
+      "model": "google/gemini-3.1-flash-lite",
+      "fallback_models": [
+        "opencode/big-pickle",
+        "opencode/deepseek-v4-flash-free",
+        "ollama/qwen2.5-coder:7b"
+      ]
     },
     "alex": {
-      "description": "M2 — plain agent.",
-      "mode": "all",
+      "description": "M2 \u2014 plain agent.",
+      "mode": "subagent",
       "model": "opencode/deepseek-v4-flash-free",
-      "fallback_models": ["opencode/big-pickle", "opencode/deepseek-v4-flash-free", "ollama/qwen2.5-coder:7b"]
+      "fallback_models": [
+        "opencode/big-pickle",
+        "opencode/deepseek-v4-flash-free",
+        "ollama/qwen2.5-coder:7b"
+      ]
     },
     "sarah": {
-      "description": "M3 — plain agent.",
-      "mode": "all",
+      "description": "M3 \u2014 plain agent.",
+      "mode": "subagent",
       "model": "opencode/deepseek-v4-flash-free",
-      "fallback_models": ["opencode/big-pickle", "opencode/deepseek-v4-flash-free", "ollama/qwen2.5-coder:7b"]
+      "fallback_models": [
+        "opencode/big-pickle",
+        "opencode/deepseek-v4-flash-free",
+        "ollama/qwen2.5-coder:7b"
+      ]
     },
     "david": {
-      "description": "M4 — plain agent.",
-      "mode": "all",
+      "description": "M4 \u2014 plain agent.",
+      "mode": "subagent",
       "model": "opencode/big-pickle",
-      "fallback_models": ["opencode/big-pickle", "opencode/deepseek-v4-flash-free", "ollama/qwen2.5-coder:7b"]
+      "fallback_models": [
+        "opencode/big-pickle",
+        "opencode/deepseek-v4-flash-free",
+        "ollama/qwen2.5-coder:7b"
+      ]
     },
     "elena": {
-      "description": "M5 — plain agent.",
-      "mode": "all",
+      "description": "M5 \u2014 plain agent.",
+      "mode": "subagent",
       "model": "opencode/ling-3.0-tiny-free",
-      "fallback_models": ["opencode/big-pickle", "opencode/deepseek-v4-flash-free", "ollama/qwen2.5-coder:7b"]
+      "fallback_models": [
+        "opencode/big-pickle",
+        "opencode/deepseek-v4-flash-free",
+        "ollama/qwen2.5-coder:7b"
+      ]
     },
     "max": {
-      "description": "M6 — plain agent.",
-      "mode": "all",
+      "description": "M6 \u2014 plain agent.",
+      "mode": "subagent",
       "model": "opencode/deepseek-v4-flash-free",
-      "fallback_models": ["opencode/big-pickle", "opencode/deepseek-v4-flash-free", "ollama/qwen2.5-coder:7b"]
+      "fallback_models": [
+        "opencode/big-pickle",
+        "opencode/deepseek-v4-flash-free",
+        "ollama/qwen2.5-coder:7b"
+      ]
     },
     "chloe": {
-      "description": "M7 — plain agent.",
-      "mode": "all",
+      "description": "M7 \u2014 plain agent.",
+      "mode": "subagent",
       "model": "opencode/ling-3.0-tiny-free",
-      "fallback_models": ["opencode/big-pickle", "opencode/deepseek-v4-flash-free", "ollama/qwen2.5-coder:7b"]
+      "fallback_models": [
+        "opencode/big-pickle",
+        "opencode/deepseek-v4-flash-free",
+        "ollama/qwen2.5-coder:7b"
+      ]
     }
   }
 }

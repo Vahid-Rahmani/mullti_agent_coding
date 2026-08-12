@@ -77,7 +77,13 @@ class TestMatthewSpec(_AgentSpecTestCase):
     tag = "m1"
     name = "Matthew"
     agent = "matthew"
-    model = "opencode/deepseek-v4-flash-free"
+    model = None  # Settings-managed: resolved from the verified mirror in setUpClass
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(Path(REPO_ROOT) / "opencode.json", encoding="utf-8") as fh:
+            cls.model = json.load(fh)["agent"]["matthew"]["model"]
 
 
 class TestAlexSpec(_AgentSpecTestCase):
@@ -208,7 +214,7 @@ class SpecCliTestCase(unittest.TestCase):
     def test_model_by_key_and_tag(self):
         code, out, _ = self._capture(["model", "matthew"])
         self.assertEqual(code, 0)
-        self.assertEqual(out.strip(), "opencode/deepseek-v4-flash-free")
+        self.assertEqual(out.strip(), agents.AGENT_SPEC_BY_AGENT["matthew"].model)
         code, out, _ = self._capture(["model", "m7"])
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "opencode/ling-3.0-tiny-free")
