@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -60,6 +61,11 @@ SIMPLE_PROVIDERS: list[dict] = [
     },
 ]
 SIMPLE_PROVIDER_BY_ID = {p["id"]: p for p in SIMPLE_PROVIDERS}
+
+# Name aliases: a model id may be prefixed by the provider's *name* as well as
+# its id (e.g. ``gemini/gemini-2.x`` for the ``google`` provider) — both forms
+# canonicalize to the same model and must never be treated as distinct.
+_PROVIDER_NAME_ALIASES = {p["id"]: {p["name"].lower()} for p in SIMPLE_PROVIDERS}
 
 
 class SettingsError(RuntimeError):
@@ -179,8 +185,46 @@ def _safe_http_error(exc: urllib.error.HTTPError) -> str:
     return f"provider returned HTTP {exc.code}"
 
 
+_URL_QUERY_RE = re.compile(r"(https?://[^\s?'\"]+)\?[^\s'\"]*")
+
+
+def _scrub(text: str, *secrets: str | None) -> str:
+    """Remove secret material from a message before it leaves the backend.
+
+    Replaces known secrets, then drops the query string of any URL in the
+    text (query strings commonly carry API keys).
+    """
+    for secret in secrets:
+        if secret:
+            text = text.replace(str(secret), "***")
+    return _URL_QUERY_RE.sub(r"\1", text)
+
+
+def _validate_base_url(base_url: str | None) -> str:
+    """Require a real http(s) Base URL for Advanced connections."""
+    base_url = (base_url or "").strip().rstrip("/")
+    if not base_url:
+        raise opencode_cfg.ConfigError("a Base URL is required for Advanced connections")
+    parsed = urllib.parse.urlparse(base_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise opencode_cfg.ConfigError(
+            f"invalid Base URL {base_url!r} (expected http(s)://host[:port][/path])")
+    return base_url
+
+
 def test_connection(provider_id: str, key: str | None = None,
                     base_url: str | None = None, auth: str | None = None) -> dict:
+    """Real connection validation — never a fake success.
+
+    Advanced/custom providers must supply a valid http(s) Base URL and the
+    probe must actually reach ``{base}/models`` (or the provider's known
+    endpoint) and return 2xx before this reports success.
+    """
+    if provider_id not in SIMPLE_PROVIDER_BY_ID:
+        try:
+            base_url = _validate_base_url(base_url)
+        except opencode_cfg.ConfigError as exc:
+            return {"ok": False, "detail": str(exc)}
     url, headers = _probe_request(provider_id, key, base_url, auth)
     if not url:
         return {"ok": False,
@@ -191,11 +235,13 @@ def test_connection(provider_id: str, key: str | None = None,
         return {"ok": False, "detail": _safe_http_error(exc)}
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
-        return {"ok": False, "detail": f"connection failed: {reason}"}
+        return {"ok": False,
+                "detail": _scrub(f"connection failed: {reason}", url, key, base_url)}
     except ValueError:
         return {"ok": False, "detail": "unexpected response from provider"}
     except OSError as exc:
-        return {"ok": False, "detail": f"connection failed: {exc}"}
+        return {"ok": False,
+                "detail": _scrub(f"connection failed: {exc}", url, key, base_url)}
     return {"ok": True, "detail": "connection successful", "latency_ms": latency}
 
 
@@ -244,16 +290,16 @@ def _cli_models(provider_id: str) -> list[str]:
 
 
 def _discover_live(provider_id: str, key: str | None,
-                   base_url: str | None, auth: str | None) -> tuple[list[str], bool]:
-    """Live model discovery; returns (ids, discovery_supported)."""
+                   base_url: str | None, auth: str | None) -> tuple[list[str], bool, bool]:
+    """Live model discovery; returns (ids, discovery_supported, ok)."""
     url, headers = _probe_request(provider_id, key, base_url, auth)
     if url:
         try:
             data, _lat = _http_json(url, headers=headers)
-        except Exception:  # noqa: BLE001 — probe failure just disables discovery
-            return [], False
-        return _parse_model_list(data, provider_id), True
-    return _cli_models(provider_id), True
+        except Exception:  # noqa: BLE001 — probe failure → discovery unavailable
+            return [], False, False
+        return _parse_model_list(data, provider_id), True, True
+    return _cli_models(provider_id), True, True
 
 
 def _configured_models(cfg: dict, provider_id: str) -> list[str]:
@@ -278,27 +324,46 @@ def discover_models(provider_id: str, key: str | None = None,
                     repo_root: Path | None = None) -> dict:
     cfg = opencode_cfg.load_config(repo_root)
     configured = _configured_models(cfg, provider_id)
-    discovered, supported = _discover_live(provider_id, key, base_url, auth)
+    discovered, supported, ok = _discover_live(provider_id, key, base_url, auth)
     models = [{"id": m, "name": m, "source": "configured"} for m in configured]
     seen = set(configured)
     for mid in discovered:
         if mid not in seen:
             seen.add(mid)
             models.append({"id": mid, "name": mid, "source": "discovered"})
-    return {"ok": True, "discovery_supported": supported, "models": models}
+    return {"ok": ok, "discovery_supported": supported, "models": models}
 
 
 # ------------------------------------------------------------------ connections
 
 
-def connections(repo_root: Path | None = None, auth_store: Path | None = None) -> list[dict]:
+CONNECTION_STATUS = ("not_configured", "configured", "tested", "validation_failed")
+
+
+def _connection_status(provider_id: str, configured: bool,
+                       overrides: dict[str, str] | None) -> str:
+    """Derive the persisted connection status (never key material)."""
+    st = (overrides or {}).get(provider_id)
+    if st == "validation_failed":
+        return "validation_failed"
+    if not configured:
+        return "not_configured"
+    if st == "tested":
+        return "tested"
+    return "configured"
+
+
+def connections(repo_root: Path | None = None, auth_store: Path | None = None,
+                status_overrides: dict[str, str] | None = None) -> list[dict]:
     """Provider list with masked status only (never keys)."""
     cfg = opencode_cfg.load_config(repo_root)
     keys = auth_status(auth_store)
     out: list[dict] = []
     for p in SIMPLE_PROVIDERS:
         out.append({"id": p["id"], "name": p["name"], "kind": "simple",
-                    "configured": p["id"] in keys, "base_url": None})
+                    "configured": p["id"] in keys, "base_url": None,
+                    "status": _connection_status(p["id"], p["id"] in keys,
+                                                  status_overrides)})
     for pid, prov in (cfg.get("provider") or {}).items():
         if pid in SIMPLE_PROVIDER_BY_ID:
             continue
@@ -308,6 +373,7 @@ def connections(repo_root: Path | None = None, auth_store: Path | None = None) -
             "kind": "advanced",
             "configured": pid in keys,
             "base_url": (prov.get("options") or {}).get("baseURL"),
+            "status": _connection_status(pid, pid in keys, status_overrides),
         })
     return out
 
@@ -317,6 +383,29 @@ def provider_known(provider_id: str, repo_root: Path | None = None) -> bool:
         return True
     cfg = opencode_cfg.load_config(repo_root)
     return provider_id in (cfg.get("provider") or {})
+
+
+def is_simple_provider(provider_id: str) -> bool:
+    """True for the known Simple providers (google/openai/anthropic)."""
+    return provider_id in SIMPLE_PROVIDER_BY_ID
+
+
+def canonical_provider_block(provider_id: str,
+                             models: list[str] | None = None) -> dict:
+    """Canonical provider block for a known Simple provider.
+
+    Always rebuilt from fixed metadata — an existing polluted block (wrong
+    npm package, arbitrary baseURL/options from an old Advanced save) must
+    never be merged into a Simple configuration.
+    """
+    meta = SIMPLE_PROVIDER_BY_ID.get(provider_id)
+    if meta is None:
+        raise opencode_cfg.ConfigError(
+            f"{provider_id!r} is not a known Simple provider")
+    block: dict = {"npm": meta["npm"], "name": meta["name"], "options": {}}
+    if models:
+        block["models"] = {m: {"name": m} for m in models}
+    return block
 
 
 def save_connection(
@@ -333,12 +422,25 @@ def save_connection(
     """Save a connection: provider block (opencode.json) + key (auth store).
 
     The returned dict contains masked status only — never a key.
+
+    Selected models may be bare ids from discovery (``gemini-2.5-flash``) or
+    full ids (``google/gemini-2.5-flash``); both are normalized to the bare
+    form opencode.json provider blocks expect.
     """
-    model_ids = [opencode_cfg.validate_model_id(m) for m in (models or [])]
     cfg = opencode_cfg.load_config(repo_root)
+    model_ids = [normalize_model_id(provider_id, m, cfg) for m in (models or [])]
     changed = False
 
-    if mode == "advanced" and base_url:
+    if mode == "advanced":
+        # Advanced mode is for custom providers only: a known Simple provider
+        # (google/openai/anthropic) must never be saved as an Advanced block
+        # with arbitrary npm/baseURL — that is how the google block became
+        # polluted. Advanced connections are only valid with a real, reachable
+        # Base URL.
+        if is_simple_provider(provider_id):
+            raise opencode_cfg.ConfigError(
+                f"{provider_id!r} is a known Simple provider — use Simple mode")
+        base_url = _validate_base_url(base_url)
         block = {
             "npm": "@ai-sdk/openai-compatible",
             "name": provider_id,
@@ -348,11 +450,17 @@ def save_connection(
             block["models"] = {m: {"name": m} for m in model_ids}
         opencode_cfg.upsert_provider(cfg, provider_id, block)
         changed = True
+    elif is_simple_provider(provider_id):
+        # Simple saves always rebuild the canonical block from fixed metadata:
+        # a polluted block (wrong npm / arbitrary baseURL from an old Advanced
+        # save) must never survive. Without models and without an existing
+        # block there is nothing to write (built-in provider + auth store).
+        if model_ids or opencode_cfg.get_provider(cfg, provider_id) is not None:
+            opencode_cfg.upsert_provider(
+                cfg, provider_id, canonical_provider_block(provider_id, model_ids))
+            changed = True
     elif model_ids:
         block = dict(opencode_cfg.get_provider(cfg, provider_id) or {})
-        if not block and provider_id in SIMPLE_PROVIDER_BY_ID:
-            meta = SIMPLE_PROVIDER_BY_ID[provider_id]
-            block = {"npm": meta["npm"], "name": meta["name"], "options": {}}
         block["models"] = {m: {"name": m} for m in model_ids}
         opencode_cfg.upsert_provider(cfg, provider_id, block)
         changed = True
@@ -373,6 +481,26 @@ def save_connection(
             "key_pending": key_pending, "command": command}
 
 
+def add_manual_model(provider_id: str, model_id: str,
+                     repo_root: Path | None = None) -> dict:
+    """Add a manually specified model to a provider.
+
+    Known Simple providers get their canonical block rebuilt, so a polluted
+    block can never be resurrected by a manual add; Advanced providers keep
+    their existing block. Raises ConfigError for invalid model ids.
+    """
+    bare = normalize_model_id(provider_id, model_id)
+    cfg = opencode_cfg.load_config(repo_root)
+    if is_simple_provider(provider_id):
+        block = canonical_provider_block(provider_id)
+    else:
+        block = dict(opencode_cfg.get_provider(cfg, provider_id) or {})
+    block.setdefault("models", {})[bare] = {"name": bare}
+    opencode_cfg.upsert_provider(cfg, provider_id, block)
+    opencode_cfg.save_config(cfg, repo_root)
+    return {"ok": True, "models": sorted(block["models"])}
+
+
 # ------------------------------------------------------------------ agent views
 
 
@@ -382,7 +510,9 @@ def agent_config(repo_root: Path | None = None) -> list[dict]:
     agents: list[dict] = []
     for spec in AGENT_SPECS:
         entry = (cfg.get("agent") or {}).get(spec.agent) or {}
-        model = spec.model
+        # The persisted spec file is authoritative; the frozen in-memory
+        # ``spec.model`` is only a fallback so a save shows up immediately.
+        model = opencode_cfg.read_spec_model(spec.agent, repo_root) or spec.model
         agents.append({
             "tag": spec.tag,
             "name": spec.name,
@@ -409,6 +539,104 @@ def available_models(repo_root: Path | None = None) -> list[dict]:
             by_id.setdefault(spec.model, {"id": spec.model, "name": spec.model,
                                           "source": "configured"})
     return sorted(by_id.values(), key=lambda m: m["id"])
+
+
+# ------------------------------------------------------------------ model catalog
+
+
+def _stored_key(provider_id: str, auth_store: Path | None = None) -> str | None:
+    """Read a stored key for backend-side discovery. Never returned or logged."""
+    data = _read_auth_store(Path(auth_store) if auth_store else _default_auth_store())
+    entry = data.get(provider_id)
+    if isinstance(entry, dict) and entry.get("type") == "api":
+        return entry.get("key") or None
+    return None
+
+
+def normalize_model_id(provider_id: str, model_id: str,
+                       cfg: dict | None = None) -> str:
+    """Bare model id from either input form, name-alias aware.
+
+    For provider ``google`` (name ``Gemini``), all of ``gemini-2.x``,
+    ``google/gemini-2.x`` and ``gemini/gemini-2.x`` normalize to
+    ``gemini-2.x`` so they are never treated as distinct models.
+    """
+    aliases = set(_PROVIDER_NAME_ALIASES.get(provider_id, ()))
+    aliases.add(provider_id)
+    if cfg is not None:
+        prov = (cfg.get("provider") or {}).get(provider_id) or {}
+        name = str(prov.get("name") or "").strip().lower()
+        if name and name != provider_id:
+            aliases.add(name)
+    return opencode_cfg.validate_bare_model_id(model_id, provider_id, tuple(aliases))
+
+
+def canonical_model_id(provider_id: str, model_id: str) -> str:
+    """Canonical internal model id ``provider/bare`` for either input form.
+
+    ``gemini/gemini-2.x`` and ``gemini-2.x`` both canonicalize to
+    ``gemini/gemini-2.x`` so they are never treated as distinct models.
+    """
+    return f"{provider_id}/{normalize_model_id(provider_id, model_id)}"
+
+
+def _catalog_model(provider_id: str, bare: str, source: str, enabled: bool) -> dict:
+    return {
+        "provider": provider_id,
+        "model_id": canonical_model_id(provider_id, bare),
+        "display_name": bare,
+        "source": source,
+        "enabled": enabled,
+    }
+
+
+def _safe_error(exc: Exception) -> str:
+    return str(exc)[:200] or exc.__class__.__name__
+
+
+def model_catalog(repo_root: Path | None = None,
+                  auth_store: Path | None = None) -> dict:
+    """Per-connection model catalog: enabled (configured) + live-discovered.
+
+    Saved connections feed discovery using their stored key; a failing
+    provider is reported as unavailable and never breaks the rest of the
+    catalog. Model ids are deduplicated on the canonical ``provider/bare``
+    form. Never includes key material.
+    """
+    cfg = opencode_cfg.load_config(repo_root)
+    providers: list[dict] = []
+    for conn in connections(repo_root, auth_store):
+        pid, name, kind, base_url, configured = (
+            conn["id"], conn["name"], conn["kind"], conn["base_url"], conn["configured"])
+        entry: dict = {"provider": pid, "name": name, "kind": kind,
+                       "configured": configured, "available": None,
+                       "error": None, "models": []}
+        providers.append(entry)
+        if not configured:
+            continue
+        prov = opencode_cfg.get_provider(cfg, pid) or {}
+        enabled = set(prov.get("models") or {})
+        merged: dict[str, dict] = {}
+        for bare in enabled:
+            merged[canonical_model_id(pid, bare)] = _catalog_model(pid, bare, "configured", True)
+        try:
+            disc = discover_models(pid, key=_stored_key(pid, auth_store),
+                                   base_url=base_url, repo_root=repo_root)
+            if disc.get("ok"):
+                entry["available"] = True
+                for m in disc["models"]:
+                    if m["source"] == "discovered":
+                        merged.setdefault(
+                            canonical_model_id(pid, m["id"]),
+                            _catalog_model(pid, m["id"], "discovered", False))
+            else:
+                entry["available"] = False
+                entry["error"] = "model discovery failed for this provider"
+        except Exception as exc:  # noqa: BLE001 — isolation per provider
+            entry["available"] = False
+            entry["error"] = _safe_error(exc)
+        entry["models"] = sorted(merged.values(), key=lambda m: m["display_name"])
+    return {"providers": providers}
 
 
 def apply_model(agent: str, model: str, repo_root: Path | None = None,

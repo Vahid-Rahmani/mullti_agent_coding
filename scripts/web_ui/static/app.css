@@ -629,6 +629,85 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
 }
 #vsplit.dragging, #hsplit.dragging { background: var(--accent); }
 
+/* ── Phase 25: settings modal ────────────────────────────────────── */
+.settings-modal { width: min(920px, 94vw); height: min(640px, 88vh); }
+.settings-body { display: flex; flex: 1; min-height: 0; }
+.settings-nav {
+  width: 176px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.settings-nav-btn {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.settings-nav-btn:hover { background: var(--bg-hover); color: var(--text); }
+.settings-nav-btn.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.settings-content { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 16px; }
+.set-section h3 { margin: 0 0 4px; font-size: 14px; }
+.set-section > .muted { display: block; margin-bottom: 12px; }
+.set-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; max-width: 480px; }
+.set-row label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.set-row input, .set-row select {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: 4px; padding: 6px 8px; font-size: 12px;
+}
+.set-row input:focus, .set-row select:focus { border-color: var(--accent); }
+.set-note { color: var(--text-faint); font-size: 11px; max-width: 560px; line-height: 1.5; }
+
+.conn-card {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; max-width: 560px;
+}
+.conn-card .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.conn-card .dot.ok, .sec-table .dot.ok { background: var(--ok); }
+.conn-card .dot.off, .sec-table .dot.off { background: var(--border-strong); }
+.conn-card .dot.err, .sec-table .dot.err { background: var(--err); }
+.conn-card .dot.cfg, .sec-table .dot.cfg { background: var(--accent); }
+.conn-name { font-weight: 600; }
+.conn-kind { color: var(--text-faint); font-size: 10px; text-transform: uppercase; margin-left: 6px; }
+.conn-status { color: var(--text-muted); font-size: 11px; }
+.conn-card .spacer { flex: 1; }
+
+.conn-wizard {
+  border: 1px dashed var(--border-strong); border-radius: 8px;
+  padding: 12px; margin: 10px 0; max-width: 560px; background: var(--bg);
+}
+.conn-wizard h4 { margin: 0 0 8px; }
+.wizard-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.wizard-actions input { flex: 1; min-width: 160px; }
+.conn-status-line { font-size: 12px; margin-top: 8px; min-height: 16px; }
+.conn-status-line.ok { color: var(--ok); }
+.conn-status-line.err { color: var(--err); }
+
+.model-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 560px; margin: 8px 0; max-height: 180px; overflow-y: auto; }
+.model-chips .f-chip { font-size: 10px; }
+
+.adv-fields { border-left: 2px solid var(--border); padding-left: 12px; margin: 6px 0; }
+.adv-tag { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+
+.sec-table { width: 100%; border-collapse: collapse; font-size: 12px; max-width: 680px; }
+.sec-table th, .sec-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.sec-table th { color: var(--text-muted); font-weight: 500; }
+.sec-table .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+.verify-badge { font-size: 11px; padding: 1px 7px; border-radius: 8px; margin-left: 8px; }
+.verify-badge.ok { background: rgba(63, 185, 80, .15); color: var(--ok); }
+.verify-badge.err { background: rgba(248, 81, 73, .15); color: var(--err); }
+.drift-badge { color: var(--err); font-size: 11px; }
+
 /* ── modal ───────────────────────────────────────────────────────── */
 .backdrop {
   position: fixed; inset: 0;

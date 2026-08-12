@@ -169,11 +169,16 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         agents = []
         for tag, name, agent in AGENTS:
             spec = AGENT_SPEC_BY_TAG.get(tag)
+            # Persisted spec file is authoritative (in-memory spec.model is a
+            # frozen import-time snapshot); keeps dashboard == Settings model.
+            model = None
+            if spec is not None:
+                model = opencode_cfg.read_spec_model(spec.agent) or spec.model
             agents.append({
                 "tag": tag,
                 "name": name,
                 "agent": agent,
-                "model": spec.model if spec is not None else None,
+                "model": model,
                 "status": snap["statuses"].get(tag, "idle"),
                 "progress": snap["progress"].get(tag, 0),
                 "token_usage": snap["token_usage"].get(tag, 0),
@@ -404,10 +409,16 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
             raise HTTPException(404, f"no log for {key!r} yet (the launcher writes it)")
         return {"agent": key, "lines": lines}
 
-    # ---- settings (Phase 25) ----------------------------------------------
+    # ---- settings (Phase 25 / 25A) ----------------------------------------
 
     def _settings_known(provider_id: str) -> bool:
         return ui_settings.provider_known(provider_id)
+
+    def _set_conn_status(provider_id: str, status: str) -> None:
+        """Persist a tested/validation_failed status across reloads."""
+        current = dict(state.prefs.get("conn_status") or {})
+        current[provider_id] = status
+        state.update_prefs({"conn_status": current})
 
     @router.get("/api/settings")
     async def api_settings() -> dict:
@@ -422,14 +433,21 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
 
     @router.get("/api/settings/connections")
     async def api_settings_connections() -> dict:
-        return {"providers": ui_settings.connections()}
+        return {"providers": ui_settings.connections(
+            status_overrides=state.prefs.get("conn_status") or {})}
 
     @router.post("/api/settings/connections/test")
     async def api_settings_test(body: SettingsTestIn) -> dict:
         if not _settings_known(body.provider):
             raise HTTPException(404, f"unknown provider {body.provider!r}")
-        return ui_settings.test_connection(
-            body.provider, key=body.key, base_url=body.base_url, auth=body.auth)
+        try:
+            result = ui_settings.test_connection(
+                body.provider, key=body.key, base_url=body.base_url, auth=body.auth)
+        except opencode_cfg.ConfigError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        _set_conn_status(body.provider,
+                         "tested" if result.get("ok") else "validation_failed")
+        return result
 
     @router.post("/api/settings/connections/discover")
     async def api_settings_discover(body: SettingsDiscoverIn) -> dict:
@@ -440,14 +458,17 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
 
     @router.post("/api/settings/connections/save")
     async def api_settings_save(body: SettingsSaveIn) -> dict:
-        if body.provider not in ui_settings.SIMPLE_PROVIDER_BY_ID and not _settings_known(body.provider):
+        if not _settings_known(body.provider):
             raise HTTPException(404, f"unknown provider {body.provider!r}")
         try:
-            return ui_settings.save_connection(
+            result = ui_settings.save_connection(
                 body.provider, mode=body.mode, key=body.key, base_url=body.base_url,
                 auth=body.auth, models=body.models)
         except opencode_cfg.ConfigError as exc:
             raise HTTPException(422, str(exc)) from exc
+        if result.get("configured"):
+            _set_conn_status(body.provider, "tested")
+        return result
 
     @router.delete("/api/settings/connections/{provider}")
     async def api_settings_remove(provider: str) -> dict:
@@ -460,13 +481,17 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
 
     @router.post("/api/settings/connections/{provider}/models")
     async def api_settings_manual_model(provider: str, body: SettingsManualModelIn) -> dict:
-        model = opencode_cfg.validate_model_id(body.model)
-        cfg = opencode_cfg.load_config()
-        block = dict(opencode_cfg.get_provider(cfg, provider) or {})
-        block.setdefault("models", {})[model] = {"name": model}
-        opencode_cfg.upsert_provider(cfg, provider, block)
-        opencode_cfg.save_config(cfg)
-        return {"ok": True, "models": sorted(block["models"])}
+        # Known Simple providers rebuild their canonical block; Advanced
+        # providers keep theirs. A polluted block can never be resurrected.
+        try:
+            return ui_settings.add_manual_model(provider, body.model)
+        except opencode_cfg.ConfigError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @router.get("/api/settings/models/catalog")
+    async def api_settings_models_catalog() -> dict:
+        """Model catalog fed by saved connections (discovery with stored keys)."""
+        return ui_settings.model_catalog()
 
     @router.get("/api/settings/models")
     async def api_settings_models() -> dict:

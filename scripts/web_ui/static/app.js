@@ -51,6 +51,10 @@
     });
   }
 
+  // Per-agent session tail for the frontend in-memory mirror — matches the
+  // backend WebState.SESSION_TAIL so rebuilds never balloon memory.
+  const SESSION_TAIL = 800;
+
   /* ─────────────────────────── state ─────────────────────────── */
   const Ag = {
     agents: [],                 // roster from /api/agents
@@ -297,21 +301,30 @@
   }
 
   function onAgentEvent(tag, ev) {
-    // live telemetry sync for a specific agent
+    // 1) Persist FIRST — a valid Agent event must never be lost just because
+    //    its panel is not currently rendered. Ag.sessions[tag] is the single
+    //    source of truth for workspace rebuilds; events are kept in arrival
+    //    order and de-duplicated against the init snapshot by backend seq "n".
+    const sess = (Ag.sessions[tag] = Ag.sessions[tag] || []);
+    if (!sess.some((e) => e.n !== undefined && e.n === ev.n)) {
+      sess.push(ev);
+      if (sess.length > SESSION_TAIL) sess.splice(0, sess.length - SESSION_TAIL);
+    }
+    // 2) Render immediately when a panel exists; otherwise the event stays in
+    //    Ag.sessions[tag] and is rendered when the agent becomes visible.
     const card = panelEl(tag);
-    if (card) {
-      if (ev.kind === "status") {
-        const label = card.querySelector(".p-status-label");
-        if (label) label.textContent = STATUS_LABEL[ev.text] || ev.text;
-        card.querySelector(".p-status").className = "p-status " + statusCls(ev.text);
-      }
-      if (ev.kind === "run") {
-        card.querySelector(".p-task").textContent = ev.text.split("::")[1] || ev.text;
-        card.querySelector(".p-task").title = ev.text;
-      }
-      if (["run", "line", "error", "usermsg", "taskline"].includes(ev.kind)) {
-        appendEv(card.querySelector(".p-console"), ev);
-      }
+    if (!card) return;
+    if (ev.kind === "status") {
+      const label = card.querySelector(".p-status-label");
+      if (label) label.textContent = STATUS_LABEL[ev.text] || ev.text;
+      card.querySelector(".p-status").className = "p-status " + statusCls(ev.text);
+    }
+    if (ev.kind === "run") {
+      card.querySelector(".p-task").textContent = ev.text.split("::")[1] || ev.text;
+      card.querySelector(".p-task").title = ev.text;
+    }
+    if (["run", "line", "error", "usermsg", "taskline"].includes(ev.kind)) {
+      appendEv(card.querySelector(".p-console"), ev);
     }
   }
 
@@ -396,7 +409,7 @@
     svg.setAttribute("viewBox", `0 0 760 ${graphEls.planeH}`);
     _canvas().classList.toggle("narrow", w < 200);
     const mm = $("#graph-minimap");
-    if (mm) mm.classList.toggle("hidden", w < 200 || Ag.graph.nodes.length === 0);
+    if (mm) mm.classList.toggle("hidden", w < 200 || Ag.graph.nodes.length === 0 || Ag.prefs.minimap_on === false);
   }
 
   function currentBand() { return GP.bandForZoom(GraphView.scale); }
@@ -1006,7 +1019,9 @@
       };
       const up = () => {
         gv.classList.remove("dragging");
-        ssSet("graph.h", String(parseFloat(getComputedStyle(document.body).getPropertyValue("--graph-h"))));
+        const gh = parseFloat(getComputedStyle(document.body).getPropertyValue("--graph-h"));
+        ssSet("graph.h", String(gh));
+        post("/api/prefs", { graph_h: gh }).catch(() => {});
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
       };
@@ -1355,6 +1370,7 @@
   function applyPrefs() {
     if (Ag.prefs.sidebar_w) document.body.style.setProperty("--sidebar-w", Ag.prefs.sidebar_w + "px");
     if (Ag.prefs.bottom_h) document.body.style.setProperty("--bottom-h", Ag.prefs.bottom_h + "px");
+    if (Ag.prefs.graph_h) document.body.style.setProperty("--graph-h", Ag.prefs.graph_h + "px");
     const segActive = Ag.prefs.layout;
     $$(".seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.layout === segActive));
     Ag.activeTag = Ag.prefs.active_tag;
@@ -1439,8 +1455,24 @@
   async function loadSessions() {
     try {
       const data = await api("/api/sessions");
-      Ag.sessions = data.sessions || {};
-      // rebuild any panels to replay history
+      const incoming = data.sessions || {};
+      // Merge, never replace: live SSE events that already arrived (and the
+      // snapshot events not yet delivered live) must not be reverted by the
+      // init snapshot. The snapshot is a prefix of the SSE timeline, so n-dedup
+      // keeps per-tag order intact while preserving all received output.
+      for (const tag of Object.keys(incoming)) {
+        const cur = Ag.sessions[tag] || [];
+        const have = new Set(cur.filter((e) => e.n !== undefined).map((e) => e.n));
+        const merged = cur.slice();
+        for (const e of incoming[tag]) {
+          if (e.n !== undefined && have.has(e.n)) continue;
+          merged.push(e);
+          if (e.n !== undefined) have.add(e.n);
+        }
+        if (merged.length > SESSION_TAIL) merged.splice(0, merged.length - SESSION_TAIL);
+        Ag.sessions[tag] = merged;
+      }
+      // rebuild any panels to replay history (current sessions, not a snapshot)
       buildWorkspace();
     } catch (_) { /* ignore */ }
   }
@@ -1474,6 +1506,10 @@
     bindSplitters();
     bindGraphWindow();
     document.body.style.setProperty("--graph-h", loadGraphH() + "px");
+    const settingsBtn = $("#settings-btn");
+    if (settingsBtn && window.MACSettings) {
+      settingsBtn.addEventListener("click", () => window.MACSettings.open());
+    }
     loadAgents().catch((err) => console.error(err));
     loadSessions();
     loadGraph();
@@ -1483,4 +1519,8 @@
   }
 
   window.addEventListener("DOMContentLoaded", init);
+
+  // Test/embedding hook (mirrors window.MACSettings): exposes the live event →
+  // session pipeline so behavioral tests can drive it headlessly.
+  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream, loadSessions };
 })();

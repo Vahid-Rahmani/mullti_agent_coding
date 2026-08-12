@@ -11,5 +11,6 @@ Module layout:
     routes.py   — REST/SSE endpoints (thin layer over core)
     state.py    — WebState: drains HUB events into per-agent sessions
     graph.py    — VaultGraph: read-only node/edge model of the managed vault
-    static/     — index.html · app.css · app.js (frontend)
+    settings.py — Settings facade: AI connections, discovery, auth-store keys
+    static/     — index.html · app.css · app.js · settings.js (frontend)
 """

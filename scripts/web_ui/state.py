@@ -36,6 +36,7 @@ DEFAULT_PREFS: dict = {
     "bottom_h": 200,
     "graph_h": 300,      # graph canvas height (Settings → Graph)
     "minimap_on": True,  # graph minimap visible at start (Settings → Graph)
+    "conn_status": {},   # provider -> "tested" | "validation_failed" (Settings)
 }
 
 _SESSION_KINDS = {"run", "line", "error", "status"}
@@ -90,6 +91,14 @@ class WebState:
             self.prefs["graph_h"] = 300
         if not isinstance(self.prefs.get("minimap_on"), bool):
             self.prefs["minimap_on"] = True
+        conn_status = self.prefs.get("conn_status")
+        if not isinstance(conn_status, dict):
+            self.prefs["conn_status"] = {}
+        else:
+            self.prefs["conn_status"] = {
+                k: v for k, v in conn_status.items()
+                if isinstance(k, str) and v in ("tested", "validation_failed")
+            }
 
     def save_prefs(self) -> None:
         try:

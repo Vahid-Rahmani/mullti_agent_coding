@@ -5,9 +5,11 @@ configured by its own ``AgentSpec`` module carrying identity (tag/name/agent
 key) and a configured model. No modes, personas, or role descriptions exist.
 """
 
+import json
 import os
 import sys
 import unittest
+from pathlib import Path
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
@@ -83,20 +85,13 @@ class RegistryDerivationTestCase(unittest.TestCase):
 
 
 class ModelAssignmentTestCase(unittest.TestCase):
-    """Configured models match the plain roster contract."""
+    """Every spec's configured model matches the verified opencode.json mirror."""
 
     def test_models_assigned(self):
-        expected = {
-            "matthew": "opencode/deepseek-v4-flash-free",
-            "alex": "opencode/deepseek-v4-flash-free",
-            "sarah": "opencode/deepseek-v4-flash-free",
-            "david": "opencode/big-pickle",
-            "elena": "opencode/ling-3.0-tiny-free",
-            "max": "opencode/deepseek-v4-flash-free",
-            "chloe": "opencode/ling-3.0-tiny-free",
-        }
+        with open(Path(REPO_ROOT) / "opencode.json", encoding="utf-8") as fh:
+            mirror = json.load(fh)["agent"]
         for spec in agents.AGENT_SPECS:
-            self.assertEqual(spec.model, expected[spec.agent], spec.agent)
+            self.assertEqual(spec.model, mirror[spec.agent]["model"], spec.agent)
 
 
 class ResolutionTestCase(unittest.TestCase):

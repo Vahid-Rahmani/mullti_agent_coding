@@ -28,6 +28,8 @@ MAX_FALLBACK_MODELS = 5
 # provider/model — letters, digits, . _ - : / + @ (no whitespace or quotes,
 # which keeps ids safe to embed in Python string literals and JSON).
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.\-:/+@]+/[A-Za-z0-9_.\-:/+@]+$")
+# bare model id (no provider prefix) — used inside provider ``models`` blocks.
+_BARE_MODEL_RE = re.compile(r"^[A-Za-z0-9_.\-:+@]+$")
 _SPEC_MODEL_RE = re.compile(r'^(\s*model\s*=\s*)"[^"]*"(,?)$', re.MULTILINE)
 
 
@@ -100,6 +102,29 @@ def validate_fallback_chain(fallback_models: list[str] | None) -> list[str]:
     return chain
 
 
+def validate_bare_model_id(model_id: str, provider_id: str | None = None,
+                           aliases: tuple[str, ...] = ()) -> str:
+    """Validate a model id destined for a provider ``models`` block.
+
+    Accepts bare ids (``gemini-2.5-flash`` — the form providers return from
+    discovery and the form opencode.json stores) and full ``provider/model``
+    ids; a leading prefix is stripped when it matches ``provider_id`` or one
+    of ``aliases`` (e.g. the provider's name — ``gemini/gemini-2.x`` belongs
+    to provider ``google``). Returns the bare id.
+    """
+    model_id = (model_id or "").strip()
+    if "/" in model_id:
+        head, _sep, tail = model_id.partition("/")
+        if (provider_id and head == provider_id) or (aliases and head in aliases):
+            model_id = tail
+        else:
+            raise ConfigError(
+                f"model {model_id!r} does not belong to provider {provider_id!r}")
+    if not _BARE_MODEL_RE.match(model_id):
+        raise ConfigError(f"invalid model id {model_id!r}")
+    return model_id
+
+
 # ---------------------------------------------------------------- agent config
 
 
@@ -114,6 +139,32 @@ def _resolve_agent(name: str):
 def _spec_path(repo_root: Path | None) -> Path:
     root = Path(repo_root) if repo_root is not None else PROJECT_ROOT
     return root / "scripts" / "core" / "agents"
+
+
+def read_spec_model(agent: str, repo_root: Path | None = None) -> str | None:
+    """Read the CURRENT ``model="..."`` from an AgentSpec module on disk.
+
+    The registry freezes ``spec.model`` at import time, so long-lived
+    processes (dashboard routes, RunHub) must re-read the authoritative spec
+    file to see a model save immediately — no restart, no module reload.
+    Never imports the spec module. Fails safely: returns ``None`` when the
+    agent is unknown or the file/line cannot be read, letting callers fall
+    back to the frozen ``spec.model``.
+    """
+    try:
+        spec = _resolve_agent(agent)
+        text = (_spec_path(repo_root) / f"{spec.agent}.py").read_text(encoding="utf-8")
+    except (OSError, ConfigError):
+        return None
+    m = _SPEC_MODEL_RE.search(text)
+    if not m:
+        return None
+    value = m.group(0)
+    first = value.find('"')
+    last = value.rfind('"')
+    if first < 0 or last <= first:
+        return None
+    return value[first + 1:last]
 
 
 def _write_spec_model(spec, model: str, repo_root: Path | None) -> None:
@@ -181,9 +232,13 @@ def apply_agent_config(
         ok = False
 
     if not ok:
-        if before_cfg is not None:
+        if before_cfg is None:
+            cfg_path_.unlink(missing_ok=True)
+        else:
             cfg_path_.write_bytes(before_cfg)
-        if before_spec is not None:
+        if before_spec is None:
+            spec_file.unlink(missing_ok=True)
+        else:
             spec_file.write_bytes(before_spec)
         raise ConfigError(
             "agent config rejected by verify (specs vs opencode.json drift) — change rolled back")
