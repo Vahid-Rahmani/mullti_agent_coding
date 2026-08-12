@@ -532,8 +532,18 @@ class UiAssetsTestCase(unittest.TestCase):
             js.index("const card = panelEl(tag);"),
             "session persistence must precede the panel lookup")
         self.assertIn("if (!card) return;", js)
-        # no wrap-and-drop path may remain in onAgentEvent
-        self.assertNotIn("if (card) {", js)
+        # no wrap-and-drop path may remain inside onAgentEvent itself
+        start = js.index("function onAgentEvent")
+        end = js.index("function buildStatusTable")  # next function after it
+        self.assertNotIn("if (card) {", js[start:end])
+
+    def test_status_events_persisted_but_never_console_rows(self):
+        """status events are persisted (never lost) but rendered only as dots,
+        both live and on replay — session and DOM never diverge."""
+        js = self.js
+        self.assertIn("const PANEL_KINDS = [\"run\", \"line\", \"error\", \"usermsg\", \"taskline\"];", js)
+        self.assertIn("if (PANEL_KINDS.includes(ev.kind) && !seen) {", js)
+        self.assertIn("if (PANEL_KINDS.includes(ev.kind)) {", js)
 
     def test_agent_event_dedupe_and_tail(self):
         """Live events are de-duplicated by backend seq and capped by tail."""
@@ -550,6 +560,17 @@ class UiAssetsTestCase(unittest.TestCase):
     def test_window_macapp_test_hook(self):
         """The headless test hook mirrors window.MACSettings."""
         self.assertIn("window.MACApp", self.js)
+
+    def test_backend_restart_detection(self):
+        """A backend restart resets WebState's "n" sequence; the frontend must
+        detect the regression and clear the stale session mirror so the n-dedup
+        never swallows the new process's output."""
+        js = self.js
+        self.assertIn("let lastBackendN = 0;", js)
+        self.assertIn("function checkBackendRestart(snapN)", js)
+        self.assertIn("Ag.sessions = {};", js)
+        # pollState drives the detection on every /api/state poll
+        self.assertIn("checkBackendRestart(snap.n)", js)
 
 
 if __name__ == "__main__":

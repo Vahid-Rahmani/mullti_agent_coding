@@ -54,7 +54,7 @@
     "matthew": {
       "description": "M1 \u2014 plain agent.",
       "mode": "primary",
-      "model": "google/gemini-3.1-flash-lite",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
         "opencode/deepseek-v4-flash-free",

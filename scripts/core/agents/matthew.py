@@ -8,5 +8,5 @@ SPEC = AgentSpec(
     tag="m1",
     name="Matthew",
     agent="matthew",
-    model="google/gemini-3.1-flash-lite",
+    model="opencode/deepseek-v4-flash-free",
 )

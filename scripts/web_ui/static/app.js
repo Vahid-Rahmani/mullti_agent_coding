@@ -54,6 +54,10 @@
   // Per-agent session tail for the frontend in-memory mirror — matches the
   // backend WebState.SESSION_TAIL so rebuilds never balloon memory.
   const SESSION_TAIL = 800;
+  // Event kinds rendered as rows in an agent panel console. status events are
+  // persisted (so rebuilds never lose them) but only ever update the dot, so
+  // they are never appended as console rows — live and replay stay identical.
+  const PANEL_KINDS = ["run", "line", "error", "usermsg", "taskline"];
 
   /* ─────────────────────────── state ─────────────────────────── */
   const Ag = {
@@ -268,11 +272,16 @@
     wg.style.gridTemplateColumns = g.cols;
     wg.style.gridTemplateRows = g.rows;
     agents.forEach((a) => wg.appendChild(panelFor(a)));
-    // replay saved sessions
+    // replay saved sessions (current Ag.sessions, not an init snapshot; status
+    // events are skipped so live and replay rendering stay identical)
     for (const a of Ag.agents) {
       const card = wg.querySelector(`.panel[data-tag="${a.tag}"]`);
       if (card && Ag.sessions[a.tag]) {
-        Ag.sessions[a.tag].forEach((ev) => appendEv(card.querySelector(".p-console"), ev));
+        Ag.sessions[a.tag].forEach((ev) => {
+          if (PANEL_KINDS.includes(ev.kind)) {
+            appendEv(card.querySelector(".p-console"), ev);
+          }
+        });
       }
     }
   }
@@ -306,7 +315,8 @@
     //    source of truth for workspace rebuilds; events are kept in arrival
     //    order and de-duplicated against the init snapshot by backend seq "n".
     const sess = (Ag.sessions[tag] = Ag.sessions[tag] || []);
-    if (!sess.some((e) => e.n !== undefined && e.n === ev.n)) {
+    const seen = sess.some((e) => e.n !== undefined && e.n === ev.n);
+    if (!seen) {
       sess.push(ev);
       if (sess.length > SESSION_TAIL) sess.splice(0, sess.length - SESSION_TAIL);
     }
@@ -323,7 +333,9 @@
       card.querySelector(".p-task").textContent = ev.text.split("::")[1] || ev.text;
       card.querySelector(".p-task").title = ev.text;
     }
-    if (["run", "line", "error", "usermsg", "taskline"].includes(ev.kind)) {
+    if (PANEL_KINDS.includes(ev.kind) && !seen) {
+      // skip the append when this event was already replayed from the init
+      // snapshot — session and DOM must not disagree on page-load-during-run
       appendEv(card.querySelector(".p-console"), ev);
     }
   }
@@ -1416,9 +1428,36 @@
   }
 
   /* ─────────────────────── periodic sync ─────────────────────── */
+  // Watermark of the backend WebState event sequence ("n" in /api/state and in
+  // every SSE event). Within one server process it only ever grows; if it drops,
+  // the backend restarted and its per-agent event sequence restarted with it.
+  // Without this check, the stale in-memory sessions would make onAgentEvent's
+  // n-dedup swallow the new process's events as "already seen" — the agent runs
+  // and its status updates, but no output rows ever render.
+  let lastBackendN = 0;
+
+  // Returns whether a restart was detected (used by the headless test hook);
+  // pollState ignores the return value.
+  function checkBackendRestart(snapN) {
+    if (snapN === undefined) return false;
+    if (snapN < lastBackendN) {
+      // backend restarted — its own _sessions were reset too, so drop the mirror
+      Ag.sessions = {};
+      lastBackendN = snapN;
+      buildWorkspace();
+      return true;
+    }
+    lastBackendN = snapN;
+    return false;
+  }
+
   async function pollState() {
     try {
       const snap = await api("/api/state");
+      // Restart detection runs on the 3s poll cadence, so output that arrives
+      // within the first ~3s after a restart is the only theoretical window;
+      // real opencode output lands seconds later, always after the clear.
+      checkBackendRestart(snap.n);
       Ag.agents.forEach((a) => {
         const st = snap.statuses[a.tag]; const prog = snap.progress[a.tag];
         const toks = snap.token_usage[a.tag]; const running = snap.session_tags.includes(a.tag);
@@ -1474,6 +1513,13 @@
       }
       // rebuild any panels to replay history (current sessions, not a snapshot)
       buildWorkspace();
+      // watermark the backend event sequence so pollState can detect a backend
+      // restart (WebState "n" resets to 0) even if it happens before the first poll.
+      for (const tag of Object.keys(incoming)) {
+        for (const e of incoming[tag]) {
+          if (e.n !== undefined && e.n > lastBackendN) lastBackendN = e.n;
+        }
+      }
     } catch (_) { /* ignore */ }
   }
 
@@ -1522,5 +1568,5 @@
 
   // Test/embedding hook (mirrors window.MACSettings): exposes the live event →
   // session pipeline so behavioral tests can drive it headlessly.
-  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream, loadSessions };
+  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream, loadSessions, checkBackendRestart, pollState };
 })();
