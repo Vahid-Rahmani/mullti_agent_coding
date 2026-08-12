@@ -34,6 +34,8 @@ DEFAULT_PREFS: dict = {
     "selected_node": None,
     "sidebar_w": 270,
     "bottom_h": 200,
+    "graph_h": 300,      # graph canvas height (Settings → Graph)
+    "minimap_on": True,  # graph minimap visible at start (Settings → Graph)
 }
 
 _SESSION_KINDS = {"run", "line", "error", "status"}
@@ -83,6 +85,11 @@ class WebState:
         active = self.prefs.get("active_tag")
         if active not in valid:
             self.prefs["active_tag"] = visible[0] if visible else (valid[0] if valid else None)
+        graph_h = self.prefs.get("graph_h")
+        if not isinstance(graph_h, (int, float)) or not 140 <= graph_h <= 560:
+            self.prefs["graph_h"] = 300
+        if not isinstance(self.prefs.get("minimap_on"), bool):
+            self.prefs["minimap_on"] = True
 
     def save_prefs(self) -> None:
         try:

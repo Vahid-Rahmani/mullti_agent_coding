@@ -57,6 +57,9 @@
     sessions: {},               // tag -> [{kind,text,n}]
     prefs: { layout: "4", agents_visible: [], active_tag: null, selected_node: null },
     graph: { nodes: [], edges: [] },
+    view: { nodes: [], edges: [] },   // current filtered/laid-out graph
+    sectionFilter: [],                // empty = All sections
+    coreView: false,                  // Core/Important architecture map
     tasks: [],
     selectedNode: null,
     activeTag: null,
@@ -117,7 +120,7 @@
   }
 
   function buildDispatchTarget() {
-    const sel = $("#dispatch-target");
+    const sel = $("#prompt-target");
     empty(sel);
     const active = el("option", null, "Active panel");
     active.value = "active";
@@ -133,18 +136,34 @@
   }
 
   function bindDispatch() {
-    $("#dispatch-form").addEventListener("submit", async (e) => {
+    const form = $("#prompt-box");
+    const input = $("#prompt-input");
+    function autosize() {
+      input.style.height = "auto";
+      const h = Math.min(240, Math.max(56, input.scrollHeight));
+      input.style.height = h + "px";
+      input.style.overflowY = h >= 240 ? "auto" : "hidden";
+    }
+    input.addEventListener("input", autosize);
+    autosize();
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const input = $("#dispatch-input");
       const prompt = input.value.trim();
       if (!prompt) return;
-      let tag = $("#dispatch-target").value;
+      let tag = $("#prompt-target").value;
       if (tag === "active") tag = Ag.activeTag;
       if (tag === "all") tag = null;
       if (tag && !Ag.agents.some((a) => a.tag === tag)) tag = null;
       try {
         await post("/api/dispatch", { prompt, agent: tag });
         input.value = "";
+        autosize();
       } catch (err) {
         console.error("dispatch failed", err);
       }
@@ -233,21 +252,21 @@
   }
 
   function buildWorkspace() {
-    const ws = $("#workspace");
-    empty(ws);
+    const wg = $("#workspace-grid");
+    empty(wg);
     const agents = visibleAgents();
     const emptyMsg = el("div", "workspace-empty hidden", "No agents visible — toggle agents on in the toolbar.");
-    ws.appendChild(emptyMsg);
+    wg.appendChild(emptyMsg);
     if (agents.length === 0) {
       emptyMsg.classList.remove("hidden");
     }
     const g = gridFor(agents.length);
-    ws.style.gridTemplateColumns = g.cols;
-    ws.style.gridTemplateRows = g.rows;
-    agents.forEach((a) => ws.appendChild(panelFor(a)));
+    wg.style.gridTemplateColumns = g.cols;
+    wg.style.gridTemplateRows = g.rows;
+    agents.forEach((a) => wg.appendChild(panelFor(a)));
     // replay saved sessions
     for (const a of Ag.agents) {
-      const card = ws.querySelector(`.panel[data-tag="${a.tag}"]`);
+      const card = wg.querySelector(`.panel[data-tag="${a.tag}"]`);
       if (card && Ag.sessions[a.tag]) {
         Ag.sessions[a.tag].forEach((ev) => appendEv(card.querySelector(".p-console"), ev));
       }
@@ -344,127 +363,237 @@
     if (prompt !== undefined) tr.querySelectorAll("td")[3].textContent = prompt.slice(0, 140);
   }
 
-  /* ─────────────────────── graph view ────────────────────────── */
-  let graphEls = { svg: null, nodes: new Map(), edges: new Map() };
+  /* ─────────────────────── graph view (Phase 24) ─────────────── */
+  let graphEls = {
+    svg: null, world: null, nodes: new Map(), edges: new Map(), byName: {},
+    sectionHubs: {}, planeH: 440, bounds: null, layoutSig: null, cachedPos: [], mmRaf: null,
+  };
+  const GraphView = { scale: 1, tx: 0, ty: 0, atFit: true };
+  const panState = { active: false, pid: null, px: 0, py: 0, moved: false };
+  const GP = window.GraphMath;
 
-  function layoutGraph(nodes, edges) {
-    const W = 760, H = 440;
-    const n = nodes.length;
-    const pos = nodes.map((nd, i) => {
-      const ang = (i / Math.max(1, n)) * Math.PI * 2;
-      const r = 70 + (i % 6) * 20;
-      return { x: W / 2 + Math.cos(ang) * r, y: H / 2 + Math.sin(ang) * r };
+  const _canvas = () => $("#graph-svg");
+  const _rect = () => _canvas().getBoundingClientRect();
+  function nodeByName(name) {
+    return Ag.view.nodes.find((nd) => nd.name === name);
+  }
+
+  // Map a canvas client point into viewBox plane coords (uniform scale).
+  function planePos(clientX, clientY) {
+    const r = _rect();
+    return {
+      x: (clientX - r.left) * 760 / Math.max(1, r.width),
+      y: (clientY - r.top) * graphEls.planeH / Math.max(1, r.height),
+    };
+  }
+
+  function syncViewBox() {
+    const svg = graphEls.svg;
+    if (!svg) return;
+    const w = Math.max(60, svg.clientWidth || 760);
+    const h = Math.max(60, svg.clientHeight || 300);
+    graphEls.planeH = Math.min(1000, Math.max(300, Math.round(760 * h / w)));
+    svg.setAttribute("viewBox", `0 0 760 ${graphEls.planeH}`);
+    _canvas().classList.toggle("narrow", w < 200);
+    const mm = $("#graph-minimap");
+    if (mm) mm.classList.toggle("hidden", w < 200 || Ag.graph.nodes.length === 0);
+  }
+
+  function currentBand() { return GP.bandForZoom(GraphView.scale); }
+
+  function applyBand() {
+    const band = currentBand();
+    const canvas = _canvas();
+    if (canvas.dataset.band === band) return;
+    canvas.dataset.band = band;
+    graphEls.nodes.forEach((g) => {
+      const nd = nodeByName(g.dataset.name);
+      if (!nd) return;
+      // zoomed out: keep only the section hubs / root spine visible
+      g.style.display =
+        (band === "out" && !graphEls.sectionHubs[nd.name]) ? "none" : "";
+      const r = GP.radiusFor(nd, band);
+      const circ = g.querySelector(".g-circle");
+      if (circ) circ.setAttribute("r", r);
+      const lbl = g.querySelector(".g-label");
+      if (lbl) {
+        // at zoom-out the visible set is the section-hub spine, so labels
+        // follow that same set (not just the degree ≥ 10 rule)
+        const show = band === "out"
+          ? !!graphEls.sectionHubs[nd.name]
+          : GP.labelVisibleFor(nd, band);
+        lbl.classList.toggle("hidden", !show);
+        lbl.setAttribute("y", GP.labelYOffset(r, band));
+      }
     });
-    const k = Math.sqrt((W * H) / Math.max(1, n)) * 0.55;
-    const idx = {};
-    nodes.forEach((nd, i) => (idx[nd.name] = i));
-    const e = edges
-      .filter((p) => idx[p[0]] != null && idx[p[1]] != null)
-      .map((p) => [idx[p[0]], idx[p[1]]]);
-
-    let t = 9;
-    for (let it = 0; it < 220; it++) {
-      const f = nodes.map(() => ({ x: 0, y: 0 }));
-      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-        let dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
-        let d2 = dx * dx + dy * dy; if (d2 < 1) d2 = 1;
-        const d = Math.sqrt(d2); dx /= d; dy /= d;
-        const force = (k * k) / d2;
-        f[i].x += dx * force; f[i].y += dy * force;
-        f[j].x -= dx * force; f[j].y -= dy * force;
-      }
-      for (const [a, b] of e) {
-        const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
-        const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = (d * d) / k;                       // tension (damped)
-        const ux = dx / d, uy = dy / d;
-        f[a].x += ux * force; f[a].y += uy * force;
-        f[b].x -= ux * force; f[b].y -= uy * force;
-      }
-      for (let i = 0; i < n; i++) {
-        f[i].x += (W / 2 - pos[i].x) * 0.012;
-        f[i].y += (H / 2 - pos[i].y) * 0.012;
-      }
-      for (let i = 0; i < n; i++) {
-        const fl = Math.sqrt(f[i].x ** 2 + f[i].y ** 2) || 1;
-        const scale = Math.min(fl, t) / fl;
-        pos[i].x += f[i].x * scale;
-        pos[i].y += f[i].y * scale;
-      }
-      t *= 0.96;
-    }
-
-    let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-    pos.forEach((p) => {
-      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-    });
-    const pad = 46;
-    const s = Math.min((W - 2 * pad) / Math.max(1, maxX - minX),
-                       (H - 2 * pad) / Math.max(1, maxY - minY), 1.8);
-    const ox = (W - (maxX - minX) * s) / 2;
-    const oy = (H - (maxY - minY) * s) / 2;
-    pos.forEach((p, i) => {
-      nodes[i].x = (p.x - minX) * s + ox;
-      nodes[i].y = (p.y - minY) * s + oy;
+    // LOD edge culling: hide edges the current band does not show
+    graphEls.edges.forEach((grp, key) => {
+      const p = key.split("|");
+      const show = GP.edgeVisibleFor(p, band, graphEls.byName, graphEls.sectionHubs);
+      grp.style.display = show ? "" : "none";
     });
   }
 
+  function applyGraphView() {
+    const world = graphEls.world;
+    if (!world) return;
+    const cam = GP.panClamp(
+      { scale: GraphView.scale, tx: GraphView.tx, ty: GraphView.ty },
+      graphEls.bounds, 760, graphEls.planeH);
+    GraphView.scale = cam.scale; GraphView.tx = cam.tx; GraphView.ty = cam.ty;
+    world.setAttribute("transform", `translate(${GraphView.tx},${GraphView.ty}) scale(${GraphView.scale})`);
+    const inv = 1 / GraphView.scale;
+    graphEls.nodes.forEach((g) => {
+      const lbl = g.querySelector(".g-label");
+      if (lbl) lbl.setAttribute("transform", `scale(${inv})`);
+    });
+    applyBand();
+    scheduleMinimap();
+  }
+
+  function zoomBy(factor, px, py) {
+    if (px === undefined) { px = 380; py = graphEls.planeH / 2; }   // viewBox center
+    const cam = GP.zoomAtPoint(
+      { scale: GraphView.scale, tx: GraphView.tx, ty: GraphView.ty },
+      px, py, factor, 760, graphEls.planeH);
+    GraphView.scale = cam.scale; GraphView.tx = cam.tx; GraphView.ty = cam.ty;
+    GraphView.atFit = false;
+    applyGraphView();
+  }
+
+  function fitGraph() {
+    syncViewBox();
+    const cam = GP.fitCamera(graphEls.bounds, 760, graphEls.planeH, 42);
+    GraphView.scale = cam.scale; GraphView.tx = cam.tx; GraphView.ty = cam.ty;
+    GraphView.atFit = true;
+    applyGraphView();
+  }
+
+  function resetGraphView() { fitGraph(); }
+
+  function layoutGraph(nodes, edges) {
+    const sig = nodes.map((nd) => nd.name).join("|") + "::" +
+                edges.map((p) => p.join("-")).join("|");
+    if (graphEls.layoutSig === sig && graphEls.cachedPos.length === nodes.length) {
+      const map = {};
+      nodes.forEach((nd, i) => (map[nd.name] = graphEls.cachedPos[i]));
+      nodes.forEach((nd) => {
+        const p = map[nd.name];
+        if (p) { nd.x = p.x; nd.y = p.y; }
+      });
+      return;
+    }
+    GP.runLayout(nodes, edges, { iterations: 500 });
+    graphEls.cachedPos = nodes.map((nd) => ({ x: nd.x, y: nd.y }));
+    graphEls.layoutSig = sig;
+  }
+
   function renderGraph() {
-    const host = $("#graph-svg");
+    const host = $("#graph-stage");
     empty(host);
-    const nodes = Ag.graph.nodes;
-    const edges = Ag.graph.edges;
+    const nodes = Ag.view.nodes;
+    const edges = Ag.view.edges;
     if (!nodes.length) {
       host.appendChild(el("div", "placeholder", "no vault nodes"));
       buildLegend();
       return;
     }
     layoutGraph(nodes, edges);
+    graphEls.bounds = GP.worldBounds(nodes);
 
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("viewBox", "0 0 760 440");
+    const world = document.createElementNS(svgNS, "g");
+    world.setAttribute("class", "graph-world");
+    svg.appendChild(world);
+
+    const byName = {};
+    nodes.forEach((nd) => (byName[nd.name] = nd));
+    graphEls.byName = byName;
+    graphEls.sectionHubs = GP.sectionHubNames(nodes);
 
     edges.forEach((pair) => {
+      const a = byName[pair[0]], b = byName[pair[1]];
+      if (!a || !b) return;
+      // vault links are reciprocal — draw each adjacency once
+      const key = pair[0] < pair[1] ? pair[0] + "|" + pair[1] : pair[1] + "|" + pair[0];
+      if (graphEls.edges.has(key)) return;
+      const grp = document.createElementNS(svgNS, "g");
+      const hit = document.createElementNS(svgNS, "line");
+      hit.setAttribute("class", "g-hit");
       const line = document.createElementNS(svgNS, "line");
       line.setAttribute("class", "g-edge");
-      line.setAttribute("data-a", pair[0]);
-      line.setAttribute("data-b", pair[1]);
-      svg.appendChild(line);
-      graphEls.edges.set(pair[0] + "|" + pair[1], line);
+      [hit, line].forEach((l) => {
+        l.setAttribute("data-a", pair[0]);
+        l.setAttribute("data-b", pair[1]);
+        l.setAttribute("x1", a.x); l.setAttribute("y1", a.y);
+        l.setAttribute("x2", b.x); l.setAttribute("y2", b.y);
+      });
+      grp.appendChild(hit);
+      grp.appendChild(line);
+      world.appendChild(grp);
+      graphEls.edges.set(key, grp);
     });
 
     nodes.forEach((nd) => {
       const g = document.createElementNS(svgNS, "g");
-      g.setAttribute("class", "g-node");
+      g.setAttribute("class", "g-node " + typeCls(nd));
       g.setAttribute("data-name", nd.name);
       g.setAttribute("transform", `translate(${nd.x},${nd.y})`);
-      const r = Math.min(11, 4 + (nd.degree || 0) * 0.9);
-      g.appendChild(circle(r, FOLDER_COLOR[nd.folder] || "#888"));
-      if (nd.degree >= 3 || nd.folder === "root") {
-        const lbl = document.createElementNS(svgNS, "text");
-        lbl.setAttribute("class", "g-label");
-        lbl.setAttribute("y", r + 12);
-        lbl.setAttribute("text-anchor", "middle");
-        lbl.textContent = nd.name.replace(/^Agent_/, "");
-        g.appendChild(lbl);
-      }
-      svg.appendChild(g);
+      const circ = document.createElementNS(svgNS, "circle");
+      circ.setAttribute("class", "g-circle");
+      circ.setAttribute("fill",
+        FOLDER_COLOR[nd.folder] === "var(--folder-root)" ? "#e6edf3" : FOLDER_COLOR[nd.folder] || "#888");
+      g.appendChild(circ);
+      const glyph = glyphFor(nd);
+      if (glyph) g.appendChild(glyph);
+      const lbl = document.createElementNS(svgNS, "text");
+      lbl.setAttribute("class", "g-label");
+      lbl.setAttribute("text-anchor", "middle");
+      const raw = nd.name.replace(/^Agent_/, "");
+      lbl.textContent = raw.length > 18 ? raw.slice(0, 16) + "…" : raw;
+      g.appendChild(lbl);
+      world.appendChild(g);
       graphEls.nodes.set(nd.name, g);
     });
-    host.appendChild(svg);
+    graphEls.world = world;
     graphEls.svg = svg;
+    host.appendChild(svg);
+    _canvas().dataset.band = "";   // force band re-application on the new DOM
+    syncViewBox();
     buildLegend();
     applyGraphSelection();
+    fitGraph();
   }
 
-  function circle(r, fill) {
+  function lineOf(grp) { return grp ? grp.querySelector(".g-edge") : null; }
+
+  function typeCls(nd) {
+    const map = { agent: "n-agent", component: "n-component", system: "n-system",
+                  task: "n-task", architecture: "n-architecture",
+                  documentation: "n-doc", decision: "n-decision", test: "n-test" };
+    const cls = map[nd.type] || "n-unknown";
+    const hub = nd.folder === "root" || (nd.degree || 0) >= GP.HUB_DEGREE ? " n-hub" : "";
+    return cls + hub;
+  }
+
+  function glyphFor(nd) {
     const svgNS = "http://www.w3.org/2000/svg";
-    const c = document.createElementNS(svgNS, "circle");
-    c.setAttribute("r", r);
-    c.setAttribute("fill", fill === "var(--folder-root)" ? "#e6edf3" : fill);
-    return c;
+    if (nd.type !== "agent" && nd.type !== "component") return null;
+    const g = document.createElementNS(svgNS, "g");
+    g.setAttribute("class", "g-glyph");
+    if (nd.type === "agent") {
+      const dot = document.createElementNS(svgNS, "circle");
+      dot.setAttribute("r", 1.9);
+      g.appendChild(dot);
+    } else {
+      const box = document.createElementNS(svgNS, "rect");
+      box.setAttribute("x", -2.4); box.setAttribute("y", -2.4);
+      box.setAttribute("width", 4.8); box.setAttribute("height", 4.8);
+      box.setAttribute("rx", 0.8);
+      g.appendChild(box);
+    }
+    return g;
   }
 
   function buildLegend() {
@@ -481,9 +610,60 @@
     });
   }
 
+  /* ── Phase 24B: section filters + core/important view ──────────── */
+  function folderLabel(f) { return f === "root" ? "Root" : f.slice(3); }
+
+  function graphViewNodes() {
+    return Ag.coreView
+      ? GP.coreGraph(Ag.graph.nodes, Ag.graph.edges)
+      : GP.applySectionFilter(Ag.graph.nodes, Ag.graph.edges, Ag.sectionFilter);
+  }
+
+  function buildGraphFilters() {
+    const wrap = $("#graph-filters");
+    if (!wrap) return;
+    empty(wrap);
+    const chip = (label, active, onClick, extraCls) => {
+      const b = el("button", "f-chip" + (extraCls ? " " + extraCls : "") + (active ? " active" : ""));
+      b.textContent = label;
+      b.addEventListener("click", onClick);
+      wrap.appendChild(b);
+    };
+    chip("All", !Ag.coreView && Ag.sectionFilter.length === 0, () => {
+      Ag.coreView = false;
+      Ag.sectionFilter = [];
+      refreshGraphView();
+    });
+    chip("Core", Ag.coreView, () => {
+      Ag.coreView = !Ag.coreView;
+      if (Ag.coreView) Ag.sectionFilter = [];
+      refreshGraphView();
+    }, "core");
+    GP.presentFolders(Ag.graph.nodes).forEach((f) => {
+      const on = !Ag.coreView && Ag.sectionFilter.includes(f);
+      chip(folderLabel(f), on, () => {
+        if (Ag.coreView) Ag.coreView = false;
+        const i = Ag.sectionFilter.indexOf(f);
+        if (i >= 0) Ag.sectionFilter.splice(i, 1); else Ag.sectionFilter.push(f);
+        refreshGraphView();
+      });
+    });
+  }
+
+  function refreshGraphView() {
+    const sel = graphViewNodes();
+    Ag.view.nodes = sel.nodes;
+    Ag.view.edges = sel.edges;
+    buildGraphFilters();
+    renderGraph();
+    const total = Ag.graph.nodes.length;
+    $("#graph-count").textContent =
+      sel.nodes.length + (sel.nodes.length === total ? "" : " / " + total) + " nodes";
+  }
+
   function neighborSet(name) {
     const set = new Set([name]);
-    Ag.graph.edges.forEach((p) => {
+    Ag.view.edges.forEach((p) => {
       if (p[0] === name) set.add(p[1]);
       if (p[1] === name) set.add(p[0]);
     });
@@ -500,22 +680,378 @@
       }
       g.classList.toggle("dim", !neighborSet(sel).has(name));
     });
-    graphEls.edges.forEach((line, key) => {
+    graphEls.edges.forEach((grp, key) => {
+      const line = lineOf(grp);
+      if (!line) return;
       if (!sel) { line.classList.remove("hot"); return; }
       const [a, b] = key.split("|");
       line.classList.toggle("hot", a === sel || b === sel);
     });
   }
 
-  function bindGraph() {
-    $("#graph-svg").addEventListener("click", (e) => {
-      const node = e.target.closest(".g-node");
-      if (node) selectNode(node.dataset.name);
+  function setHover(name) {
+    const nb = name ? neighborSet(name) : null;
+    graphEls.nodes.forEach((g, k) => {
+      g.classList.toggle("hover", k === name);
+      g.classList.toggle("hover-nb", !!(name && nb.has(k) && k !== name));
     });
-    $("#graph-svg").addEventListener("dblclick", (e) => {
+    graphEls.edges.forEach((grp, key) => {
+      const line = lineOf(grp);
+      if (!line) return;
+      const p = key.split("|");
+      line.classList.toggle("edge-hover", !!(name && (p[0] === name || p[1] === name)));
+    });
+  }
+
+  function setEdgeHover(a, b) {
+    graphEls.edges.forEach((grp, key) => {
+      const line = lineOf(grp);
+      if (!line) return;
+      const p = key.split("|");
+      const on = !!a && ((p[0] === a && p[1] === b) || (p[0] === b && p[1] === a));
+      line.classList.toggle("edge-hover", on);
+    });
+    graphEls.nodes.forEach((g, k) => {
+      g.classList.toggle("hover-nb", !!(a && (k === a || k === b)));
+    });
+  }
+
+  function focusEdge(a, b) {
+    graphEls.edges.forEach((grp) => {
+      const line = lineOf(grp);
+      if (line) line.classList.remove("focused");
+    });
+    const key = a < b ? a + "|" + b : b + "|" + a;
+    const line = lineOf(graphEls.edges.get(key));
+    if (line) line.classList.add("focused");
+    $("#related-node").textContent = `${a} ↔ ${b}`;
+  }
+
+  function drawMinimap() {
+    const cv = $("#graph-minimap");
+    if (!cv || cv.classList.contains("hidden") || !Ag.graph.nodes.length) return;
+    const ctx = cv.getContext("2d");
+    const nodes = Ag.view.nodes;
+    const wb = graphEls.bounds || GP.worldBounds(nodes);
+    const W = cv.width, H = cv.height;
+    const proj = GP.minimapProject(wb, W, H);
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(138,148,166,0.45)";
+    const by = {};
+    nodes.forEach((n) => (by[n.name] = n));
+    Ag.view.edges.forEach((p) => {
+      const a = by[p[0]], b = by[p[1]];
+      if (!a || !b) return;
+      const A = GP.worldToMinimap(proj, a.x, a.y);
+      const B = GP.worldToMinimap(proj, b.x, b.y);
+      ctx.beginPath();
+      ctx.moveTo(A.x, A.y);
+      ctx.lineTo(B.x, B.y);
+      ctx.stroke();
+    });
+    nodes.forEach((n) => {
+      const P = GP.worldToMinimap(proj, n.x, n.y);
+      ctx.beginPath();
+      ctx.arc(P.x, P.y, 1.8, 0, 7);
+      ctx.fillStyle = FOLDER_COLOR[n.folder] === "var(--folder-root)" ? "#e6edf3" : cssVar(FOLDER_COLOR[n.folder]);
+      ctx.fill();
+    });
+    const vp = GP.viewportRect(
+      { scale: GraphView.scale, tx: GraphView.tx, ty: GraphView.ty },
+      wb, 760, graphEls.planeH, W, H);
+    ctx.strokeStyle = "rgba(232,236,244,0.85)";
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(vp.x, vp.y, vp.w, vp.h);
+    if (vp.w > 3 && vp.h > 3) {
+      ctx.fillStyle = "rgba(232,236,244,0.10)";
+      ctx.fillRect(vp.x, vp.y, vp.w, vp.h);
+    }
+  }
+
+  function scheduleMinimap() {
+    if (graphEls.mmRaf) return;
+    graphEls.mmRaf = requestAnimationFrame(() => {
+      graphEls.mmRaf = null;
+      drawMinimap();
+    });
+  }
+
+  function bindMinimap() {
+    const cv = $("#graph-minimap");
+    if (!cv) return;
+    let dragging = false;
+    const navTo = (clientX, clientY) => {
+      const wb = graphEls.bounds;
+      if (!wb) return;
+      const r = cv.getBoundingClientRect();
+      const proj = GP.minimapProject(wb, cv.width, cv.height);
+      const w = GP.minimapToWorld(proj, clientX - r.left, clientY - r.top);
+      GraphView.tx = 760 / 2 - w.x * GraphView.scale;
+      GraphView.ty = graphEls.planeH / 2 - w.y * GraphView.scale;
+      GraphView.atFit = false;
+      applyGraphView();
+    };
+    cv.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      dragging = true;
+      try { cv.setPointerCapture(e.pointerId); } catch (_) { /* no capture */ }
+      navTo(e.clientX, e.clientY);
+    });
+    cv.addEventListener("pointermove", (e) => { if (dragging) navTo(e.clientX, e.clientY); });
+    cv.addEventListener("pointerup", () => { dragging = false; });
+    cv.addEventListener("pointercancel", () => { dragging = false; });
+  }
+
+  function bindGraph() {
+    const canvas = $("#graph-svg");
+    function endPan() {
+      if (!panState.active) return;
+      panState.active = false;
+      canvas.classList.remove("panning");
+      if (panState.pid != null) {
+        try { canvas.releasePointerCapture(panState.pid); } catch (_) { /* no capture */ }
+      }
+    }
+    canvas.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 && e.button !== 1) return;      // left / middle only
+      if (e.target.closest(".g-node") || e.target.closest(".g-edge,.g-hit")) return;
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      panState.active = true;
+      panState.pid = e.pointerId;
+      panState.px = e.clientX;
+      panState.py = e.clientY;
+      panState.moved = false;
+      canvas.classList.add("panning");
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!panState.active) return;
+      const dx = e.clientX - panState.px;
+      const dy = e.clientY - panState.py;
+      if (GP.didMove(dx, dy)) panState.moved = true;
+      const r = _rect();
+      GraphView.tx += dx * 760 / Math.max(1, r.width);
+      GraphView.ty += dy * graphEls.planeH / Math.max(1, r.height);
+      panState.px = e.clientX;
+      panState.py = e.clientY;
+      GraphView.atFit = false;
+      applyGraphView();
+    });
+    canvas.addEventListener("pointerup", endPan);
+    canvas.addEventListener("pointercancel", endPan);
+    canvas.addEventListener("click", (e) => {
+      if (panState.moved) { panState.moved = false; return; }   // dropped a drag, not a click
+      const node = e.target.closest(".g-node");
+      if (node) { selectNode(node.dataset.name); return; }
+      const edge = e.target.closest(".g-edge,.g-hit");
+      if (edge) focusEdge(edge.dataset.a, edge.dataset.b);
+    });
+    canvas.addEventListener("dblclick", (e) => {
       const node = e.target.closest(".g-node");
       if (node) openNodeModal(node.dataset.name);
     });
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const p = planePos(e.clientX, e.clientY);
+      zoomBy(Math.pow(1.15, -e.deltaY / 100), p.x, p.y);
+    }, { passive: false });
+    canvas.addEventListener("pointerover", (e) => {
+      const node = e.target.closest(".g-node");
+      if (node) { setHover(node.dataset.name); return; }
+      const edge = e.target.closest(".g-edge,.g-hit");
+      if (edge) setEdgeHover(edge.dataset.a, edge.dataset.b);
+    });
+    canvas.addEventListener("pointerout", (e) => {
+      if (!e.relatedTarget || !canvas.contains(e.relatedTarget)) {
+        setHover(null);
+        setEdgeHover(null);
+      }
+    });
+    $("#zoom-in").addEventListener("click", () => zoomBy(1.3));
+    $("#zoom-out").addEventListener("click", () => zoomBy(1 / 1.3));
+    $("#zoom-reset").addEventListener("click", resetGraphView);
+    bindMinimap();
+    if (window.ResizeObserver && !canvas._ro) {
+      canvas._ro = new ResizeObserver(() => reflowGraph());
+      canvas._ro.observe(canvas);
+    }
+    syncViewBox();
+  }
+
+  /* ── Phase 24D: graph window resize / detach / fullscreen ─────── */
+  const graphWin = { detached: false, fullscreen: false };
+  function ssGet(key) { try { return sessionStorage.getItem(key); } catch (_) { return null; } }
+  function ssSet(key, val) { try { sessionStorage.setItem(key, val); } catch (_) { /* storage blocked */ } }
+
+  function loadGraphH() {
+    const v = parseFloat(ssGet("graph.h"));
+    return isFinite(v) && v >= 140 && v <= 560 ? v : 300;
+  }
+
+  function loadGraphWindowState() {
+    try {
+      const raw = ssGet("graph.float");
+      const s = raw ? JSON.parse(raw) : null;
+      if (s && isFinite(s.w) && isFinite(s.h) && s.w >= 320 && s.h >= 240) return s;
+    } catch (_) { /* corrupt state */ }
+    return null;
+  }
+
+  function saveGraphWindowState() {
+    const panel = $("#graph-panel");
+    ssSet("graph.float", JSON.stringify({
+      x: panel.offsetLeft, y: panel.offsetTop,
+      w: panel.offsetWidth, h: panel.offsetHeight,
+    }));
+  }
+
+  function updateGraphWindowButtons() {
+    const detach = $("#graph-detach"), restore = $("#graph-restore");
+    const fs = $("#graph-fullscreen");
+    if (!detach || !restore || !fs) return;
+    const fsOn = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    graphWin.fullscreen = fsOn;
+    detach.classList.toggle("hidden", graphWin.detached || fsOn);
+    restore.classList.toggle("hidden", !graphWin.detached && !fsOn);
+    fs.title = fsOn ? "Exit fullscreen" : "Fullscreen";
+  }
+
+  function reflowGraph() {
+    syncViewBox();
+    if (GraphView.atFit) fitGraph(); else applyGraphView();
+  }
+
+  function detachGraph() {
+    if (graphWin.detached) return;
+    const panel = $("#graph-panel"), float = $("#graph-float");
+    const saved = loadGraphWindowState();
+    const w = saved ? Math.max(320, saved.w) : Math.max(320, Math.round(window.innerWidth * 0.5));
+    const h = saved ? Math.max(240, saved.h) : Math.max(240, Math.round(window.innerHeight * 0.55));
+    const x = saved ? Math.max(0, Math.min(window.innerWidth - 60, saved.x))
+                    : Math.max(24, Math.round((window.innerWidth - w) / 2));
+    const y = saved ? Math.max(0, Math.min(window.innerHeight - 40, saved.y))
+                    : Math.max(24, Math.round((window.innerHeight - h) / 2));
+    panel.style.width = w + "px";
+    panel.style.height = h + "px";
+    panel.style.left = x + "px";
+    panel.style.top = y + "px";
+    panel.classList.add("detached");
+    $("#graph-fresize").classList.remove("hidden");
+    float.classList.remove("hidden");
+    float.appendChild(panel);            // moves the same DOM node — graph state survives
+    graphWin.detached = true;
+    $("#graph-vsplit").classList.add("hidden");
+    updateGraphWindowButtons();
+    reflowGraph();
+  }
+
+  function restoreGraph() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      return;
+    }
+    if (graphWin.detached) {
+      saveGraphWindowState();
+      const panel = $("#graph-panel");
+      const vsplit = $("#graph-vsplit");
+      vsplit.parentNode.insertBefore(panel, vsplit);   // dock above the splitter
+      panel.classList.remove("detached");
+      panel.style.left = ""; panel.style.top = "";
+      panel.style.width = ""; panel.style.height = "";
+      $("#graph-fresize").classList.add("hidden");
+      $("#graph-float").classList.add("hidden");
+      $("#graph-vsplit").classList.remove("hidden");
+      graphWin.detached = false;
+    }
+    updateGraphWindowButtons();
+    reflowGraph();
+  }
+
+  function fullscreenGraph() {
+    const panel = $("#graph-panel");
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      return;
+    }
+    const req = panel.requestFullscreen || panel.webkitRequestFullscreen;
+    if (req) Promise.resolve(req.call(panel)).catch(() => { /* denied */ });
+  }
+
+  function bindGraphWindow() {
+    $("#graph-detach").addEventListener("click", detachGraph);
+    $("#graph-fullscreen").addEventListener("click", fullscreenGraph);
+    $("#graph-restore").addEventListener("click", restoreGraph);
+    document.addEventListener("fullscreenchange", () => {
+      graphWin.fullscreen = !!document.fullscreenElement;
+      updateGraphWindowButtons();
+      reflowGraph();
+    });
+    document.addEventListener("webkitfullscreenchange", () => {
+      graphWin.fullscreen = !!document.webkitFullscreenElement;
+      updateGraphWindowButtons();
+      reflowGraph();
+    });
+
+    // docked panel height splitter (graph panel ↔ related files)
+    const gv = $("#graph-vsplit");
+    gv.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      gv.classList.add("dragging");
+      const startY = e.clientY;
+      const startH = parseFloat(getComputedStyle(document.body).getPropertyValue("--graph-h")) || 300;
+      const move = (ev) => {
+        const h = Math.min(560, Math.max(140, startH + (ev.clientY - startY)));
+        document.body.style.setProperty("--graph-h", h + "px");
+      };
+      const up = () => {
+        gv.classList.remove("dragging");
+        ssSet("graph.h", String(parseFloat(getComputedStyle(document.body).getPropertyValue("--graph-h"))));
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    });
+
+    // detached window: drag via the title bar, resize via the corner handle
+    const panel = $("#graph-panel");
+    panel.querySelector(".panel-title").addEventListener("pointerdown", (e) => {
+      if (!graphWin.detached || document.fullscreenElement || e.target.closest("button")) return;
+      e.preventDefault();
+      const startX = e.clientX, startY = e.clientY;
+      const ox = panel.offsetLeft, oy = panel.offsetTop;
+      const move = (ev) => {
+        panel.style.left = Math.max(0, Math.min(window.innerWidth - 60, ox + (ev.clientX - startX))) + "px";
+        panel.style.top = Math.max(0, Math.min(window.innerHeight - 40, oy + (ev.clientY - startY))) + "px";
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        saveGraphWindowState();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+    $("#graph-fresize").addEventListener("pointerdown", (e) => {
+      if (!graphWin.detached) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX, startY = e.clientY;
+      const sw = panel.offsetWidth, sh = panel.offsetHeight;
+      const move = (ev) => {
+        panel.style.width = Math.max(320, Math.min(window.innerWidth - panel.offsetLeft, sw + (ev.clientX - startX))) + "px";
+        panel.style.height = Math.max(240, Math.min(window.innerHeight - panel.offsetTop, sh + (ev.clientY - startY))) + "px";
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        saveGraphWindowState();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+    updateGraphWindowButtons();
   }
 
   async function selectNode(name) {
@@ -912,10 +1448,13 @@
   async function loadGraph(refresh) {
     const data = await api("/api/vault/graph" + (refresh ? "?refresh=true" : ""));
     Ag.graph = data;
-    graphEls = { svg: null, nodes: new Map(), edges: new Map() };
+    graphEls = { svg: null, world: null, nodes: new Map(), edges: new Map(),
+                 byName: {}, sectionHubs: {} };
+    GraphView.scale = 1; GraphView.tx = 0; GraphView.ty = 0;
     Ag.selectedNode = Ag.prefs.selected_node;
-    renderGraph();
-    $("#graph-count").textContent = data.nodes.length + " nodes";
+    Ag.sectionFilter = [];   // a refresh starts from the full graph again
+    Ag.coreView = false;
+    refreshGraphView();
     if (Ag.selectedNode) {
       await renderRelated(Ag.selectedNode);
     } else {
@@ -933,6 +1472,8 @@
     bindModal();
     bindTabs();
     bindSplitters();
+    bindGraphWindow();
+    document.body.style.setProperty("--graph-h", loadGraphH() + "px");
     loadAgents().catch((err) => console.error(err));
     loadSessions();
     loadGraph();

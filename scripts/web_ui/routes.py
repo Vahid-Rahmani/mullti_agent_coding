@@ -24,12 +24,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from scripts.core import orchestrator as orch
+from scripts.core import opencode_cfg, orchestrator as orch
 from scripts.core.agents import (
     AGENTS, AGENT_SPEC_BY_AGENT, AGENT_SPEC_BY_TAG, PROJECT_ROOT,
 )
 from scripts.core.context_resolver import resolve_context
 from scripts.core.run_hub import HUB
+from scripts.web_ui import settings as ui_settings
 from scripts.core.vault_bridge import (
     TASKS_DIR,
     VALID_STATUSES,
@@ -63,6 +64,47 @@ class AssignIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str
+
+
+class SettingsTestIn(BaseModel):
+    provider: str
+    key: Optional[str] = None
+    base_url: Optional[str] = None
+    auth: Optional[str] = None
+
+
+class SettingsDiscoverIn(BaseModel):
+    provider: str
+    key: Optional[str] = None
+    base_url: Optional[str] = None
+    auth: Optional[str] = None
+
+
+class SettingsSaveIn(BaseModel):
+    provider: str
+    mode: str = "simple"
+    key: Optional[str] = None
+    base_url: Optional[str] = None
+    auth: Optional[str] = None
+    models: Optional[list[str]] = None
+
+
+class SettingsManualModelIn(BaseModel):
+    model: str
+
+
+class SettingsModelIn(BaseModel):
+    agent: str
+    model: str
+
+
+class SettingsFallbackIn(BaseModel):
+    fallback_models: list[str]
+
+
+class SettingsModeIn(BaseModel):
+    mode: str
+    description: Optional[str] = None
 
 
 # ---------------------------------------------------------------- helpers
@@ -361,6 +403,104 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         if not path.is_file():
             raise HTTPException(404, f"no log for {key!r} yet (the launcher writes it)")
         return {"agent": key, "lines": lines}
+
+    # ---- settings (Phase 25) ----------------------------------------------
+
+    def _settings_known(provider_id: str) -> bool:
+        return ui_settings.provider_known(provider_id)
+
+    @router.get("/api/settings")
+    async def api_settings() -> dict:
+        return {
+            "vault": str(state_vault),
+            "sections": ["general", "connections", "models", "agents",
+                         "modes", "graph", "security"],
+            "simple_providers": [
+                {"id": p["id"], "name": p["name"]} for p in ui_settings.SIMPLE_PROVIDERS
+            ],
+        }
+
+    @router.get("/api/settings/connections")
+    async def api_settings_connections() -> dict:
+        return {"providers": ui_settings.connections()}
+
+    @router.post("/api/settings/connections/test")
+    async def api_settings_test(body: SettingsTestIn) -> dict:
+        if not _settings_known(body.provider):
+            raise HTTPException(404, f"unknown provider {body.provider!r}")
+        return ui_settings.test_connection(
+            body.provider, key=body.key, base_url=body.base_url, auth=body.auth)
+
+    @router.post("/api/settings/connections/discover")
+    async def api_settings_discover(body: SettingsDiscoverIn) -> dict:
+        if not _settings_known(body.provider):
+            raise HTTPException(404, f"unknown provider {body.provider!r}")
+        return ui_settings.discover_models(
+            body.provider, key=body.key, base_url=body.base_url, auth=body.auth)
+
+    @router.post("/api/settings/connections/save")
+    async def api_settings_save(body: SettingsSaveIn) -> dict:
+        if body.provider not in ui_settings.SIMPLE_PROVIDER_BY_ID and not _settings_known(body.provider):
+            raise HTTPException(404, f"unknown provider {body.provider!r}")
+        try:
+            return ui_settings.save_connection(
+                body.provider, mode=body.mode, key=body.key, base_url=body.base_url,
+                auth=body.auth, models=body.models)
+        except opencode_cfg.ConfigError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @router.delete("/api/settings/connections/{provider}")
+    async def api_settings_remove(provider: str) -> dict:
+        cfg = opencode_cfg.load_config()
+        removed = opencode_cfg.remove_provider(cfg, provider)
+        if removed:
+            opencode_cfg.save_config(cfg)
+        ui_settings.remove_api_key(provider)
+        return {"ok": True, "removed": removed}
+
+    @router.post("/api/settings/connections/{provider}/models")
+    async def api_settings_manual_model(provider: str, body: SettingsManualModelIn) -> dict:
+        model = opencode_cfg.validate_model_id(body.model)
+        cfg = opencode_cfg.load_config()
+        block = dict(opencode_cfg.get_provider(cfg, provider) or {})
+        block.setdefault("models", {})[model] = {"name": model}
+        opencode_cfg.upsert_provider(cfg, provider, block)
+        opencode_cfg.save_config(cfg)
+        return {"ok": True, "models": sorted(block["models"])}
+
+    @router.get("/api/settings/models")
+    async def api_settings_models() -> dict:
+        return {"agents": ui_settings.agent_config(),
+                "available": ui_settings.available_models()}
+
+    @router.post("/api/settings/models")
+    async def api_settings_set_model(body: SettingsModelIn) -> dict:
+        try:
+            result = ui_settings.apply_model(body.agent, body.model)
+        except opencode_cfg.ConfigError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, **result}
+
+    @router.post("/api/settings/agents/{agent}/fallback")
+    async def api_settings_fallback(agent: str, body: SettingsFallbackIn) -> dict:
+        try:
+            result = ui_settings.apply_fallback(agent, body.fallback_models)
+        except opencode_cfg.ConfigError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, **result}
+
+    @router.post("/api/settings/agents/{agent}/mode")
+    async def api_settings_mode(agent: str, body: SettingsModeIn) -> dict:
+        try:
+            result = ui_settings.apply_mode(agent, body.mode, description=body.description)
+        except opencode_cfg.ConfigError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, **result}
+
+    @router.delete("/api/settings/security/keys/{provider}")
+    async def api_settings_remove_key(provider: str) -> dict:
+        removed = ui_settings.remove_api_key(provider)
+        return {"ok": True, "configured": not removed}
 
     # ---- preferences ------------------------------------------------------
 
