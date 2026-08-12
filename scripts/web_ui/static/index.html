@@ -34,13 +34,6 @@
       </div>
     </div>
 
-    <form id="dispatch-form" class="dispatch" autocomplete="off">
-      <select id="dispatch-target" title="Dispatch target"></select>
-      <input id="dispatch-input" type="text" placeholder="Prompt for the agent…  Enter to dispatch"
-             spellcheck="false">
-      <button type="submit" class="btn primary" id="dispatch-run">Run</button>
-    </form>
-
     <div class="spacer"></div>
     <div id="workspace-dir" class="dir" title="Workspace directory"></div>
     <button id="stop-all" class="btn danger" title="Stop all agents">■ Stop All</button>
@@ -53,13 +46,29 @@
         <span>Graph</span>
         <span id="graph-count" class="muted"></span>
         <span class="spacer"></span>
+        <button id="graph-detach" class="icon-btn" title="Detach graph window">⧉</button>
+        <button id="graph-fullscreen" class="icon-btn" title="Fullscreen">⛶</button>
+        <button id="graph-restore" class="icon-btn hidden" title="Restore to dashboard">✕</button>
         <button id="graph-refresh" class="icon-btn" title="Refresh graph">↻</button>
       </div>
+      <div id="graph-filters" class="graph-filters"></div>
       <div id="graph-svg" class="graph-canvas">
-        <div class="placeholder">loading vault graph…</div>
+        <div id="graph-stage" class="graph-stage">
+          <div class="placeholder">loading vault graph…</div>
+        </div>
+        <div class="graph-zoom" id="graph-zoom">
+          <button id="zoom-in" class="icon-btn" title="Zoom in">＋</button>
+          <button id="zoom-out" class="icon-btn" title="Zoom out">－</button>
+          <button id="zoom-reset" class="icon-btn" title="Reset zoom / fit graph">⟳</button>
+        </div>
+        <canvas id="graph-minimap" class="hidden" width="140" height="100"
+                title="Overview map — click or drag to navigate"></canvas>
       </div>
       <div id="graph-legend" class="legend"></div>
+      <div id="graph-fresize" class="graph-fresize hidden" title="Drag to resize window"></div>
     </section>
+
+    <div id="graph-vsplit" title="Drag to resize graph panel"></div>
 
     <section id="related-panel" class="side-panel grow">
       <div class="panel-title">
@@ -79,9 +88,27 @@
     </section>
   </aside>
 
-  <!-- ── Center: agent workspace ─────────────────────────────────── -->
+  <!-- floating detached graph window (dashboard stays usable behind it) -->
+  <div id="graph-float" class="hidden"></div>
+
+  <!-- ── Center: agent workspace (grid + prompt box below) ───────── -->
   <main id="workspace" class="workspace">
-    <div class="workspace-empty hidden">No agents visible — toggle agents on in the toolbar.</div>
+    <div id="workspace-grid">
+      <div class="workspace-empty hidden">No agents visible — toggle agents on in the toolbar.</div>
+    </div>
+
+    <form id="prompt-box" class="prompt-box" autocomplete="off">
+      <div class="prompt-top">
+        <span class="ctl-label">Prompt</span>
+        <div class="spacer"></div>
+        <select id="prompt-target" title="Dispatch target"></select>
+        <button type="submit" class="btn primary" id="prompt-send">Send</button>
+      </div>
+      <textarea id="prompt-input" class="prompt-input" rows="2"
+                placeholder="Write a long prompt for the agent…  Enter to send, Shift+Enter for a new line"
+                spellcheck="false"></textarea>
+      <div class="prompt-hint">Enter sends · Shift+Enter starts a new line</div>
+    </form>
   </main>
 
   <!-- splitters -->
@@ -156,6 +183,7 @@
     </div>
   </div>
 
+  <script src="/static/graph-math.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

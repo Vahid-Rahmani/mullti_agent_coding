@@ -67,6 +67,18 @@ def _snippet(raw: str) -> str:
     return body[:SNIPPET_LIMIT] or "(empty)"
 
 
+def _related_links(fields: dict[str, str]) -> list[str]:
+    """Real relationships declared as ``related: [A, B]`` frontmatter.
+
+    The vault schema (Node_Schema_Reference) keeps a ``related`` list alongside
+    body WikiLinks; both are genuine relationships, so both feed the graph.
+    """
+    raw = (fields.get("related") or "").strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 # ---------------------------------------------------------------- build
 
 
@@ -84,9 +96,10 @@ def build_nodes(vault: Path) -> list[dict]:
         if m:
             fields, _err = parse_frontmatter(raw)
         links = [t.strip() for t in LINK_RE.findall(raw) if t.strip()]
+        links.extend(_related_links(fields))
         unique: list[str] = []
         for link in links:
-            if link not in unique:
+            if link not in unique and link != name:
                 unique.append(link)
         nodes.append({
             "name": name,

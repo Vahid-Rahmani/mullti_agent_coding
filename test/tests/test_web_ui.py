@@ -323,5 +323,170 @@ class ApiTestCase(VaultTestCase):
         self.assertEqual(len(data["events"]), 1)
 
 
+class UiAssetsTestCase(unittest.TestCase):
+    """Static-asset checks for the dashboard UI (index.html / app.css / app.js)."""
+
+    STATIC = Path(REPO_ROOT) / "scripts" / "web_ui" / "static"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.index = (cls.STATIC / "index.html").read_text(encoding="utf-8")
+        cls.css = (cls.STATIC / "app.css").read_text(encoding="utf-8")
+        cls.js = (cls.STATIC / "app.js").read_text(encoding="utf-8")
+
+    def test_prompt_box_below_workspace_grid(self):
+        ws = self.index.index('<main id="workspace"')
+        grid = self.index.index('id="workspace-grid"', ws)
+        box = self.index.index('id="prompt-box"', ws)
+        self.assertGreater(box, grid, "prompt box must sit below the workspace grid")
+
+    def test_prompt_box_elements(self):
+        self.assertIn('id="prompt-input"', self.index)
+        self.assertIn('<textarea', self.index)
+        self.assertIn('id="prompt-send"', self.index)
+        self.assertIn('id="prompt-target"', self.index)
+
+    def test_toolbar_dispatch_removed(self):
+        self.assertNotIn('id="dispatch-form"', self.index)
+        self.assertNotIn('id="dispatch-input"', self.index)
+        self.assertNotIn('id="dispatch-run"', self.index)
+
+    def test_graph_zoom_controls_present(self):
+        self.assertIn('id="zoom-in"', self.index)
+        self.assertIn('id="zoom-out"', self.index)
+        self.assertIn('id="zoom-reset"', self.index)
+
+    def test_js_binds_prompt_box_and_zoom(self):
+        self.assertIn('$("#prompt-box")', self.js)
+        self.assertIn('$("#prompt-input")', self.js)
+        self.assertIn("requestSubmit", self.js)
+        self.assertIn("zoomBy(", self.js)
+        self.assertIn("resetGraphView", self.js)
+        self.assertIn('key === "Enter" && !e.shiftKey', self.js)
+        self.assertIn('"graph-world"', self.js)
+
+    def test_js_workspace_builds_into_grid(self):
+        self.assertIn('$("#workspace-grid")', self.js)
+        self.assertIn("wg.style.gridTemplateColumns", self.js)
+
+    # ── Phase 23B: compact auto-grow prompt textarea ────────────────
+    def test_prompt_autogrow_compact_default(self):
+        self.assertIn("min-height: 56px", self.css)
+        self.assertIn("max-height: 240px", self.css)
+        self.assertIn("resize: none", self.css)
+        self.assertIn('rows="2"', self.index)
+        # autosize clamps between min and max and only scrolls at the cap
+        self.assertIn("Math.min(240, Math.max(56, input.scrollHeight))", self.js)
+        self.assertIn('input.style.overflowY = h >= 240 ? "auto" : "hidden"', self.js)
+        # Enter=send / Shift+Enter=newline preserved
+        self.assertIn('key === "Enter" && !e.shiftKey', self.js)
+
+    # ── Phase 23B: graph mouse/touch panning ────────────────────────
+    def test_graph_pan_handlers(self):
+        for token in ("pointerdown", "pointermove", "pointerup", "pointercancel"):
+            self.assertIn(token, self.js)
+        self.assertIn("setPointerCapture", self.js)
+        self.assertIn("releasePointerCapture", self.js)
+        # pan delta converted to viewBox units and divided by current zoom
+        self.assertIn("/ GraphView.scale", self.js)
+        # middle-mouse pan tolerated, node-drag excluded
+        self.assertIn("e.button !== 0 && e.button !== 1", self.js)
+        self.assertIn('closest(".g-node")', self.js)
+        # touch drag enabled on the canvas
+        self.assertIn("touch-action: none", self.css)
+        self.assertIn("cursor: grabbing", self.css)
+
+    def test_drag_vs_click_guard(self):
+        self.assertIn("if (panState.moved) { panState.moved = false; return; }", self.js)
+        self.assertIn("panState.active", self.js)
+        # zoom still cursor-anchored
+        self.assertIn("zoomBy(Math.pow(1.15, -e.deltaY / 100), p.x, p.y)", self.js)
+
+    # ── Phase 23B: readable node labels ─────────────────────────────
+    def test_readable_node_labels(self):
+        # halo-backed label font (readable over the edges)
+        self.assertIn("font-size: 14px", self.css)
+        self.assertIn("paint-order: stroke", self.css)
+        self.assertIn("stroke: var(--bg)", self.css)
+        # label position driven by the band-based LOD helper + truncation
+        self.assertIn('lbl.setAttribute("y", GP.labelYOffset(r, band))', self.js)
+        self.assertIn('lbl.classList.toggle("hidden"', self.js)
+        self.assertNotIn("r + 12", self.js)
+        self.assertIn("raw.length > 18 ? raw.slice(0, 16) +", self.js)
+
+    # ── Phase 23B: zoom controls remain functional ──────────────────
+    def test_zoom_controls_still_bound(self):
+        self.assertIn('$("#zoom-in").addEventListener("click", () => zoomBy(1.3))', self.js)
+        self.assertIn('$("#zoom-out").addEventListener("click", () => zoomBy(1 / 1.3))', self.js)
+        self.assertIn('$("#zoom-reset").addEventListener("click", resetGraphView)', self.js)
+        # zoom clamping lives in the shared graph-math camera (GP.zoomAtPoint)
+        self.assertIn("GP.zoomAtPoint(", self.js)
+        self.assertIn("zoomBy(", self.js)
+
+    # ── Phase 24B: graph rebuild (layout, LOD, filters, core view) ──
+    def test_graph_stage_and_filters_present(self):
+        self.assertIn('id="graph-stage"', self.index)
+        self.assertIn('id="graph-filters"', self.index)
+        self.assertIn("refreshGraphView", self.js)
+        self.assertIn("buildGraphFilters", self.js)
+        self.assertIn("GP.applySectionFilter", self.js)
+        self.assertIn("GP.coreGraph", self.js)
+        self.assertIn("GP.presentFolders", self.js)
+        self.assertIn("f-chip", self.css)
+
+    def test_graph_band_culling_and_layout_plane(self):
+        # edge culling on band change, hiding whole edge groups
+        self.assertIn("GP.edgeVisibleFor(p, band, graphEls.byName, graphEls.sectionHubs)", self.js)
+        self.assertIn('grp.style.display = show ? "" : "none"', self.js)
+        # zoomed-out band hides everything but the section-hub spine
+        self.assertIn('(band === "out" && !graphEls.sectionHubs[nd.name]) ? "none" : ""', self.js)
+        self.assertIn("GP.sectionHubNames(nodes)", self.js)
+        # layout runs in the larger section-aware world plane
+        self.assertIn("GP.runLayout(nodes, edges, { iterations: 500 })", self.js)
+        # band-specific edge weight/opacity in CSS
+        self.assertIn('data-band="out"', self.css)
+        self.assertIn('stroke-width: .5', self.css)
+        self.assertIn('stroke-width: 1.1', self.css)
+
+    # ── Phase 24D: graph window resize / detach / fullscreen ───────
+    def test_graph_window_controls_present(self):
+        for ident in ("graph-detach", "graph-fullscreen", "graph-restore",
+                      "graph-vsplit", "graph-float", "graph-fresize"):
+            self.assertIn(f'id="{ident}"', self.index)
+        # the splitter sits between the graph panel and the related panel
+        gp = self.index.index('id="graph-panel"')
+        vs = self.index.index('id="graph-vsplit"', gp)
+        rp = self.index.index('id="related-panel"', vs)
+        self.assertLess(gp, vs)
+        self.assertLess(vs, rp)
+        # detach/restore are title-row icon buttons, restore starts hidden
+        self.assertIn('id="graph-restore" class="icon-btn hidden"', self.index)
+
+    def test_graph_window_js_hooks(self):
+        for fn in ("detachGraph", "restoreGraph", "fullscreenGraph",
+                   "reflowGraph", "saveGraphWindowState", "loadGraphWindowState"):
+            self.assertIn(fn, self.js)
+        self.assertIn("requestFullscreen", self.js)
+        self.assertIn("fullscreenchange", self.js)
+        self.assertIn('"#graph-float"', self.js)
+        self.assertIn("graphWin.detached", self.js)
+        self.assertIn('ssSet("graph.h"', self.js)
+        # docked graph height restored from session storage at init
+        self.assertIn('setProperty("--graph-h", loadGraphH() + "px")', self.js)
+        # same DOM node is moved, so graph state survives detach
+        self.assertIn("float.appendChild(panel)", self.js)
+        self.assertIn("vsplit.parentNode.insertBefore(panel, vsplit)", self.js)
+
+    def test_graph_window_css(self):
+        self.assertIn(":fullscreen", self.css)
+        self.assertIn("--graph-h", self.css)
+        self.assertIn("#graph-panel.detached", self.css)
+        self.assertIn("#graph-fresize", self.css)
+        self.assertIn("nwse-resize", self.css)
+        self.assertIn("row-resize", self.css)
+        self.assertIn("cursor: move", self.css)
+        self.assertIn("pointer-events: none", self.css)
+
+
 if __name__ == "__main__":
     unittest.main()
