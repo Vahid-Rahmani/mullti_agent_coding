@@ -2,8 +2,8 @@
 
 A multi-agent coding system. This repository is the **control plane** that
 defines the agents, configuration, and memory used to drive software projects.
-It ships two ways to interact with the agents: a retro-CRT **ZOVA terminal**
-and a 7-window inbox launcher.
+It ships an Obsidian-inspired **Agent Dashboard** (primary interface), a
+retro-CRT **ZOVA terminal** (fallback), and a 7-window inbox launcher.
 
 > **Baseline-zero:** agents are plain (identity + model only), dispatch is
 > plain, and all external integrations (Obsidian archivist, analyzer, swarm,
@@ -35,13 +35,43 @@ All agents use **free** models (no paid credits required). See
 
 ## Quick Start
 
-### 1. ZOVA Retro Terminal (recommended)
+### 1. Agent Dashboard (primary, Obsidian-inspired)
 
-The interactive terminal UI. Full-screen retro-CRT styling on a solid black
-background: a bold pixel-art **ZOVA** banner, a live directory status
-indicator, a **tab bar** (MASTER + one tab per agent), a model status bar, a
-per-tab scrollable console, and a rounded prompt box at the bottom for typing
-coding tasks or slash commands.
+A local web dashboard that replaces the retro terminal as the default view.
+It reuses the existing backend unchanged — the in-process `RunHub` for agent
+dispatch, `VaultBridge`/`ContextResolver` for vault reads and safe writes, and
+the real Orchestrator CLI for task execution — and adds a read-only graph view
+of the managed vault plus an Obsidian-style panel layout.
+
+```bash
+launch_dashboard.bat                 # start server + open browser
+python -m scripts.web_ui.server --no-browser   # start only (http://127.0.0.1:8790)
+python -m scripts.web_ui.server --smoke        # headless build check
+```
+
+**Layout** — main area shows up to **6 agent panels** (name, model, status,
+current task, live conversation, Stop), arranged in a 1/2/3/4/6 grid via the
+toolbar selector. A **visibility menu** picks which ≤6 of the 7 agents appear.
+The **left sidebar** holds a *small graph panel* — a force-laid-out view of the
+vault's wiki-link graph, colored by folder — with a *related files / nodes*
+list (links + backlinks) around it. Click a node to see related nodes, then
+**Send context → active agent** to dispatch the node's resolved context to the
+selected agent panel. The **bottom bar** has four tabs: **Status** (live table
+of all agents), **Tasks** (inspect vault task nodes; assign an agent, set
+status, or run the real orchestrator dispatch), **Execution** (live output of
+task runs), and **Logs** (agents' / orchestrator log tails). Panels, sidebar,
+and bottom bar are resizable via drag handles; layout and selection persist.
+
+> The dashboard and the ZOVA terminal each own their own `RunHub`, so run one
+> interface at a time — a prompt typed in one is not visible to the other.
+
+### 2. ZOVA Retro Terminal (fallback)
+
+Kept as the secondary interface. The interactive full-screen terminal UI:
+retro-CRT styling with a bold pixel-art **ZOVA** banner, a live directory
+status indicator, a **tab bar** (MASTER + one tab per agent), a model status
+bar, a per-tab scrollable console, and a rounded prompt box at the bottom for
+typing coding tasks or slash commands.
 
 **Tabbed agent workspace** — the seven agents each get their own dedicated
 tab (M1 Matthew … M7 Chloe) inside the single unified window. `F1`–`F7` select
@@ -81,7 +111,7 @@ python scripts/terminal_app.py --smoke   # headless build check
 **Slash commands:** `/tab [tag]`, `/help`, `/cd <path>`, `/status`, `/clear`,
 `/stop`, `/theme [name]`, `/quit`.
 
-### 2. 7-Window Inbox Launcher
+### 3. 7-Window Inbox Launcher
 
 Runs the seven agents side by side, each listening for tasks in its own inbox.
 
@@ -158,9 +188,16 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 ├── AGENTS.md              # Agent roster, workflow, fallback policy, conventions
 ├── opencode.json          # Agent definitions, models, providers
 ├── launch_agents.bat      # 7-window inbox launcher
-├── launch_terminal.bat    # ZOVA retro terminal launcher
+├── launch_terminal.bat    # ZOVA retro terminal launcher (fallback)
+├── launch_dashboard.bat   # Agent Dashboard launcher (primary)
 ├── scripts/
 │   ├── terminal_app.py    # ZOVA retro terminal entry point (thin shim → core/ + ui/)
+│   ├── web_ui/            # Agent Dashboard — primary Obsidian-inspired UI
+│   │   ├── server.py      # FastAPI app factory + uvicorn entry (--smoke)
+│   │   ├── routes.py      # REST/SSE endpoints (thin layer over core)
+│   │   ├── state.py       # WebState: drains HUB events into per-agent sessions
+│   │   ├── graph.py       # VaultGraph: read-only node/edge model of the vault
+│   │   └── static/        # index.html · app.css · app.js (vanilla, no build)
 │   ├── core/              # Decoupled engine: agents, run hub, state
 │   │   ├── agents/        # Per-agent definitions — one AgentSpec module per agent
 │   │   │   ├── base.py        # AgentSpec dataclass (plain: identity + model)
@@ -176,7 +213,7 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 │   ├── run_agent_worker.sh   # Inbox-polling worker (Git Bash)
 ├── knowledge/             # Project memory (ADRs, lessons, metrics)
 ├── .opencode/             # opencode plugins/config (e.g. model fallback)
-└── .vscode/               # VS Code tasks (Launch All Agents / ZOVA Retro Terminal)
+└── .vscode/               # VS Code tasks (Launch All Agents / Dashboard / ZOVA)
 ```
 
 ---

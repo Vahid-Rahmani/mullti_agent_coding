@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MultiAgentCoding · Dashboard</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+  <!-- ── Top toolbar ─────────────────────────────────────────────── -->
+  <header id="topbar">
+    <div class="brand" title="MultiAgentCoding control plane">
+      <span class="brand-mark">◆</span>
+      <span class="brand-name">MultiAgent</span>
+    </div>
+
+    <div class="ctl layout-ctl" title="Workspace layout">
+      <span class="ctl-label">Layout</span>
+      <div class="seg" id="layout-seg">
+        <button class="seg-btn" data-layout="1" title="1 panel">1</button>
+        <button class="seg-btn" data-layout="2" title="2 panels">2</button>
+        <button class="seg-btn" data-layout="3" title="3 panels">3</button>
+        <button class="seg-btn" data-layout="4" title="4 panels">4</button>
+        <button class="seg-btn" data-layout="6" title="6 panels">6</button>
+      </div>
+    </div>
+
+    <div class="ctl agents-ctl">
+      <span class="ctl-label">Agents</span>
+      <div class="agents-toggle">
+        <button id="agents-btn" class="btn">Show&nbsp;▾</button>
+        <div id="agents-pop" class="pop hidden"></div>
+      </div>
+    </div>
+
+    <form id="dispatch-form" class="dispatch" autocomplete="off">
+      <select id="dispatch-target" title="Dispatch target"></select>
+      <input id="dispatch-input" type="text" placeholder="Prompt for the agent…  Enter to dispatch"
+             spellcheck="false">
+      <button type="submit" class="btn primary" id="dispatch-run">Run</button>
+    </form>
+
+    <div class="spacer"></div>
+    <div id="workspace-dir" class="dir" title="Workspace directory"></div>
+    <button id="stop-all" class="btn danger" title="Stop all agents">■ Stop All</button>
+  </header>
+
+  <!-- ── Left sidebar: graph + related files/nodes ───────────────── -->
+  <aside id="sidebar">
+    <section id="graph-panel" class="side-panel">
+      <div class="panel-title">
+        <span>Graph</span>
+        <span id="graph-count" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="graph-refresh" class="icon-btn" title="Refresh graph">↻</button>
+      </div>
+      <div id="graph-svg" class="graph-canvas">
+        <div class="placeholder">loading vault graph…</div>
+      </div>
+      <div id="graph-legend" class="legend"></div>
+    </section>
+
+    <section id="related-panel" class="side-panel grow">
+      <div class="panel-title">
+        <span>Related files</span>
+        <span id="related-node" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="node-open" class="icon-btn" title="Open selected node" disabled>↵</button>
+      </div>
+      <div id="related-nav" class="related-nav">
+        <div class="placeholder">select a node in the graph</div>
+      </div>
+      <div id="send-ctx-row">
+        <button id="send-ctx" class="btn primary" disabled>
+          Send context → <span id="send-target">—</span>
+        </button>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ── Center: agent workspace ─────────────────────────────────── -->
+  <main id="workspace" class="workspace">
+    <div class="workspace-empty hidden">No agents visible — toggle agents on in the toolbar.</div>
+  </main>
+
+  <!-- splitters -->
+  <div id="vsplit" title="Drag to resize sidebar"></div>
+  <div id="hsplit" title="Drag to resize bottom bar"></div>
+
+  <!-- ── Bottom bar: STATUS · TASKS · EXECUTION · LOGS ───────────── -->
+  <section id="bottom">
+    <nav id="tab-bar">
+      <button class="tab active" data-tab="status">Status</button>
+      <button class="tab" data-tab="tasks">Tasks</button>
+      <button class="tab" data-tab="execution">Execution</button>
+      <button class="tab" data-tab="logs">Logs</button>
+    </nav>
+
+    <div id="tab-status" class="tab-panel active">
+      <div class="status-table-wrap">
+        <table id="status-table" class="status-table">
+          <thead><tr>
+            <th>Agent</th><th>Status</th><th>Progress</th><th>Toks</th><th>Task</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="master-console" class="console small"></div>
+    </div>
+
+    <div id="tab-tasks" class="tab-panel">
+      <div class="tasks-layout">
+        <div id="task-list-wrap" class="task-list-wrap">
+          <div class="panel-title">
+            <span>Tasks</span><span class="spacer"></span>
+            <button id="tasks-refresh" class="icon-btn" title="Refresh tasks">↻</button>
+          </div>
+          <ul id="task-list" class="task-list"></ul>
+        </div>
+        <div id="task-detail" class="task-detail">
+          <div class="panel-title"><span>Task detail</span></div>
+          <div id="task-detail-body" class="task-detail-body">
+            <div class="placeholder">select a task to inspect / assign / run</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-execution" class="tab-panel">
+      <div id="execution-console" class="console grow"></div>
+    </div>
+
+    <div id="tab-logs" class="tab-panel">
+      <div class="logs-layout">
+        <div class="panel-title">
+          <span>Log tail</span>
+          <select id="log-select" class="log-select"></select>
+          <span class="spacer"></span>
+          <button id="logs-refresh" class="icon-btn" title="Refresh log">↻</button>
+        </div>
+        <pre id="log-output" class="log-output"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Node preview modal ──────────────────────────────────────── -->
+  <div id="modal-backdrop" class="backdrop hidden">
+    <div id="modal" class="modal">
+      <div class="modal-head">
+        <span id="modal-title">Node</span>
+        <span class="spacer"></span>
+        <button id="modal-close" class="icon-btn">×</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

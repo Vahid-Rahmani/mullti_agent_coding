@@ -97,6 +97,20 @@
             "problemMatcher": []
         },
         {
+            "label": "Launch Agent Dashboard",
+            "type": "shell",
+            "command": "python -m scripts.web_ui.server",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "panel": "new",
+                "group": "agents",
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Launch ZOVA Retro Terminal",
             "type": "shell",
             "command": "python ${workspaceFolder}/scripts/terminal_app.py",

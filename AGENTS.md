@@ -73,14 +73,27 @@ itself only retries the same model, so this plugin is what makes failover real.
 
 ## Execution Environment (Windows)
 
-This repo ships a human-facing 7-window launcher that runs the seven agents side
-by side, each listening for tasks in its own inbox.
+This repo ships a human-facing UI plus a 7-window launcher.
 
-- **Launch** — run `launch_agents.bat` at the repo root, or in VS Code use the
-  `Launch All Agents` terminal task (`.vscode/tasks.json`). Seven terminal
-  windows open, titled `M1 - Matthew` … `M7 - Chloe`, positioned in
-  a 4×2 grid.
-- **Task inbox flow** — drop a single-line task into `_inbox/<agent>.task`
+- **Primary interface — Agent Dashboard** (`scripts/web_ui/`): an
+  Obsidian-inspired local web dashboard (FastAPI + browser). `launch_dashboard.bat`
+  starts it at http://127.0.0.1:8790, or use the `Launch Agent Dashboard`
+  VS Code task. It reuses the backend unchanged: in-process RunHub for agent
+  dispatch, VaultBridge/ContextResolver for vault I/O and node context, and the
+  real Orchestrator CLI (`python -m scripts.core.orchestrator dispatch <Task>
+  --yes`) for task runs. It shows up to 6 agent panels (1/2/3/4/6 layouts), a
+  read-only vault graph + related-files sidebar, and Status/Tasks/Execution/
+  Logs tabs. New code lives under `scripts/web_ui/` only; core is never modified
+  by the UI (assigning a task writes `assigned_agent` via VaultBridge; status
+  transitions and dispatch go through the orchestrator pipeline).
+- **Steps:** The web dashboard, the ZOVA terminal, and the inbox workers each
+  drive their own agent runs; run one interface at a time.
+- **7-window launcher** — `launch_agents.bat` opens seven terminal windows,
+  titled `M1 - Matthew` … `M7 - Chloe`, positioned in a 4×2 grid.
+
+### Task inbox flow (7-window launcher)
+
+Drop a single-line task into `_inbox/<agent>.task`
   (e.g. `_inbox/alex.task`). The agent's window polls the inbox, runs
   `opencode run --agent <name> -m <model> "<task>"`, appends the full output to
   `_logs/<agent>.log`, then moves the consumed task to `_inbox/done/`. Poll
