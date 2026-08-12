@@ -128,7 +128,7 @@ global.getComputedStyle = () => ({ getPropertyValue: () => "" });
 eval(src); // runs the IIFE; the DOMContentLoaded listener is never fired
 
 async function main() {
-const { Ag, onAgentEvent, buildWorkspace, panelEl, openStream, loadSessions } = global.window.MACApp;
+const { Ag, onAgentEvent, buildWorkspace, panelEl, openStream, loadSessions, checkBackendRestart } = global.window.MACApp;
 
 const TAGS = ["m1", "m2", "m3", "m4", "m5", "m6", "m7"];
 const NAMES = { m1: "Matthew", m2: "Alex", m3: "Sarah", m4: "David",
@@ -205,6 +205,17 @@ ok(registry.masterConsole.children.some((c) => c.textContent === "▶ prompt"),
    "G: master console still receives master events (Status tab unchanged)");
 es._emit("usermsg", { n: 23, tag: "m6", kind: "usermsg", text: "▶ dispatched (target=m6)" });
 ok(sessTexts("m6").includes("▶ dispatched (target=m6)"), "G: usermsg persisted for hidden agent");
+// status events are persisted but never rendered as console rows (dot only)
+es._emit("status", { n: 24, tag: "m4", kind: "status", text: "thinking" });
+ok(sessTexts("m4").includes("thinking"), "G: status event persisted");
+ok(!rows("m4").includes("thinking"), "G: status never rendered as a console row");
+Ag.prefs.layout = "6";
+Ag.prefs.agents_visible = ["m1", "m2", "m3", "m4", "m5", "m6"];
+buildWorkspace();
+ok(!rows("m4").includes("thinking"), "G: status not replayed as a row either (live == replay)");
+Ag.prefs.layout = "4";
+Ag.prefs.agents_visible = ["m1", "m2", "m3", "m4"];
+buildWorkspace();
 
 /* init-snapshot merge: snapshot arriving after live events must not revert them */
 onAgentEvent("m2", { n: 1, tag: "m2", kind: "line", text: "a" });
@@ -225,12 +236,30 @@ global.fetch = async () => ({
 await loadSessions();
 deepEq(sessTexts("m2"), ["a", "b", "c", "d", "e"],
        "snapshot merge adds the missing prefix and never reverts live events");
+deepEq(rows("m2"), ["a", "b", "c", "d", "e"],
+       "replay renders the merged session once");
+const m2RowCount = rows("m2").length;
+es._emit("line", { n: 3, tag: "m2", kind: "line", text: "c" }); // already replayed from snapshot
+ok(rows("m2").length === m2RowCount, "snapshot-replayed event is not double-appended live");
 
 /* per-agent tail cap */
 for (let i = 0; i < 810; i++) {
   onAgentEvent("m1", { n: 1000 + i, tag: "m1", kind: "line", text: "filler" + i });
 }
 ok(Ag.sessions.m1.length <= 800, "session capped at SESSION_TAIL");
+
+/* backend-restart regression: WebState "n" resets to 0 on a restart, so the old
+   session's n=1.. collide with the new process's events — the n-dedup must never
+   swallow the new run's output (status updates, rows never render).
+   Self-contained: the old-process watermark is established explicitly here so
+   the test does not depend on earlier sections having run. */
+checkBackendRestart(5);   // old process had reached backend sequence n=5
+Ag.sessions.m4 = [{ n: 1, tag: "m4", kind: "line", text: "OLD OUTPUT" }];
+ok(checkBackendRestart(0), "backend restart detected when the sequence regresses");
+eq((Ag.sessions.m4 || []).length, 0, "restart clears the stale session mirror");
+onAgentEvent("m4", { n: 1, tag: "m4", kind: "line", text: "NEW PONG" });
+ok(sessTexts("m4").includes("NEW PONG"), "new run output persisted after a backend restart");
+ok(rows("m4").includes("NEW PONG"), "new run output renders after a backend restart");
 
 console.log("app.js session tests passed:", count);
 }
