@@ -291,29 +291,69 @@
     agents.forEach((a) => {
       const card = el("button", "ws-lib-agent");
       card.type = "button";
+      card.draggable = true;
       card.appendChild(el("span", "ws-lib-name", `${a.tag.toUpperCase()} · ${a.name}`));
       card.appendChild(el("span", "ws-lib-model", a.model || "Auto"));
       const roles = (S.roleAssignments[a.agent] || []).map(roleName).join(", ");
       if (roles) card.appendChild(el("span", "ws-lib-roles", roles));
-      card.title = "Add an instance of this agent to the canvas";
+      card.title = "Add an instance of this agent to the canvas (click or drag)";
       card.addEventListener("click", () => addNode(a));
+      card.addEventListener("dragstart", (e) => {
+        if (e.dataTransfer) {
+          e.dataTransfer.setData(AGENT_DRAG_TYPE, a.agent);   // agent key only
+          e.dataTransfer.effectAllowed = "copy";
+        }
+        card.classList.add("dragging");
+      });
+      card.addEventListener("dragend", () => card.classList.remove("dragging"));
       list.appendChild(card);
     });
   }
 
-  function addNode(agent) {
+  /* ── library → canvas drag & drop (HTML5) ──────────────────────
+     The library uses the native drag/drop event chain (dragstart → dragover
+     → drop → dragend) to create a node at the drop point; existing node
+     move/connect stays on pointer events — the two systems never mix. Only
+     the agent key travels in the drag payload (never a model/credential). */
+  const AGENT_DRAG_TYPE = "application/x-zova-agent";
+
+  function bindDragDrop() {
+    const canvas = $("#ws-canvas");
+    if (!canvas) return;
+    canvas.addEventListener("dragover", (e) => {
+      e.preventDefault();                       // allow drop
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      canvas.classList.add("drag-over");
+    });
+    canvas.addEventListener("dragleave", () => canvas.classList.remove("drag-over"));
+    canvas.addEventListener("drop", (e) => {
+      e.preventDefault();
+      canvas.classList.remove("drag-over");
+      const key = e.dataTransfer && typeof e.dataTransfer.getData === "function"
+        ? e.dataTransfer.getData(AGENT_DRAG_TYPE) : "";
+      if (!key) return;
+      const agent = S.agents.find((a) => a.agent === key);
+      if (!agent) return;
+      const p = canvasPos(e);                   // client → world coordinates
+      addNode(agent, { x: p.x, y: p.y });
+    });
+    canvas.addEventListener("dragend", () => canvas.classList.remove("drag-over"));
+  }
+
+  function addNode(agent, pos) {
     const count = S.workflow.nodes.filter((n) => n.agent === agent.agent).length;
     const n = {
       id: nextId(), label: `${agent.name}${count ? " #" + (count + 1) : ""}`,
       agent: agent.agent, kind: "agent", model: "",
       roles: [], instructions: "", tools: [], enabled: true,
-      x: 120 + (S.workflow.nodes.length % 4) * 160,
-      y: 120 + (S.workflow.nodes.length % 3) * 140,
+      x: (pos && Number.isFinite(pos.x)) ? pos.x : 120 + (S.workflow.nodes.length % 4) * 160,
+      y: (pos && Number.isFinite(pos.y)) ? pos.y : 120 + (S.workflow.nodes.length % 3) * 140,
     };
     S.workflow.nodes.push(n);
     markDirty();
     render();
     select("node", n.id);
+    return n;
   }
 
   /* ── rendering ────────────────────────────────────────────────── */
@@ -481,7 +521,12 @@
   let drag = null;   // {type:'move'|'connect', id, sx, sy, nx, ny, temp}
   function canvasPos(e) {
     const r = $("#ws-canvas").getBoundingClientRect();
-    return { x: (e.clientX - r.left - S.tx) / S.zoom, y: (e.clientY - r.top - S.ty) / S.zoom };
+    // client → world: undo the canvas offset, the pan, and the zoom, then
+    // subtract ORIGIN. node.x is a *world* coordinate centred near zero; every
+    // renderer (renderNodes, edges, fitToScreen) shifts it into the 0..WORLD
+    // layer space by adding ORIGIN, so the inverse must subtract it here or
+    // dropped/dragged nodes land ORIGIN*zoom px away from the pointer.
+    return { x: (e.clientX - r.left - S.tx) / S.zoom - ORIGIN, y: (e.clientY - r.top - S.ty) / S.zoom - ORIGIN };
   }
 
   function onNodePointerDown(e, id) {
@@ -735,6 +780,17 @@
   }
 
   /* ── workflow CRUD ────────────────────────────────────────────── */
+  const LAST_WF_KEY = "zova-last-workflow";
+  function rememberWorkflow(id) {
+    try { window.localStorage.setItem(LAST_WF_KEY, id); } catch (_) { /* private mode */ }
+  }
+  function forgetWorkflow() {
+    try { window.localStorage.removeItem(LAST_WF_KEY); } catch (_) { /* ignore */ }
+  }
+  function lastWorkflow() {
+    try { return window.localStorage.getItem(LAST_WF_KEY) || ""; } catch (_) { return ""; }
+  }
+
   async function loadWorkflowList() {
     let list = [];
     try { list = (await api("/api/workflows")).workflows || []; } catch (_) { /* empty */ }
@@ -757,6 +813,7 @@
       S.workflow = data.workflow;
       S.nid = Math.max(S.nid, S.workflow.nodes.length);
       S.runStatuses = {}; S.waves = {};
+      rememberWorkflow(id);
       markClean();
       render();
       renderProps();
@@ -781,6 +838,7 @@
     try {
       const r = await put(`/api/workflows/${encodeURIComponent(wf.id)}`, wf);
       S.workflow = r.workflow;
+      rememberWorkflow(wf.id);
       markClean();
       setOk("saved ✓");
       loadWorkflowList();
@@ -963,8 +1021,10 @@
     $("#ws-dry-run").addEventListener("click", dryRunWorkflow);
     $("#ws-run-cancel").addEventListener("click", cancelRun);
     $("#ws-add-agent").addEventListener("click", () => {
+      // secondary entry point: focus + reset the library search (the library
+      // itself is the primary visible interaction — click or drag an agent).
       const search = $("#ws-agent-search");
-      if (search) search.focus();
+      if (search) { search.value = ""; S.agentFilter = ""; renderLibrary(); search.focus(); }
     });
     const agentSearch = $("#ws-agent-search");
     if (agentSearch) {
@@ -993,6 +1053,7 @@
       if (!window.confirm(`Delete workflow "${S.workflow.id}"?`)) return;
       try {
         await del(`/api/workflows/${encodeURIComponent(S.workflow.id)}`);
+        forgetWorkflow();
         setOk("deleted"); newWorkflow();
       } catch (err) { setError(err.message); }
     });
@@ -1010,19 +1071,26 @@
         }
       });
     });
+    bindDragDrop();
     bindCanvasPan();
   }
 
   function init() {
     bind();
     loadMeta().then(() => {});
-    loadWorkflowList();
+    loadWorkflowList().then(() => {
+      // restore the most recently edited workflow so a browser refresh never
+      // silently drops nodes that were already saved.
+      const last = lastWorkflow();
+      if (last) loadWorkflow(last);
+    });
     loadTemplates();
     render();
   }
 
   window.MACWorkspace = { S, select, render, addNode, saveWorkflow, loadWorkflow,
-                          validateWorkflow, runWorkflow, dryRunWorkflow, fitToScreen };
+                          validateWorkflow, runWorkflow, dryRunWorkflow, fitToScreen,
+                          loadMeta, matchingAgents, bindDragDrop, ORIGIN };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

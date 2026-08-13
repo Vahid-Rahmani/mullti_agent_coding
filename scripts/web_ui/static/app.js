@@ -73,6 +73,12 @@
     activeTag: null,
     taskDetail: null,
     logKey: "orchestrator",
+    // Active-workflow projection: when set, the Workflow Designer graph is the
+    // single source of truth for the Home agent windows (panels, positions,
+    // edges) instead of the registry/prefs panel set.
+    homeWorkflow: null,        // {id,name,nodes,edges} | null
+    homeNodes: [],             // workflow agent nodes in canonical layout order
+    homeEdges: [],             // [{source,target,condition}]
   };
 
   /* ─────────────────────── toolbar wiring ────────────────────── */
@@ -136,6 +142,19 @@
     all.value = "all";
     sel.appendChild(active);
     sel.appendChild(all);
+    if (Ag.homeNodes.length) {
+      // A Home command with an active workflow runs the whole graph — the
+      // backend ignores the per-agent target in that mode.
+      const wfOpt = el("option", null,
+        "Active workflow · " + (Ag.homeWorkflow ? (Ag.homeWorkflow.name || Ag.homeWorkflow.id) : "graph"));
+      wfOpt.value = "workflow";
+      sel.insertBefore(wfOpt, all);
+      Ag.homeNodes.forEach((n) => {
+        const opt = el("option", null, n.label + (n.model ? " · " + n.model : " · Auto"));
+        opt.value = "node:" + n.id;
+        sel.appendChild(opt);
+      });
+    }
     Ag.agents.forEach((a) => {
       const opt = el("option", null, `${a.tag.toUpperCase()} · ${a.name}`);
       opt.value = a.tag;
@@ -257,13 +276,18 @@
     card.querySelector(".p-task").title = a.prompt || "";
     card.querySelector(".fill").style.width = (a.progress || 0) + "%";
     const modelEl = card.querySelector(".p-model");
-    if (modelEl) modelEl.textContent = a.model || "";
+    // Workflow panels (data-node) carry their node's per-instance model — the
+    // registry agent's default must not clobber that display.
+    if (modelEl && !card.dataset.node) modelEl.textContent = a.model || "";
     card.classList.toggle("active", a.tag === Ag.activeTag);
   }
 
   function buildWorkspace() {
     const wg = $("#workspace-grid");
     empty(wg);
+    // Active workflow (if any) is the authoritative agent-window set.
+    if (Ag.homeNodes.length) { buildWorkflowWorkspace(wg); return; }
+    wg.classList.remove("workflow-mode");
     const agents = visibleAgents();
     const emptyMsg = el("div", "workspace-empty hidden", "No agents visible — toggle agents on in the toolbar.");
     wg.appendChild(emptyMsg);
@@ -286,6 +310,79 @@
         });
       }
     }
+  }
+
+  /* ── active-workflow projection: Home renders the Workflow Designer graph ──
+     When an active workflow exists, the agent windows on Home ARE its nodes:
+     one panel per workflow node, positioned from WorkflowNode.x/y through a
+     deterministic bbox→container transform, with WorkflowEdge connections
+     drawn as an SVG overlay. Panels keep data-tag (the node's agent tag) so
+     the existing session/status pipeline keeps working; data-node preserves
+     the workflow node identity. */
+  function buildWorkflowWorkspace(wg) {
+    wg.classList.add("workflow-mode");
+    const nodes = Ag.homeNodes;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const pad = 28;
+    const xs = nodes.map((n) => n.x || 0);
+    const ys = nodes.map((n) => n.y || 0);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const spanX = Math.max(1, maxX - minX), spanY = Math.max(1, maxY - minY);
+    const availW = Math.max(240, (wg.clientWidth || window.innerWidth || 800) - pad * 2);
+    const availH = Math.max(240, (wg.clientHeight || window.innerHeight || 600) - pad * 2);
+    const scale = Math.min(availW / spanX, availH / spanY);
+    const ox = pad + (availW - spanX * scale) / 2;
+    const oy = pad + (availH - spanY * scale) / 2;
+    const pos = (n) => ({
+      left: ox + ((n.x || 0) - minX) * scale,
+      top: oy + ((n.y || 0) - minY) * scale,
+    });
+    nodes.forEach((n) => {
+      const a = Ag.agents.find((x) => x.agent === n.agent);
+      const view = {
+        tag: a ? a.tag : (n.agent || "node"),
+        name: n.label || (a ? a.name : n.agent),
+        model: n.resolved_model || n.model || "",
+        status: a ? a.status : "idle",
+        progress: a ? a.progress : 0,
+        token_usage: a ? a.token_usage : 0,
+        running: a ? a.running : false,
+        prompt: a ? a.prompt : "",
+      };
+      const card = panelFor(view);
+      card.dataset.node = n.id;
+      const p = pos(n);
+      card.style.position = "absolute";
+      card.style.width = "240px";
+      card.style.left = p.left + "px";
+      card.style.top = p.top + "px";
+      card.style.transform = "translate(-50%, -50%)";
+      wg.appendChild(card);
+      if (a && Ag.sessions[a.tag]) {
+        Ag.sessions[a.tag].forEach((ev) => {
+          if (PANEL_KINDS.includes(ev.kind)) {
+            appendEv(card.querySelector(".p-console"), ev);
+          }
+        });
+      }
+    });
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "home-edges");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    Ag.homeEdges.forEach((e) => {
+      const a = byId.get(e.source), b = byId.get(e.target);
+      if (!a || !b) return;
+      const pa = pos(a), pb = pos(b);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", pa.left); line.setAttribute("y1", pa.top);
+      line.setAttribute("x2", pb.left); line.setAttribute("y2", pb.top);
+      line.setAttribute("class", "home-edge");
+      if (e.condition) line.setAttribute("data-condition", e.condition);
+      svg.appendChild(line);
+    });
+    wg.appendChild(svg);
   }
 
   function setActive(tag) {
@@ -1518,6 +1615,7 @@
     Ag.agents = data.agents;
     Ag.prefs = Object.assign({}, Ag.prefs, data.prefs || {});
     Ag.activeTag = Ag.prefs.active_tag;
+    await loadActiveWorkflow();
     applyPrefs();
     buildPop();
     buildDispatchTarget();
@@ -1526,6 +1624,24 @@
     buildLogSelect();
     $("#send-target").textContent = tagName(Ag.activeTag);
     $("#workspace-dir").textContent = window.location.host;
+  }
+
+  async function loadActiveWorkflow() {
+    // The Workflow Designer's saved graph (if activated) is the single source
+    // of truth for Home agent windows; otherwise fall back to the registry set.
+    try {
+      const data = await api("/api/active-workflow");
+      const wf = data && data.workflow;
+      if (wf && (wf.nodes || []).length) {
+        Ag.homeWorkflow = wf;
+        Ag.homeNodes = (wf.nodes || []).filter((n) => n.kind === "agent");
+        Ag.homeEdges = wf.edges || [];
+      } else {
+        Ag.homeWorkflow = null; Ag.homeNodes = []; Ag.homeEdges = [];
+      }
+    } catch (_) {
+      Ag.homeWorkflow = null; Ag.homeNodes = []; Ag.homeEdges = [];
+    }
   }
 
   async function refreshAgentModels() {

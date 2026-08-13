@@ -52,6 +52,12 @@ def build_node_prompt(node: WorkflowNode, state: dict, repo_root: Path | None = 
     existing role store; the agent identity and model stay untouched.
     """
     parts: list[str] = []
+    # A Home-dispatched command arrives as the run's ``user_prompt`` and is the
+    # primary task for every node (the workflow graph, not a single agent,
+    # is then the authoritative execution structure).
+    user_prompt = (state or {}).get("user_prompt")
+    if isinstance(user_prompt, str) and user_prompt.strip():
+        parts.append(user_prompt.strip())
     if node.roles:
         role_ctx = roles.render_role_context(
             node.agent, role_ids=list(node.roles), repo_root=repo_root)

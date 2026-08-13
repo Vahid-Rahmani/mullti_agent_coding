@@ -64,6 +64,10 @@ class DispatchIn(BaseModel):
     agent: Optional[str] = None  # tag like "m4"; None → all agents
 
 
+class ActiveWorkflowIn(BaseModel):
+    workflow_id: str  # persisted workflow id, e.g. "my-pipeline"
+
+
 class AssignIn(BaseModel):
     agent: str  # opencode agent key, e.g. "matthew"
 
@@ -256,6 +260,40 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    # ---- active workflow (single source of truth for Home) ---------------
+
+    @router.get("/api/active-workflow")
+    async def api_active_workflow() -> dict:
+        """The workflow Home renders and the Home runtime executes.
+
+        Returns ``workflow: null`` when no workflow is active (Home then falls
+        back to the classic registry/prefs panel set). Node ``model`` keeps the
+        per-node override; ``resolved_model`` is what would actually run.
+        """
+        active_id = state.prefs.get("active_workflow_id")
+        wf = workflows.load_workflow(active_id) if active_id else None
+        if wf is None:
+            return {"active_workflow_id": active_id, "workflow": None}
+        data = wf.to_dict()
+        for node in data["nodes"]:
+            node["resolved_model"] = (
+                node.get("model") or opencode_cfg.resolve_model(node.get("agent") or "")
+            )
+        return {"active_workflow_id": active_id, "workflow": data}
+
+    @router.put("/api/active-workflow")
+    async def api_active_workflow_set(body: ActiveWorkflowIn) -> dict:
+        wf = workflows.load_workflow(body.workflow_id)
+        if wf is None:
+            raise HTTPException(404, f"workflow not found: {body.workflow_id}")
+        state.update_prefs({"active_workflow_id": wf.id})
+        return {"ok": True, "active_workflow_id": wf.id}
+
+    @router.delete("/api/active-workflow")
+    async def api_active_workflow_clear() -> dict:
+        state.update_prefs({"active_workflow_id": None})
+        return {"ok": True, "active_workflow_id": None}
+
     # ---- dispatch ---------------------------------------------------------
 
     @router.post("/api/dispatch")
@@ -263,6 +301,25 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         prompt = (body.prompt or "").strip()
         if not prompt:
             raise HTTPException(400, "prompt must not be empty")
+        # The active workflow is the authoritative graph for Home commands:
+        # never silently fall back to a different graph or a plain agent list.
+        active_id = state.prefs.get("active_workflow_id")
+        if active_id:
+            wf = workflows.load_workflow(active_id)
+            if wf is None:
+                raise HTTPException(409,
+                                   f"active workflow {active_id!r} is missing — "
+                                   "clear or re-activate it in the Workflow Designer")
+            errors = workflows.validate_workflow(wf)
+            if errors:
+                raise HTTPException(409, {"errors": errors})
+            run_id = workflow_engine.start_run(
+                wf, initial_state={"user_prompt": prompt})
+            state.push_usermsg(
+                "master", f"▶ workflow {active_id}: dispatched (run {run_id})")
+            return {"ok": True, "mode": "workflow", "run_id": run_id,
+                    "workflow_id": active_id,
+                    "nodes": [n.id for n in wf.nodes]}
         tag = body.agent
         if tag is not None and tag not in AGENT_TAGS:
             raise HTTPException(404, f"unknown agent {tag!r}")

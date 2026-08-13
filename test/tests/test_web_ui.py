@@ -423,6 +423,32 @@ class WorkflowApiTestCase(VaultTestCase):
         self.assertIn(b"Agent Workspace", r.content)
         self.assertIn(b"workspace.js", r.content)
 
+    def test_agents_available_to_workspace(self):
+        # the workspace's agent library is fed by the existing registry API
+        r = self.ctx.get("/api/agents").json()
+        self.assertEqual(len(r["agents"]), 7)
+        for a in r["agents"]:
+            self.assertIn("tag", a)
+            self.assertIn("name", a)
+            self.assertIn("agent", a)
+            self.assertIn("model", a)
+            self.assertTrue(a["agent"], "agent key must be non-empty")
+
+    def test_add_agent_node_persists_after_save_reload(self):
+        # simulate the full Add Agent → save → reload flow at the API boundary
+        body = self._wf(nodes=[{
+            "id": "n1", "label": "Matthew #1", "agent": "matthew",
+            "kind": "agent", "model": "", "x": 120.0, "y": 140.0,
+        }])
+        self.ctx.put("/api/workflows/test-wf", json=body)
+        got = self.ctx.get("/api/workflows/test-wf").json()["workflow"]
+        self.assertEqual(len(got["nodes"]), 1)
+        node = got["nodes"][0]
+        self.assertEqual(node["agent"], "matthew")
+        self.assertEqual(node["model"], "")
+        self.assertEqual(node["x"], 120.0)
+        self.assertEqual(node["y"], 140.0)
+
     def test_workflow_crud(self):
         self.assertEqual(self.ctx.get("/api/workflows").json()["workflows"], [])
         r = self.ctx.put("/api/workflows/test-wf", json=self._wf())
@@ -539,6 +565,24 @@ class UiAssetsTestCase(unittest.TestCase):
 
     def test_graph_zoom_controls_present(self):
         self.assertIn('id="zoom-in"', self.index)
+
+    # ── active workflow → Home projection (single source of truth) ──
+    def test_home_consumes_active_workflow(self):
+        # app.js loads the active workflow and renders its nodes as agent
+        # windows (one panel per node, workflow edges as an SVG overlay).
+        for token in ("loadActiveWorkflow", "buildWorkflowWorkspace",
+                      "homeNodes", "homeEdges", "data-node", "resolved_model",
+                      "/api/active-workflow", "workflow-mode"):
+            self.assertIn(token, self.js)
+        for token in (".home-edge", "#workspace-grid.workflow-mode"):
+            self.assertIn(token, self.css)
+
+    def test_active_workflow_api_wired(self):
+        routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(
+            encoding="utf-8")
+        for token in ('"/api/active-workflow"', "active_workflow_id",
+                      "workflow_engine.start_run", "mode", "workflow"):
+            self.assertIn(token, routes)
         self.assertIn('id="zoom-out"', self.index)
         self.assertIn('id="zoom-reset"', self.index)
 
@@ -844,6 +888,58 @@ class WorkspaceAssetsTestCase(unittest.TestCase):
         self.assertIn('id="ws-agent-search"', self.html)
         self.assertIn("type to filter agents", self.html)
         self.assertIn("matchingAgents", self.js)
+
+    def test_workspace_add_agent_click_and_drag(self):
+        # click-to-add and library→canvas drag/drop share the same addNode path
+        for token in ("addNode", "nextId", "draggable", "dragstart", "dragover",
+                      "drop", "dragend", "application/x-zova-agent", "bindDragDrop"):
+            self.assertIn(token, self.js)
+        self.assertIn('card.draggable = true', self.js)
+        self.assertIn('e.dataTransfer.setData(AGENT_DRAG_TYPE, a.agent)', self.js)
+        self.assertIn('canvasPos(e)', self.js)          # client → canvas coords
+        self.assertIn("addNode(agent, { x: p.x, y: p.y })", self.js)
+        # + Add Agent is a secondary entry point that focuses the search field
+        self.assertIn('search.value = ""; S.agentFilter = ""; renderLibrary(); search.focus()', self.js)
+
+    def test_workspace_restores_last_workflow_on_refresh(self):
+        # a saved workflow is remembered and auto-loaded so refresh keeps nodes
+        for token in ("rememberWorkflow", "lastWorkflow", "forgetWorkflow",
+                      "zova-last-workflow"):
+            self.assertIn(token, self.js)
+        self.assertIn("if (last) loadWorkflow(last)", self.js)
+
+    def test_workspace_canvas_fills_horizontal_space(self):
+        # the canvas must stretch between the library/properties panels, and the
+        # world/nodes layers must fill the canvas (regression: 75.6px collapse)
+        self.assertIn('class="ws-page"', self.html)
+        self.assertIn("html.ws-page", self.css)
+        self.assertIn("body.ws-body", self.css)
+        # html + body are forced to the full viewport so the workspace can never
+        # shrink-to-fit its content (the old 585.6px collapse).
+        self.assertIn("min-width: 100vw", self.css)
+        self.assertIn("width: 100vw", self.css)
+        # .ws-main stretches to the full body width
+        self.assertIn(".ws-main { flex: 1 1 auto; align-self: stretch; display: flex; min-height: 0; min-width: 0; width: 100%; }", self.css)
+        # the canvas column is the sole flex-grow item, so it takes ALL remaining
+        # horizontal space between the 230px library and 280px properties panels
+        self.assertIn(".ws-canvas-wrap { flex: 1 1 auto; position: relative; min-width: 0; width: 100%; display: flex; flex-direction: column; }", self.css)
+        self.assertIn(".ws-canvas { flex: 1 1 0; position: relative; overflow: hidden; min-width: 0; width: 100%;", self.css)
+        # the world/nodes layers fill the canvas
+        self.assertIn(".ws-world { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }", self.css)
+        self.assertIn(".ws-nodes { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }", self.css)
+
+    def test_workspace_outer_container_viewport_width(self):
+        # regression: the workspace root (html/body) must be viewport-anchored
+        # (vw units) so no outer wrapper can constrain it to its content width
+        # (the reported 585.6px collapse).
+        self.assertIn('class="ws-page"', self.html)
+        self.assertIn("html.ws-page", self.css)
+        self.assertIn("body.ws-body", self.css)
+        self.assertIn("width: 100vw", self.css)
+        self.assertIn("min-width: 100vw", self.css)
+        self.assertIn("max-width: 100vw", self.css)
+        self.assertIn("display: flex", self.css)
+        self.assertIn("flex-direction: column", self.css)
 
     def test_workspace_node_design(self):
         for token in ("wf-node-dot", "wf-node-agent", "wf-node-state",
