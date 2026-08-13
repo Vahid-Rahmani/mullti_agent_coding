@@ -46,6 +46,10 @@ def create_app(vault: Path | None = None, state: WebState | None = None) -> Fast
     async def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/workspace", include_in_schema=False)
+    async def workspace_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "workspace.html")
+
     return app
 
 

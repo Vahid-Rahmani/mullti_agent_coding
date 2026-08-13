@@ -381,6 +381,134 @@ class ApiTestCase(VaultTestCase):
         self.assertEqual(r.json()["role"], "")
 
 
+class WorkflowApiTestCase(VaultTestCase):
+    """Workflow REST endpoints, isolated via $ZOVA_WORKFLOWS temp dir."""
+
+    def setUp(self):
+        super().setUp()
+        self.wf_dir = Path(self.tmp.name) / "workflows"
+        self.wf_dir.mkdir(parents=True)
+        self._orig_zova_wf = os.environ.get("ZOVA_WORKFLOWS")
+        os.environ["ZOVA_WORKFLOWS"] = str(self.wf_dir)
+        from scripts.web_ui.server import create_app
+        import scripts.web_ui.routes as routes_mod
+        self.routes_mod = routes_mod
+        self.real_hub = routes_mod.HUB
+        routes_mod.HUB = self.hub
+        self.app = create_app(vault=self.vault, state=self.state)
+        self.ctx = TestClient(self.app)
+
+    def tearDown(self):
+        self.routes_mod.HUB = self.real_hub
+        if self._orig_zova_wf is None:
+            os.environ.pop("ZOVA_WORKFLOWS", None)
+        else:
+            os.environ["ZOVA_WORKFLOWS"] = self._orig_zova_wf
+        super().tearDown()
+
+    def _wf(self, **overrides):
+        body = {
+            "id": "test-wf", "name": "Test",
+            "nodes": [{"id": "a", "agent": "matthew", "kind": "agent"},
+                      {"id": "b", "agent": "alex", "kind": "agent"}],
+            "edges": [{"source": "a", "target": "b"}],
+            "entry": ["a"],
+        }
+        body.update(overrides)
+        return body
+
+    def test_workspace_route_served(self):
+        r = self.ctx.get("/workspace")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(b"Agent Workspace", r.content)
+        self.assertIn(b"workspace.js", r.content)
+
+    def test_workflow_crud(self):
+        self.assertEqual(self.ctx.get("/api/workflows").json()["workflows"], [])
+        r = self.ctx.put("/api/workflows/test-wf", json=self._wf())
+        self.assertEqual(r.status_code, 200)
+        got = self.ctx.get("/api/workflows/test-wf").json()["workflow"]
+        self.assertEqual(got["id"], "test-wf")
+        self.assertEqual(len(self.ctx.get("/api/workflows").json()["workflows"]), 1)
+        self.assertTrue(self.ctx.delete("/api/workflows/test-wf").json()["deleted"])
+
+    def test_workflow_save_rejects_invalid_id(self):
+        # an unsafe/invalid id is rejected before any file write. (Traversal
+        # forms like "../x", "a/b", "a\b" are covered directly in
+        # test_workflows.TestIds against normalize_workflow_id, the boundary
+        # the handler delegates to.)
+        r = self.ctx.put("/api/workflows/-bad", json=self._wf(id="-bad"))
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(self.ctx.get("/api/workflows").json()["workflows"], [])
+
+    def test_workflow_validate(self):
+        self.ctx.put("/api/workflows/test-wf", json=self._wf())
+        r = self.ctx.get("/api/workflows/test-wf/validate").json()
+        self.assertTrue(r["valid"])
+        # invalid: unconditional cycle
+        bad = self._wf(edges=[{"source": "a", "target": "b"},
+                              {"source": "b", "target": "a"}])
+        self.ctx.put("/api/workflows/test-wf", json=bad)
+        r = self.ctx.get("/api/workflows/test-wf/validate").json()
+        self.assertFalse(r["valid"])
+        self.assertTrue(any("cycle" in e["message"] for e in r["errors"]))
+
+    def test_workflow_templates_and_recommend(self):
+        templates = self.ctx.get("/api/workflows/templates").json()["templates"]
+        self.assertIn("sequential", templates)
+        seq = self.ctx.post("/api/workflows/from-template/sequential").json()["workflow"]
+        self.assertEqual([n["id"] for n in seq["nodes"]],
+                         ["architect", "developer", "tester", "reviewer"])
+        rec = self.ctx.get("/api/workflows/recommend?agents=4").json()
+        self.assertIn("workflow", rec)
+        self.assertIn("reasons", rec)
+        self.assertEqual(self.ctx.post("/api/workflows/from-template/nope").status_code, 404)
+
+    def test_workflow_run_validation_and_start(self):
+        self.ctx.put("/api/workflows/test-wf", json=self._wf())
+        # invalid graph -> 409 before any run
+        bad = self._wf(edges=[{"source": "a", "target": "b"},
+                              {"source": "b", "target": "a"}])
+        self.ctx.put("/api/workflows/test-wf", json=bad)
+        self.assertEqual(self.ctx.post("/api/workflows/test-wf/run",
+                                       json={"initial_state": {}}).status_code, 409)
+        # valid graph -> start_run is called (real dispatch stubbed out)
+        self.ctx.put("/api/workflows/test-wf", json=self._wf())
+        with mock.patch.object(self.routes_mod.workflow_engine, "start_run",
+                               return_value="run-abc") as start:
+            r = self.ctx.post("/api/workflows/test-wf/run",
+                              json={"initial_state": {"x": 1}})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["run_id"], "run-abc")
+        start.assert_called_once()
+        # run status endpoint 404 for an unknown run
+        self.assertEqual(self.ctx.get("/api/workflows/runs/nope").status_code, 404)
+
+    def test_workflow_dry_run_previews_without_dispatching(self):
+        body = self._wf(nodes=[
+            {"id": "a", "agent": "matthew", "kind": "agent"},
+            {"id": "b", "agent": "alex", "kind": "agent"},
+            {"id": "c", "agent": "sarah", "kind": "agent"},
+        ], edges=[{"source": "a", "target": "b"}, {"source": "a", "target": "c"}],
+            entry=["a"])
+        with mock.patch.object(self.routes_mod.workflow_engine, "start_run") as start:
+            r = self.ctx.post("/api/workflows/test-wf/dry-run", json=body)
+        self.assertEqual(r.status_code, 200)
+        plan = r.json()
+        self.assertTrue(plan["ok"])
+        self.assertEqual(plan["waves"][0], ["a"])
+        self.assertEqual(set(plan["waves"][1]), {"b", "c"})
+        self.assertEqual(set(plan["statuses"].values()), {"completed"})
+        start.assert_not_called()   # a dry-run never starts a real run
+
+    def test_workflow_dry_run_rejects_invalid_graph(self):
+        body = self._wf(edges=[{"source": "a", "target": "b"},
+                               {"source": "b", "target": "a"}])
+        r = self.ctx.post("/api/workflows/test-wf/dry-run", json=body)
+        self.assertEqual(r.status_code, 409)
+        self.assertTrue(any("cycle" in e["message"] for e in r.json()["detail"]["errors"]))
+
+
 class UiAssetsTestCase(unittest.TestCase):
     """Static-asset checks for the dashboard UI (index.html / app.css / app.js)."""
 
@@ -576,6 +704,18 @@ class UiAssetsTestCase(unittest.TestCase):
         self.assertIn("/api/tasks/", self.js)
         self.assertIn("Set role override", self.js)
 
+    def test_model_header_sync_and_searchable_combo(self):
+        """Model header derives from current UI state; selector is searchable."""
+        settings_js = (self.STATIC / "settings.js").read_text(encoding="utf-8")
+        for token in ("modelCombo", "combo-search", "type to filter",
+                      "ArrowDown", "ArrowUp", "Escape", "custom provider / model",
+                      "refreshAgentModels"):
+            self.assertIn(token, settings_js)
+        # app.js refreshes the p-model header from Ag.agents[].model
+        self.assertIn('card.querySelector(".p-model")', self.js)
+        self.assertIn("refreshAgentModels", self.js)
+        self.assertIn(".combo", self.css)
+
     # ── Agent-output session persistence (regression) ────────────────
     def test_agent_event_persists_session_before_panel_render(self):
         """onAgentEvent must persist into Ag.sessions[tag] BEFORE any DOM lookup,
@@ -627,6 +767,109 @@ class UiAssetsTestCase(unittest.TestCase):
         self.assertIn("Ag.sessions = {};", js)
         # pollState drives the detection on every /api/state poll
         self.assertIn("checkBackendRestart(snap.n)", js)
+
+
+class WorkspaceAssetsTestCase(unittest.TestCase):
+    """Static-asset checks for the Agent Workspace / workflow designer."""
+
+    STATIC = Path(REPO_ROOT) / "scripts" / "web_ui" / "static"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = (cls.STATIC / "workspace.html").read_text(encoding="utf-8")
+        cls.js = (cls.STATIC / "workspace.js").read_text(encoding="utf-8")
+        cls.css = (cls.STATIC / "app.css").read_text(encoding="utf-8")
+        cls.index = (cls.STATIC / "index.html").read_text(encoding="utf-8")
+
+    def test_workspace_page_served_and_linked(self):
+        # the page is linked from the dashboard topbar
+        self.assertIn('href="/workspace"', self.index)
+        self.assertIn("Agent Workspace", self.html)
+
+    def test_workspace_layout_regions(self):
+        for ident in ("ws-topbar", "ws-library", "ws-library-list", "ws-canvas",
+                      "ws-world", "ws-edges", "ws-nodes", "ws-props",
+                      "ws-props-body", "ws-run-legend"):
+            self.assertIn(f'id="{ident}"', self.html)
+
+    def test_workspace_controls(self):
+        for ident in ("ws-new", "ws-save", "ws-validate", "ws-run",
+                      "ws-run-cancel", "ws-template-select", "ws-recommend",
+                      "ws-duplicate", "ws-delete", "ws-zoom-in", "ws-zoom-out",
+                      "ws-zoom-reset"):
+            self.assertIn(f'id="{ident}"', self.html)
+
+    def test_workspace_js_model_independence(self):
+        # a node carries agent/model/roles overrides, never touching AgentSpec
+        for token in ("agent", "model", "roles", "instructions", "enabled"):
+            self.assertIn(token, self.js)
+        self.assertIn("Auto / runtime default", self.js)
+
+    def test_workspace_js_canvas(self):
+        for token in ("addNode", "renderEdges", "renderNodes", "onNodePointerDown",
+                      "edgeKey", "select", "markDirty", "runWorkflow", "pollRun",
+                      "validateWorkflow", "loadTemplate", "recommend"):
+            self.assertIn(token, self.js)
+
+    def test_workspace_css(self):
+        for cls in (".ws-body", ".ws-topbar", ".ws-library", ".ws-canvas",
+                    ".wf-node", ".wf-in", ".wf-out", ".ws-edge", ".ws-props",
+                    ".st-completed", ".st-running", ".st-failed", ".st-skipped"):
+            self.assertIn(cls, self.css)
+
+    # ── model picker: searchable + display sync ─────────────────────
+    def test_workspace_model_picker_searchable(self):
+        for token in ("modelCombo", "combo-search", "type to filter (provider / model)",
+                      "ArrowDown", "ArrowUp", "Escape", "custom provider / model"):
+            self.assertIn(token, self.js)
+
+    def test_workspace_model_selection_updates_display(self):
+        # choosing a model writes node.model, marks dirty, and re-renders the card
+        self.assertIn("node.model = value", self.js)
+        self.assertIn("renderNodes()", self.js)
+        # the node card's model line reads the live node.model (Auto when empty)
+        self.assertIn('sub.textContent = n.model || "Auto / runtime default"', self.js)
+
+    def test_workspace_model_auto_vs_explicit(self):
+        # Auto is a real, selectable option distinct from an explicit override,
+        # and reopening a node re-reads its persisted model
+        self.assertIn('let value = node.model || ""', self.js)
+        self.assertIn("combo-auto", self.js)
+        self.assertIn("Auto → resolves to", self.js)
+        self.assertIn(".combo-value.combo-auto", self.css)
+
+    # ── v2: visual builder (add-agent, node design, dry-run, validation) ─
+    def test_workspace_add_agent_and_search(self):
+        self.assertIn('id="ws-add-agent"', self.html)
+        self.assertIn('id="ws-agent-search"', self.html)
+        self.assertIn("type to filter agents", self.html)
+        self.assertIn("matchingAgents", self.js)
+
+    def test_workspace_node_design(self):
+        for token in ("wf-node-dot", "wf-node-agent", "wf-node-state",
+                      "STATE_LABEL", "nodeState"):
+            self.assertIn(token, self.js)
+        self.assertIn(".wf-node-dot", self.css)
+        self.assertIn(".wf-node-state", self.css)
+        self.assertIn(".wf-node-agent", self.css)
+
+    def test_workspace_dry_run_and_fit(self):
+        self.assertIn('id="ws-dry-run"', self.html)
+        self.assertIn("dryRunWorkflow", self.js)
+        self.assertIn("fitToScreen", self.js)
+        self.assertIn("/dry-run", self.js)
+
+    def test_workspace_validation_display(self):
+        self.assertIn('id="ws-validation"', self.html)
+        self.assertIn("showValidation", self.js)
+        self.assertIn("formatErrors", self.js)
+        self.assertIn(".ws-validation", self.css)
+
+    def test_workspace_presets(self):
+        for label in ("Planner / Workers / Reviewer", "Parallel Specialists",
+                      "Research / Analysis / Writer", "Empty Workflow",
+                      "Developer / Reviewer / Retry"):
+            self.assertIn(label, self.js)
 
 
 if __name__ == "__main__":

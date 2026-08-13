@@ -475,6 +475,128 @@
     return box;
   }
 
+  function modelCombo(agent, opts) {
+    const box = el("div", "combo");
+    const trigger = el("button", "combo-trigger");
+    trigger.type = "button";
+    const label = el("span", "combo-value");
+    const caret = el("span", "combo-caret", "▾");
+    trigger.appendChild(label);
+    trigger.appendChild(caret);
+    box.appendChild(trigger);
+
+    const list = el("div", "combo-list hidden");
+    const search = el("input", "combo-search");
+    search.placeholder = "type to filter (provider / model)…";
+    search.autocomplete = "off";
+    list.appendChild(search);
+    const items = el("div", "combo-items");
+    list.appendChild(items);
+    box.appendChild(list);
+
+    const entries = Array.from(opts.entries()).sort((x, y) => x[0].localeCompare(y[0]));
+    let selectedId = agent.model || "";
+    let selectedName = opts.get(selectedId) || selectedId;
+    label.textContent = selectedName || "—";
+
+    let filtered = entries.slice();
+    let highlight = -1;
+
+    function renderItems() {
+      empty(items);
+      filtered.forEach(([id, name], i) => {
+        const item = el("div", "combo-item"
+          + (i === highlight ? " active" : "")
+          + (id === selectedId ? " selected" : ""), name);
+        item.dataset.id = id;
+        item.addEventListener("mousedown", (e) => { e.preventDefault(); choose(id); });
+        items.appendChild(item);
+      });
+      const custom = el("div", "combo-item combo-custom", "custom provider / model…");
+      custom.addEventListener("mousedown", (e) => { e.preventDefault(); chooseCustom(); });
+      items.appendChild(custom);
+    }
+
+    function filter(q) {
+      const needle = q.trim().toLowerCase();
+      filtered = needle
+        ? entries.filter(([id, name]) =>
+            id.toLowerCase().includes(needle) || name.toLowerCase().includes(needle))
+        : entries.slice();
+      highlight = -1;
+      renderItems();
+    }
+
+    function open() {
+      list.classList.remove("hidden");
+      search.value = "";
+      filtered = entries.slice();
+      highlight = -1;
+      renderItems();
+      search.focus();
+    }
+
+    function close() {
+      list.classList.add("hidden");
+      search.value = "";
+    }
+
+    function choose(id) {
+      selectedId = id;
+      selectedName = opts.get(id) || id;
+      label.textContent = selectedName;
+      close();
+    }
+
+    function chooseCustom() {
+      close();
+      const typed = window.prompt("Model id (provider/model):", selectedId || "");
+      if (!typed) return;
+      selectedId = typed.trim();
+      selectedName = selectedId;
+      label.textContent = selectedId;
+    }
+
+    trigger.addEventListener("click", () => {
+      if (list.classList.contains("hidden")) open();
+      else close();
+    });
+
+    search.addEventListener("input", () => filter(search.value));
+    search.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (!filtered.length) return;
+        highlight = highlight < 0 ? 0 : Math.min(highlight + 1, filtered.length - 1);
+        renderItems();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (!filtered.length) return;
+        highlight = highlight < 0 ? filtered.length - 1 : Math.max(highlight - 1, 0);
+        renderItems();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (highlight >= 0 && highlight < filtered.length) choose(filtered[highlight][0]);
+        else if (filtered.length) choose(filtered[0][0]);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    });
+
+    return {
+      root: box,
+      get value() { return selectedId; },
+      setValue(id, name) {
+        selectedId = id;
+        selectedName = name || opts.get(id) || id;
+        label.textContent = selectedName;
+      },
+    };
+  }
+
   function agentModelTable() {
     const wrap = el("div");
     wrap.appendChild(el("h4", null, "Agent model assignment"));
@@ -492,50 +614,31 @@
       p.models.forEach((m) => opts.set(m.model_id, m.display_name + " (" + p.name + ")")));
 
     state.agents.forEach((a) => {
+      if (a.model) opts.set(a.model, a.model);
       const tr = el("tr");
       tr.appendChild(el("td", null, `${a.name} (${a.tag.toUpperCase()})`));
       const td = el("td");
-      const sel = el("select");
-      opts.set(a.model, a.model);
-      Array.from(opts.entries())
-        .sort((x, y) => x[0].localeCompare(y[0]))
-        .forEach(([id, name]) => {
-          const o = el("option", null, name);
-          o.value = id;
-          if (id === a.model) o.selected = true;
-          sel.appendChild(o);
-        });
-      const custom = el("option", null, "custom…");
-      custom.value = "__custom__";
-      sel.appendChild(custom);
-      td.appendChild(sel);
+      const combo = modelCombo(a, opts);
+      td.appendChild(combo.root);
       tr.appendChild(td);
       const act = el("td");
       const save = el("button", "btn", "Save");
       const badge = el("span", "verify-badge");
       save.addEventListener("click", async () => {
         save.disabled = true;
-        let model = sel.value;
-        if (model === "__custom__") {
-          const typed = window.prompt("Model id (provider/model):", a.model || "");
-          if (!typed) { save.disabled = false; return; }
-          model = typed.trim();
-        }
+        const model = combo.value;
         try {
           const r = await post("/api/settings/models", { agent: a.agent, model });
           badge.className = "verify-badge ok";
           badge.textContent = "saved ✓";
           a.model = r.model;
+          combo.setValue(r.model, r.model);
           const fresh = await api("/api/settings/models");
           state.agents = fresh.agents || state.agents;
           state.available = fresh.available || state.available;
-          const existing = Array.from(sel.options).some((o) => o.value === r.model);
-          if (!existing) {
-            const o = el("option", null, r.model);
-            o.value = r.model;
-            sel.insertBefore(o, custom);
+          if (window.MACApp && window.MACApp.refreshAgentModels) {
+            window.MACApp.refreshAgentModels();
           }
-          sel.value = r.model;
         } catch (err) {
           badge.className = "verify-badge err";
           badge.textContent = err.message;
@@ -982,6 +1085,14 @@
     }
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && backdrop && !backdrop.classList.contains("hidden")) close();
+    });
+    // Close any open searchable combobox when clicking outside it.
+    document.addEventListener("click", (e) => {
+      $$(".combo").forEach((box) => {
+        if (!box.contains(e.target)) {
+          box.querySelector(".combo-list").classList.add("hidden");
+        }
+      });
     });
   }
 

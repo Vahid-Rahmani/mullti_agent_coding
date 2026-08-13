@@ -256,6 +256,8 @@
     card.querySelector(".p-task").textContent = a.prompt || "…";
     card.querySelector(".p-task").title = a.prompt || "";
     card.querySelector(".fill").style.width = (a.progress || 0) + "%";
+    const modelEl = card.querySelector(".p-model");
+    if (modelEl) modelEl.textContent = a.model || "";
     card.classList.toggle("active", a.tag === Ag.activeTag);
   }
 
@@ -1526,6 +1528,24 @@
     $("#workspace-dir").textContent = window.location.host;
   }
 
+  async function refreshAgentModels() {
+    // Re-read /api/agents and sync model labels into Ag.agents + panel headers.
+    try {
+      const data = await api("/api/agents");
+      const byTag = new Map(data.agents.map((x) => [x.tag, x]));
+      Ag.agents.forEach((a) => {
+        const fresh = byTag.get(a.tag);
+        if (fresh) a.model = fresh.model;
+      });
+      buildPop();
+      buildDispatchTarget();
+      $$(".panel").forEach((card) => {
+        const a = Ag.agents.find((x) => x.tag === card.dataset.tag);
+        if (a) updatePanelUi(card, a);
+      });
+    } catch (_) { /* transient */ }
+  }
+
   async function loadSessions() {
     try {
       const data = await api("/api/sessions");
@@ -1603,5 +1623,5 @@
 
   // Test/embedding hook (mirrors window.MACSettings): exposes the live event →
   // session pipeline so behavioral tests can drive it headlessly.
-  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream, loadSessions, checkBackendRestart, pollState };
+  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream, loadSessions, checkBackendRestart, pollState, refreshAgentModels };
 })();

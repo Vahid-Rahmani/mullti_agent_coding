@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from scripts.core import opencode_cfg, orchestrator as orch, roles
+from scripts.core import workflow_engine, workflows
 from scripts.core.agents import (
     AGENTS, AGENT_SPEC_BY_AGENT, AGENT_SPEC_BY_TAG, PROJECT_ROOT,
 )
@@ -129,6 +130,21 @@ class RolesAssignIn(BaseModel):
 
 class TaskRoleIn(BaseModel):
     role: Optional[str] = None  # role id to override, or empty/None to clear
+
+
+class WorkflowIn(BaseModel):
+    id: str
+    name: str = ""
+    project: str = ""
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    entry: list[str] = []
+    state: dict = {}
+    settings: dict = {}
+
+
+class WorkflowRunIn(BaseModel):
+    initial_state: dict = {}
 
 
 # ---------------------------------------------------------------- helpers
@@ -625,6 +641,126 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
             "manifests": {k: list(v) for k, v in profile.manifests.items()},
             "instruction_files": sorted(profile.instructions),
         }
+
+    # ---- workflows (Agent Workspace / LangGraph-style designer) -----------
+
+    def _wf_summary(wf: workflows.Workflow) -> dict:
+        return {
+            "id": wf.id,
+            "name": wf.name,
+            "project": wf.project,
+            "nodes": len(wf.nodes),
+            "edges": len(wf.edges),
+        }
+
+    @router.get("/api/workflows")
+    async def api_workflows() -> dict:
+        return {"workflows": [_wf_summary(w) for w in workflows.list_workflows()]}
+
+    @router.get("/api/workflows/templates")
+    async def api_workflow_templates() -> dict:
+        return {"templates": workflows.list_templates()}
+
+    @router.get("/api/workflows/recommend")
+    async def api_workflow_recommend(agents: int = 4) -> dict:
+        try:
+            return workflows.recommend_workflow(n_agents=agents)
+        except workflows.WorkflowError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @router.post("/api/workflows/from-template/{name}")
+    async def api_workflow_from_template(name: str) -> dict:
+        wf = workflows.get_template(name)
+        if wf is None:
+            raise HTTPException(404, f"unknown template {name!r}")
+        return {"workflow": wf.to_dict()}
+
+    @router.get("/api/workflows/{workflow_id}")
+    async def api_workflow_get(workflow_id: str) -> dict:
+        wf = workflows.load_workflow(workflow_id)
+        if wf is None:
+            raise HTTPException(404, f"workflow not found: {workflow_id}")
+        return {"workflow": wf.to_dict()}
+
+    @router.put("/api/workflows/{workflow_id}")
+    async def api_workflow_save(workflow_id: str, body: WorkflowIn) -> dict:
+        try:
+            wf = workflows.Workflow.from_dict(body.model_dump())
+            wf.id = workflow_id
+            saved = workflows.save_workflow(wf)
+        except workflows.WorkflowError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, "workflow": saved.to_dict()}
+
+    @router.delete("/api/workflows/{workflow_id}")
+    async def api_workflow_delete(workflow_id: str) -> dict:
+        return {"ok": True, "deleted": workflows.delete_workflow(workflow_id)}
+
+    @router.post("/api/workflows/{workflow_id}/duplicate")
+    async def api_workflow_duplicate(workflow_id: str) -> dict:
+        try:
+            wf = workflows.duplicate_workflow(workflow_id)
+        except workflows.WorkflowError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"ok": True, "workflow": wf.to_dict()}
+
+    @router.get("/api/workflows/{workflow_id}/validate")
+    async def api_workflow_validate(workflow_id: str) -> dict:
+        wf = workflows.load_workflow(workflow_id)
+        if wf is None:
+            raise HTTPException(404, f"workflow not found: {workflow_id}")
+        errors = workflows.validate_workflow(wf)
+        return {"valid": not errors, "errors": errors}
+
+    @router.post("/api/workflows/{workflow_id}/run")
+    async def api_workflow_run(workflow_id: str, body: WorkflowRunIn) -> dict:
+        wf = workflows.load_workflow(workflow_id)
+        if wf is None:
+            raise HTTPException(404, f"workflow not found: {workflow_id}")
+        errors = workflows.validate_workflow(wf)
+        if errors:
+            raise HTTPException(409, {"errors": errors})
+        run_id = workflow_engine.start_run(
+            wf, initial_state=body.initial_state, repo_root=_REPO_ROOT)
+        return {"ok": True, "run_id": run_id}
+
+    @router.post("/api/workflows/{workflow_id}/dry-run")
+    async def api_workflow_dry_run(workflow_id: str, body: dict | None = None) -> dict:
+        """Preview the execution plan without dispatching any agent.
+
+        Accepts the workflow payload directly (so unsaved edits can be
+        previewed) and falls back to the persisted workflow when no body is
+        given. Validation is authoritative here, exactly as for a real run.
+        """
+        if isinstance(body, dict) and (body.get("nodes") or body.get("edges")
+                                       or body.get("entry") or body.get("id")):
+            wf = workflows.Workflow.from_dict(body)
+            wf.id = workflow_id
+        else:
+            wf = workflows.load_workflow(workflow_id)
+            if wf is None:
+                raise HTTPException(404, f"workflow not found: {workflow_id}")
+        errors = workflows.validate_workflow(wf)
+        if errors:
+            raise HTTPException(409, {"errors": errors})
+        plan = workflow_engine.simulate_workflow(wf, repo_root=_REPO_ROOT)
+        return {"ok": True, **plan}
+
+    @router.get("/api/workflows/{workflow_id}/runs")
+    async def api_workflow_runs(workflow_id: str) -> dict:
+        return {"runs": [r for r in workflow_engine.list_runs()
+                         if r["workflow_id"] == workflow_id]}
+
+    @router.get("/api/workflows/runs/{run_id}")
+    async def api_workflow_run_status(run_id: str) -> dict:
+        runner = workflow_engine.get_run(run_id)
+        if runner is None:
+            raise HTTPException(404, f"run not found: {run_id}")
+        return runner.snapshot()
+
+    @router.post("/api/workflows/runs/{run_id}/cancel")
+    async def api_workflow_run_cancel(run_id: str) -> dict:
+        return {"ok": True, "cancelled": workflow_engine.cancel_run(run_id)}
 
     # ---- preferences ------------------------------------------------------
 
