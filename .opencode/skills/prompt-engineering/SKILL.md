@@ -3,7 +3,7 @@ name: prompt-engineering
 description: Use when a user request is vague, ambiguous, or underspecified and needs to be refined into a clearer, more actionable prompt before planning or execution. Use keywords: prompt, refine, improve, clarify, rewrite, better prompt, make it clearer.
 ---
 
-# Prompt Engineering (Master Agent)
+# Prompt Engineering
 
 ## Purpose
 
@@ -15,7 +15,7 @@ prompts that produce better planning and execution work.
 - The user request is vague, ambiguous, or missing key constraints
 - A single sentence could mean many different things
 - The request lacks scope, constraints, or acceptance criteria
-- Before starting a new feature or task that will be delegated to workers
+- Before starting a new feature or task that will be dispatched to an agent
 
 ## Process
 

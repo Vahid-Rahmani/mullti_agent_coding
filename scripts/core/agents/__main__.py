@@ -75,7 +75,16 @@ def _cmd_model(name: str) -> int:
 
 
 def _cmd_verify() -> int:
-    """Drift-check the specs against opencode.json (the OpenCode runtime config)."""
+    """Drift-check the specs against opencode.json (the OpenCode runtime config).
+
+    Beyond model sync, this guards the two invariants that break plain
+    dispatch if violated:
+      * every roster agent must be primary-capable (``mode: subagent`` makes
+        ``opencode run --agent <a>`` silently fall back to the default agent);
+      * no ``fallback_models`` chain may contain the agent's own primary model
+        (a wasted retry of a just-failed model — with ``cooldown_seconds: 0``
+        nothing stays in cooldown, so it is retried immediately).
+    """
     cfg_path = _REPO_ROOT / "opencode.json"
     if not cfg_path.exists():
         print(f"error: {cfg_path} not found; nothing to verify against", file=sys.stderr)
@@ -92,9 +101,23 @@ def _cmd_verify() -> int:
         entry = runtime.get(spec.agent)
         if entry is None:
             issues.append(f"{spec.agent}: missing from opencode.json agent config")
-        elif entry.get("model") != spec.model:
+            continue
+        if entry.get("model") != spec.model:
             issues.append(
                 f"{spec.agent}: spec model {spec.model!r} != opencode.json {entry.get('model')!r}"
+            )
+        if entry.get("mode") == "subagent":
+            issues.append(
+                f"{spec.agent}: mode 'subagent' is not primary-capable — "
+                "'opencode run --agent' would silently fall back to the default agent; "
+                "use 'all' or 'primary'"
+            )
+        primary = entry.get("model") or spec.model
+        chain = entry.get("fallback_models") or []
+        if primary and primary in chain:
+            issues.append(
+                f"{spec.agent}: fallback_models contains its own primary model "
+                f"{primary!r} — retries a just-failed model"
             )
     # Flag opencode agents that are not part of the roster. "compaction" is an
     # internal OpenCode agent (context compaction) and is intentionally exempt.

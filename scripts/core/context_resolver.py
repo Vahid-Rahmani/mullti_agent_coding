@@ -37,6 +37,7 @@ from scripts.core.vault_bridge import (
     _now,
     parse_frontmatter,
     read_node,
+    resolve_task,
     validate_vault,
 )
 
@@ -261,7 +262,9 @@ def log_context(package: ContextPackage) -> None:
 def cmd_context(vault: Path, name: str, max_depth: int,
                 max_nodes: int) -> int:
     """CLI: print the resolved context package for a task node."""
-    task_path = vault / "03-Tasks" / f"{name}.md"
+    task_path = resolve_task(vault, name)
+    if task_path is None:
+        raise VaultError(f"invalid task name: {name!r}")
     package = resolve_context(vault, task_path, max_depth=max_depth,
                               max_nodes=max_nodes)
     print(f"# Context for [[{package.root}]] "

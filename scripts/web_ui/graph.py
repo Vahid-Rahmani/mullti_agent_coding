@@ -22,6 +22,7 @@ from scripts.core.vault_bridge import (
     VaultError,
     _find_node,
     parse_frontmatter,
+    resolve_child,
 )
 
 SECTIONS = (
@@ -42,8 +43,8 @@ _CACHE: dict[str, tuple[float, dict]] = {}
 
 def find_node(vault: Path, name: str) -> Path | None:
     """Locate any managed node by name (vault root first, then sections)."""
-    root_hit = vault / f"{name}.md"
-    if root_hit.is_file():
+    root_hit = resolve_child(vault, name)
+    if root_hit is not None and root_hit.is_file():
         return root_hit
     return _find_node(vault, name)
 

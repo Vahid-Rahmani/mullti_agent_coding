@@ -1,0 +1,9 @@
+# Development / test dependencies.
+#
+# Install alongside the runtime dependencies with:
+#   python -m pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+# Required by fastapi.testclient.TestClient (test/tests/test_web_ui.py).
+httpx>=0.24.0

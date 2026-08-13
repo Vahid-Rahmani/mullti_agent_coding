@@ -32,13 +32,13 @@ from scripts.core.context_resolver import resolve_context
 from scripts.core.run_hub import HUB
 from scripts.web_ui import settings as ui_settings
 from scripts.core.vault_bridge import (
-    TASKS_DIR,
     VALID_STATUSES,
     VaultError,
     _now,
     is_dispatchable,
     list_tasks,
     read_task,
+    resolve_task,
     update_task,
 )
 from scripts.web_ui import graph as vgraph
@@ -111,9 +111,14 @@ class SettingsModeIn(BaseModel):
 
 
 def _task_path(state_vault: Path, name: str) -> Path:
-    """Task node path with safe 404s; raises HTTPException on bad nodes."""
-    path = state_vault / TASKS_DIR / f"{name}.md"
-    if not path.is_file():
+    """Task node path with safe 404s; raises HTTPException on bad nodes.
+
+    The name is resolved through ``resolve_task`` so traversal, absolute-path,
+    and separator inputs can never escape ``03-Tasks/``. Unsafe names are
+    rejected with the same 404 as a missing node (no filesystem detail leaks).
+    """
+    path = resolve_task(state_vault, name)
+    if path is None or not path.is_file():
         raise HTTPException(404, f"task not found: {name}")
     try:
         read_task(path)

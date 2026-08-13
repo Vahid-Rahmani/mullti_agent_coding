@@ -1,114 +1,49 @@
 {
-  "project": "dynamic-swarm-role-swapping",
+  "project": "multi_agent_coding-control-plane",
   "root": ".",
-  "checkpoint": "2026-08-09",
+  "checkpoint": "2026-08-12",
+  "note": "The historical swarm-era plan (swarm.py, self-evolve, role-swapping) was intentionally removed in the baseline-zero reset; see PLAN.md (ARCHIVED). This file tracks the current control-plane state.",
   "tasks": [
     {
-      "id": "T1",
-      "title": "Swarm coordinator core (swarm.py): titles, per-slot state, CLI",
-      "description": "Create scripts/swarm.py (pure stdlib). Implement SLOTS table (slot -> agent name, human label) and AGENT_TO_SLOT; title(slot, label, mode, target) rendering 'M3 - Planner' / 'M3-Helper->M1' / '[working]'; write_slot_state/read_swarm_state for _logs/swarm/m<slot>.json; CLI subcommands 'title', 'state', 'swarm' with JSON/JSON-B64 output. Paths injectable for tests. Write test/tests/test_swarm.py covering title rendering (idle/working/helper), state round-trip, missing-dir handling, CLI output.",
+      "id": "C1",
+      "title": "Baseline-zero agent contract: plain 7-agent dispatch",
+      "description": "Seven plain agents (identity + model only), one AgentSpec module per agent in scripts/core/agents/, roster derived in registry.py, dispatch via `opencode run --agent <a> -m <model> \"<prompt>\"`.",
       "priority": "high",
-      "dependencies": [],
-      "owner": "backend-dev",
       "status": "done"
     },
     {
-      "id": "T2",
-      "title": "Swarm coordinator: stale-peer scan + atomic claim",
-      "description": "In scripts/swarm.py add find_stale_tasks(inbox, own, stale_seconds) -> list of lagging peer tasks (unclaimed .task files older than stale N, excluding own agent, oldest first) and claim_task(inbox, agent, by) performing an atomic move so the first helper wins (returns claimed path or NONE). Add CLI subcommands 'find-stale' and 'claim'. Extend test_swarm.py: fresh tasks not lagging, old unclaimed task is lagging, own task never suggested, first-claim-wins, missing inbox -> empty.",
+      "id": "C2",
+      "title": "Obsidian vault stack",
+      "description": "obsidian_vault/ (36 schema-validated nodes) + vault_bridge, orchestrator, context_resolver, change_detector, knowledge_sync, health_check, generate_dashboard, vault_validate.",
       "priority": "high",
-      "dependencies": ["T1"],
-      "owner": "backend-dev",
       "status": "done"
     },
     {
-      "id": "T3",
-      "title": "Swarm coordinator: feedback loop + brief digest",
-      "description": "In scripts/swarm.py add append_feedback/load_feedback for _logs/swarm_feedback.jsonl (JSONL records {ts, slot, agent, mode, ok, duration, task, target?}) and build_brief(...) producing a deterministic short swarm brief (recent activity + live helpers). Add CLI subcommands 'feedback' and 'brief'. Extend test_swarm.py: append/load round-trip, load_recent_n, brief includes activity/helpers, empty-file handling.",
+      "id": "C3",
+      "title": "Agent Dashboard + Settings/BYOK",
+      "description": "scripts/web_ui (FastAPI dashboard, SSE, vault graph) + settings facade with Simple/Advanced AI connections; keys stored only in the OpenCode auth store.",
       "priority": "high",
-      "dependencies": ["T2"],
-      "owner": "backend-dev",
       "status": "done"
     },
     {
-      "id": "T4",
-      "title": "Worker: swarm loop, helper takeover, live titles, brief prepend, prompt hardening",
-      "description": "Update scripts/run_agent_worker.ps1: add -NoSwarm (default: swarm ON), -NoBrief, -StaleSeconds (default 20), -MaxHelpers (3), -HelpCoolDown (15). After own task (or when idle) run find-stale/claim; when a peer task is claimed, execute it with the PEER's agent+model (domain-preserving), stream to the peer's log, record feedback mode=helper with target; update window title live (M3-Helper->M1) via Set-TabTitle + persist slot state; prepend 'SWARM CONTEXT' brief to the next prompt unless -NoBrief; sanitize prompts (ConvertTo-SafeTask: strip control chars/quotes, collapse whitespace) and add '--' guard for dash-leading prompts. Keep -Smoke and non-swarm behavior identical (no swarm when -Smoke or -NoSwarm).",
+      "id": "R1",
+      "title": "Full repository audit & repair (2026-08-12)",
+      "description": "All 7 agents set to mode 'all' (subagent mode was silently falling back to the default agent in `opencode run --agent`); fallback chains de-duplicated (no agent's own primary in its chain); secret-bearing opencode.json.bak deleted; empty stub files removed; docs (AGENTS.md, README.md, architecture map, knowledge README, skills, vault Roadmap, TASKS.json) reconciled with the actual implementation; test-suite path ergonomics fixed.",
       "priority": "high",
-      "dependencies": ["T3"],
-      "owner": "backend-dev",
       "status": "done"
     },
     {
-      "id": "T5",
-      "title": "Launcher: --no-swarm + --stale flags in launch_agents.bat",
-      "description": "Update launch_agents.bat: parse --no-swarm (forward -NoSwarm) and --stale N (forward -StaleSeconds), update usage text. --dry prints swarm-enabled commands; --smoke with swarm still exits cleanly after one task per window (swarm skip under -Smoke).",
+      "id": "O1",
+      "title": "Seed and run real task nodes through the Orchestrator",
+      "description": "Create the first real tasks in obsidian_vault/03-Tasks/ and drive them end-to-end (set-status -> dispatch --yes -> report) outside temp vaults.",
       "priority": "medium",
-      "dependencies": ["T4"],
-      "owner": "backend-dev",
-      "status": "done"
-    },
-    {
-      "id": "T6",
-      "title": "Robustness guard in _after_self_evolve_run (migrated to terminal_app.py)",
-      "description": "SUPERSEDED by the UI migration: the web app was deleted; the watcher guard now lives in scripts/terminal_app.py (same semantics, tested in test_terminal_app.py SelfEvolveWiringTestCase). Original: wrap _after_self_evolve_run body in try/except so an unexpected verify/marker error is recorded to state.md instead of killing the run loop.",
-      "priority": "high",
-      "dependencies": ["T3"],
-      "owner": "backend-dev",
-      "status": "done"
-    },
-    {
-      "id": "T7",
-      "title": "Prompt sanitization + option-like prompt guard (migrated to terminal_app.py)",
-      "description": "SUPERSEDED by the UI migration: the desktop GUI was deleted; _sanitize_prompt + '--' guard in _build_run_command now live in scripts/terminal_app.py (tested in test_terminal_app.py BuildRunCommandTestCase). Original: add _sanitize_prompt (strip control chars, lstrip) and append '--' separator for dash-leading prompts.",
-      "priority": "medium",
-      "dependencies": ["T4"],
-      "owner": "backend-dev",
-      "status": "done"
-    },
-    {
-      "id": "T8",
-      "title": "Test updates for terminal + swarm integration (revised scope)",
-      "description": "SUPERSEDED by the UI migration: test_web_app.py / test_unified_app.py / test_supervisor.py were deleted; their valuable cases were ported into test/tests/test_terminal_app.py (75 tests: command builder, sanitize, prune, StateTracker, RunHub wiring, retro chrome, slash commands, self-evolve watcher). test_expense_manager.py (sys.path fix) retained. Full suite must stay green.",
-      "priority": "high",
-      "dependencies": ["T6", "T7"],
-      "owner": "tester",
-      "status": "done"
-    },
-    {
-      "id": "T12",
-      "title": "UI migration: remove web/GUI layers, ship ZOVA retro terminal",
-      "description": "Replace the FastAPI web UI (scripts/web_app.py) and Tkinter desktop GUI (scripts/unified_app.py) with a single full-screen retro terminal, scripts/terminal_app.py (rich + prompt_toolkit): solid black bg, strict 4-color theme (white text / orange keywords / grey highlights / neon-green-on-black banners & status), ASCII ZOVA banner, directory status indicator, model status bar, agent dashboard, scrollable console, interactive rounded prompt box. Same opencode run machinery (one thread per agent). Slash commands: /help /cd /model /mode /agents /status /clear /stop /swarm /proposals /evolve /quit. Delete web_app.py, unified_app.py, supervisor.py, restart_web.ps1, launch_web.bat + their tests. Add launch_terminal.bat; update .vscode/tasks.json and README.",
-      "priority": "high",
-      "dependencies": [],
-      "owner": "backend-dev",
-      "status": "done"
-    },
-    {
-      "id": "T9",
-      "title": "SECURITY: remove hardcoded API key from opencode.json (BLOCKER)",
-      "description": "Remove the '9router' provider block from opencode.json. It embeds an API key as {env:sk-...} with the secret value inline — violates the repo rule 'Never commit secrets. Keys live only in ~/.local/share/opencode/auth.json'. Keep provider/model/agent configuration otherwise intact. Verify: python -c 'import json; json.load(open(\"opencode.json\"))' parses; 'git grep -n sk-' on the tree returns nothing; all 7 agents still resolve models.",
-      "priority": "high",
-      "dependencies": [],
-      "owner": "backend-dev",
       "status": "pending"
     },
     {
-      "id": "T10",
-      "title": "End-to-end verification pass",
-      "description": "Verify the full feature: 1) python -m unittest discover -s test/tests -v exit 0; 2) swarm CLI smoke with a temp inbox: find-stale/claim/feedback/brief/state subcommands produce sane output; 3) worker smoke: powershell -File scripts/run_agent_worker.ps1 -Agent planner -Slot 3 -Smoke -> SMOKE-OK, no swarm takeover under -Smoke; seed a fake stale task in a temp inbox and confirm claim moves it to done/ with the taken-over marker; 4) launch_agents.bat --dry prints swarm-enabled commands and --no-swarm variant; 5) git status --short clean of _logs/_inbox artifacts and no secrets (git grep sk- empty).",
-      "priority": "high",
-      "dependencies": ["T9"],
-      "owner": "tester",
-      "status": "pending"
-    },
-    {
-      "id": "T11",
-      "title": "Commit swarm feature + reviewer approval + merge to main",
-      "description": "Stage and commit the swarm feature on branch feature/auto-learning-setup (single-purpose commits: swarm.py module+tests, worker+bat wiring, web/GUI guards, README, secret removal). Do NOT commit __pycache__ .pyc diffs or _logs/_inbox artifacts (add to .gitignore or git rm --cached as decided by reviewer). Route the diff through reviewer (M7) for approval, then merge to main per AGENTS.md workflow.",
-      "priority": "high",
-      "dependencies": ["T10"],
-      "owner": "reviewer",
+      "id": "O2",
+      "title": "Add Component_* nodes for unmapped modules",
+      "description": "orchestrator, vault_bridge, context_resolver, change_detector, knowledge_sync currently have no Component_* node in the vault; adding them zeroes the Dashboard known-gaps list.",
+      "priority": "medium",
       "status": "pending"
     }
   ]

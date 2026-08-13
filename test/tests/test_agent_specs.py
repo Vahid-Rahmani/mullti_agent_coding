@@ -172,6 +172,56 @@ class SpecModelConsistencyTestCase(unittest.TestCase):
             self.assertEqual(spec.model, json_model, spec.agent)
 
 
+class SpecModeAndFallbackTestCase(unittest.TestCase):
+    """Regression guard for the two invariants that silently break dispatch.
+
+    opencode's ``run`` command refuses ``mode: subagent`` agents and falls
+    back to the default agent, so every roster agent must stay primary-capable
+    (``all`` / ``primary``). And a fallback chain must never contain the
+    agent's own primary model (a wasted retry of a just-failed model).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(Path(REPO_ROOT) / "opencode.json", encoding="utf-8") as fh:
+            cls.config = json.load(fh)
+
+    def test_every_roster_agent_is_primary_capable(self):
+        for spec in agents.AGENT_SPECS:
+            entry = self.config["agent"][spec.agent]
+            self.assertNotEqual(
+                entry.get("mode"), "subagent",
+                f"{spec.agent}: subagent mode breaks standalone dispatch "
+                "(opencode run --agent falls back to the default agent)",
+            )
+            self.assertIn(
+                entry.get("mode"), ("all", "primary"),
+                f"{spec.agent}: mode must be 'all' or 'primary'",
+            )
+
+    def test_no_self_referencing_fallback_chain(self):
+        for spec in agents.AGENT_SPECS:
+            entry = self.config["agent"][spec.agent]
+            primary = entry.get("model") or spec.model
+            chain = entry.get("fallback_models") or []
+            self.assertNotIn(
+                primary, chain,
+                f"{spec.agent}: fallback chain retries its own primary model",
+            )
+
+    def test_verify_exits_zero_on_current_config(self):
+        """The live config must satisfy the extended verify invariants."""
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        from scripts.core.agents import __main__ as cli
+
+        buf, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err):
+            code = cli.main(["verify"])
+        self.assertEqual(code, 0, f"verify failed: {buf.getvalue()}{err.getvalue()}")
+
+
 class SpecCliTestCase(unittest.TestCase):
     """The launcher CLI (scripts/core/agents/__main__.py) contract."""
 

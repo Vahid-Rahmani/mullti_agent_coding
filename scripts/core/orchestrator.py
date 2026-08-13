@@ -51,7 +51,6 @@ from scripts.core.vault_bridge import (  # noqa: E402
     FRONTMATTER_RE,
     KEY_LINE_RE,
     LINK_RE,
-    TASKS_DIR,
     VALID_STATUSES,
     VaultError,
     _atomic_write,
@@ -63,6 +62,7 @@ from scripts.core.vault_bridge import (  # noqa: E402
     list_tasks,
     parse_frontmatter,
     read_task,
+    resolve_task,
     update_task,
     validate_vault,
 )
@@ -98,6 +98,18 @@ def resolve_vault(path_arg: str | None) -> Path:
     if env:
         return Path(env).expanduser().resolve()
     return DEFAULT_VAULT
+
+
+def _task_file(vault: Path, name: str) -> Path:
+    """Resolve a task node name to a safe path inside 03-Tasks/.
+
+    Raises VaultError when the name is unsafe (traversal/absolute/separators);
+    a safe-but-missing name is resolved and left for ``read_task`` to report.
+    """
+    path = resolve_task(vault, name)
+    if path is None:
+        raise VaultError(f"invalid task name: {name!r}")
+    return path
 
 
 def _append_execution_log(body: str, outcome: str, detail: str = "") -> str:
@@ -316,7 +328,7 @@ def cmd_list(vault: Path, status_filter: str | None) -> int:
 
 
 def cmd_show(vault: Path, name: str) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, body, _raw = read_task(path)
     print(f"# {name}")
     for key in ("title", "status", "priority", "assigned_agent",
@@ -351,7 +363,7 @@ def _transition(name: str, fields: dict[str, str], new_status: str) -> str:
 
 
 def cmd_set_status(vault: Path, name: str, new_status: str, force: bool = False) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, _body, _raw = read_task(path)
     if fields.get("status") == new_status:
         print(f"{name}: already {new_status} (no-op)")
@@ -376,7 +388,7 @@ Done. Everything is implemented.
 
 
 def cmd_dispatch(vault: Path, name: str, yes: bool = False, mock: bool = False) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, body, raw = read_task(path)
     status = fields.get("status", "")
 
@@ -545,7 +557,7 @@ def _run_command_capture(cmd: list[str]) -> str | None:
 
 
 def cmd_report(vault: Path, name: str, outcome: str) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, body, _raw = read_task(path)
     if outcome not in ("completed", "failed", "blocked"):
         raise VaultError(f"outcome must be completed|failed|blocked, got {outcome!r}")
