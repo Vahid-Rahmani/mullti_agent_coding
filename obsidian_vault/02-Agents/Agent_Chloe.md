@@ -18,19 +18,19 @@ related: [Agents_Home, System_Core, System_Architecture, Component_RunHub, Compo
 - **Tag:** M7
 - **Agent key:** `chloe`
 - **Name:** Chloe
-- **Model:** `opencode/ling-3.0-tiny-free`
+- **Model:** runtime-configured in `opencode.json` (Settings / BYOK)
 - **Mode:** all
 
 ## Purpose
 
-Control-plane agent at baseline-zero: a plain agent — identity + model only,
-with no specialized role prompt. Uses the lightweight `ling-3.0-tiny-free`
-model (fast/small model in the roster).
+Control-plane agent: a plain agent — **identity only** — with no specialized
+role prompt; its model and role are resolved at runtime (model from
+`opencode.json`, role from `roles.json`).
 
 ## Current Responsibilities
 
 - Execute dispatched prompts via
-  `opencode run --agent chloe --auto -m opencode/ling-3.0-tiny-free "<prompt>"`
+  `opencode run --agent chloe --auto -m <runtime model> "<prompt>"`
 - Run from the [[Component_Terminal]] tab (M7) or the inbox worker
   ([[Component_Launchers]], `_inbox/chloe.task`)
 - Stream output back to the terminal buffer / `_logs/chloe.log`
@@ -51,7 +51,7 @@ model (fast/small model in the roster).
 
 - `opencode` CLI on PATH
 - [[Component_RunHub]] — dispatch + telemetry
-- [[Component_AgentSpecs]] — configured model (`ling-3.0-tiny-free`)
+- [[Component_AgentSpecs]] — identity; runtime model resolved from `opencode.json`
 - Model-fallback chain: `[opencode/big-pickle, opencode/deepseek-v4-flash-free, ollama/qwen2.5-coder:7b]`
 
 ## Current Status

@@ -180,19 +180,26 @@ def _replace_frontmatter(text: str, updates: dict[str, str]) -> str:
     """Rebuild the frontmatter block with updated key values.
 
     Non-updated lines and the entire body are preserved. Only the frontmatter
-    block (between the first two ``---`` lines) is touched.
+    block (between the first two ``---`` lines) is touched. Keys in ``updates``
+    that are not already present are appended (so e.g. a new ``role`` field
+    can be added to a task node without editing its body).
     """
     m = FRONTMATTER_RE.match(text)
     if not m:
         raise VaultError("cannot update: missing frontmatter block")
     block = m.group(1)
     out: list[str] = []
+    handled: set[str] = set()
     for line in block.splitlines():
         km = KEY_LINE_RE.match(line)
         if km and km.group(1) in updates:
             out.append(f"{km.group(1)}: {updates[km.group(1)]}")
+            handled.add(km.group(1))
         else:
             out.append(line)
+    for key, value in updates.items():
+        if key not in handled:
+            out.append(f"{key}: {value}")
     return "---\n" + "\n".join(out) + "\n---\n" + text[m.end():]
 
 

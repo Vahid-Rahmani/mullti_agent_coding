@@ -6,9 +6,10 @@ everywhere:
 
   * ``AGENTS`` / ``TABS``  — roster and tab bar order.
 
-Baseline-zero: agents carry only identity (tag/name/agent key) and a model.
-There are no operational modes, no personas, no role descriptions, and no
-mode routing.
+Agent contract: agents carry only identity (tag/name/agent key). Models are a
+runtime concern resolved from ``opencode.json`` (see
+``scripts.core.opencode_cfg.resolve_model``); there are no operational modes,
+personas, role descriptions, or mode routing in the specs.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ TABS: list[tuple[str, str, str | None]] = [
 _AGENT_TAGS = tuple(spec.tag for spec in AGENT_SPECS)
 DEFAULT_ENABLED_AGENTS = frozenset(_AGENT_TAGS)
 
-# Lookups for runtime code (resolving each agent's configured model).
+# Lookups for runtime code (resolving each agent's identity).
 AGENT_SPEC_BY_TAG: dict[str, AgentSpec] = {spec.tag: spec for spec in AGENT_SPECS}
 AGENT_SPEC_BY_AGENT: dict[str, AgentSpec] = {
     spec.agent: spec for spec in AGENT_SPECS if spec.agent is not None

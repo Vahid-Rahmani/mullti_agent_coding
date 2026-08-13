@@ -6,8 +6,9 @@ Each agent (M1..M7) and the master coordinator has its own
 independently. The ``registry`` module derives the shared roster from those
 specs.
 
-Baseline-zero: agents are plain — identity plus a configured model. No modes,
-personas, or role descriptions.
+Agent contract: agents are plain — **identity only** (tag/name/agent key).
+Models, roles, and providers are runtime concerns resolved from
+``opencode.json`` / ``roles.json``, never from a spec module.
 """
 
 from __future__ import annotations

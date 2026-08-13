@@ -107,8 +107,10 @@ def _agent_roster(vault: Path, node_names: set[str]) -> str:
     folder = vault / "02-Agents"
     agents = sorted(p.stem for p in folder.glob("Agent_*.md")) if folder.is_dir() else []
     try:
+        from scripts.core import opencode_cfg
         from scripts.core.agents import AGENT_SPEC_BY_AGENT
     except Exception:  # noqa: BLE001
+        opencode_cfg = None
         AGENT_SPEC_BY_AGENT = {}
     lines = []
     for name in agents:
@@ -116,8 +118,8 @@ def _agent_roster(vault: Path, node_names: set[str]) -> str:
             continue
         key = name[len("Agent_"):].lower()
         spec = AGENT_SPEC_BY_AGENT.get(key)
-        model = (spec.model if spec and spec.model else "—")
-        lines.append(f"- [[{name}]] — {model}")
+        model = opencode_cfg.resolve_model(spec.agent) if spec and opencode_cfg else None
+        lines.append(f"- [[{name}]] — {model or '—'}")
     if not lines:
         lines.append("_No agent nodes yet — see [[Agents_Home]]._")
     return "\n".join(lines)

@@ -1253,6 +1253,25 @@
     actions.appendChild(statusBtn);
     actions.appendChild(runBtn);
     actions.appendChild(msg);
+
+    // Task-level role override — temporary, never mutates roles.json.
+    const roleSel = el("select");
+    const noneOpt = el("option", null, "(default roles)");
+    noneOpt.value = "";
+    roleSel.appendChild(noneOpt);
+    try {
+      const r = await api("/api/settings/roles");
+      (r.roles || []).forEach((role) => {
+        const opt = el("option", null, role.name || role.id);
+        opt.value = role.id;
+        roleSel.appendChild(opt);
+      });
+    } catch (_) { /* roles unavailable; clearing still works */ }
+    roleSel.value = data.fields.role || "";
+    const roleBtn = el("button", "btn", "Set role override");
+    actions.appendChild(el("label", null, "role override:"));
+    actions.appendChild(roleSel);
+    actions.appendChild(roleBtn);
     wrap.appendChild(actions);
 
     assignBtn.addEventListener("click", async () => {
@@ -1272,6 +1291,22 @@
         msg.textContent = `status → ${res.status}`;
         msg.style.color = "var(--ok)";
         loadTasks();
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.style.color = "var(--err)";
+      }
+    });
+    roleBtn.addEventListener("click", async () => {
+      try {
+        const res = await api(`/api/tasks/${encodeURIComponent(name)}/role`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: roleSel.value || null }),
+        });
+        msg.textContent = res.role
+          ? `role override → ${res.role}`
+          : "role override cleared (agent's assigned roles apply)";
+        msg.style.color = "var(--ok)";
       } catch (err) {
         msg.textContent = err.message;
         msg.style.color = "var(--err)";

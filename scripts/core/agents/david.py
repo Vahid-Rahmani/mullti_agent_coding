@@ -8,5 +8,4 @@ SPEC = AgentSpec(
     tag="m4",
     name="David",
     agent="david",
-    model="opencode/big-pickle",
 )

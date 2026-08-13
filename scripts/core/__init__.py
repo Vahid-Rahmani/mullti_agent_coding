@@ -3,8 +3,8 @@
 No UI/rendering dependencies. Import from here to access the agent definitions,
 execution hub, state tracker, and command parser.
 
-Baseline-zero: agents are plain, dispatch is plain, and no external
-integrations (Obsidian, analyzer, self-evolve, swarm) exist.
+Agent contract: agents are plain (identity only), dispatch is plain, and
+models/roles are runtime concerns (opencode.json / roles.json).
 """
 
 from .agents import (  # noqa: F401

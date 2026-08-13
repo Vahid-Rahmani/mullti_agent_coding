@@ -1,15 +1,15 @@
 """opencode_cfg — safe read/write of ``opencode.json`` + atomic agent config.
 
-Single writer for the runtime OpenCode configuration. The ``AgentSpec``
-modules (``scripts/core/agents/``) remain the control-plane source of truth
-for identity and the default model; ``opencode.json`` mirrors that model and
-owns the runtime-only fields (``fallback_models``, ``mode``, ``description``)
-plus ``provider`` blocks.
+Single writer for the runtime OpenCode configuration. ``opencode.json`` is the
+**single source of truth** for an agent's runtime model, mode, fallback chain
+and description. The ``AgentSpec`` modules (``scripts/core/agents/``) carry
+**identity only** (tag/name/agent key) and are never edited to change a model:
+a model edit updates ``opencode.json`` atomically and re-runs
+``python -m scripts.core.agents verify``; any drift restores the previous
+bytes so the launcher, terminal, and dispatch never see a half-applied change.
 
-Model edits update **both** the spec module and ``opencode.json`` atomically
-and re-run ``python -m scripts.core.agents verify``; any drift restores the
-previous bytes of both files so the launcher, terminal, and dispatch never see
-a half-applied change.
+Model resolution order (see :func:`resolve_model`):
+    agent ``<name>.model``  >  top-level ``model`` default  >  ``None``
 """
 
 from __future__ import annotations
@@ -26,11 +26,10 @@ AGENT_MODES = ("primary", "subagent", "all")
 MAX_FALLBACK_MODELS = 5
 
 # provider/model — letters, digits, . _ - : / + @ (no whitespace or quotes,
-# which keeps ids safe to embed in Python string literals and JSON).
+# which keeps ids safe to embed in JSON and CLI argv).
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.\-:/+@]+/[A-Za-z0-9_.\-:/+@]+$")
 # bare model id (no provider prefix) — used inside provider ``models`` blocks.
 _BARE_MODEL_RE = re.compile(r"^[A-Za-z0-9_.\-:+@]+$")
-_SPEC_MODEL_RE = re.compile(r'^(\s*model\s*=\s*)"[^"]*"(,?)$', re.MULTILINE)
 
 
 class ConfigError(ValueError):
@@ -136,49 +135,36 @@ def _resolve_agent(name: str):
     return spec
 
 
-def _spec_path(repo_root: Path | None) -> Path:
-    root = Path(repo_root) if repo_root is not None else PROJECT_ROOT
-    return root / "scripts" / "core" / "agents"
+def resolve_model(agent: str, repo_root: Path | None = None) -> str | None:
+    """Resolve an agent's runtime model from ``opencode.json``.
 
-
-def read_spec_model(agent: str, repo_root: Path | None = None) -> str | None:
-    """Read the CURRENT ``model="..."`` from an AgentSpec module on disk.
-
-    The registry freezes ``spec.model`` at import time, so long-lived
-    processes (dashboard routes, RunHub) must re-read the authoritative spec
-    file to see a model save immediately — no restart, no module reload.
-    Never imports the spec module. Fails safely: returns ``None`` when the
-    agent is unknown or the file/line cannot be read, letting callers fall
-    back to the frozen ``spec.model``.
+    Precedence: ``agent.<name>.model`` > top-level ``model`` default > ``None``.
+    Never consults the AgentSpec modules — the model is a runtime concern owned
+    by ``opencode.json`` / the Settings-BYKOK layer, so the same agent can run
+    on any provider/model without editing its spec. Returns ``None`` only when
+    nothing is configured.
     """
-    try:
-        spec = _resolve_agent(agent)
-        text = (_spec_path(repo_root) / f"{spec.agent}.py").read_text(encoding="utf-8")
-    except (OSError, ConfigError):
-        return None
-    m = _SPEC_MODEL_RE.search(text)
-    if not m:
-        return None
-    value = m.group(0)
-    first = value.find('"')
-    last = value.rfind('"')
-    if first < 0 or last <= first:
-        return None
-    return value[first + 1:last]
+    cfg = load_config(repo_root)
+    entry = (cfg.get("agent") or {}).get(agent)
+    if isinstance(entry, dict) and entry.get("model"):
+        return entry["model"]
+    return cfg.get("model") or None
 
 
-def _write_spec_model(spec, model: str, repo_root: Path | None) -> None:
-    """Rewrite only the ``model="..."`` line of an AgentSpec module."""
-    path = _spec_path(repo_root) / f"{spec.agent}.py"
-    text = path.read_text(encoding="utf-8")
+def resolve_agent_runtime(agent: str, repo_root: Path | None = None) -> dict:
+    """Resolve one agent's full runtime config from ``opencode.json``.
 
-    def _sub(m: re.Match) -> str:
-        return f'{m.group(1)}"{model}"{m.group(2)}'
-
-    new_text, n = _SPEC_MODEL_RE.subn(_sub, text, count=1)
-    if n != 1:
-        raise ConfigError(f"could not locate model= in {path.name}")
-    path.write_text(new_text, encoding="utf-8")
+    Returns ``{model, mode, fallback_models, description}`` with the same
+    precedence as :func:`resolve_model` (per-agent entry > top-level default).
+    """
+    cfg = load_config(repo_root)
+    entry = (cfg.get("agent") or {}).get(agent) or {}
+    return {
+        "model": entry.get("model") or cfg.get("model") or None,
+        "mode": entry.get("mode") or "all",
+        "fallback_models": entry.get("fallback_models") or [],
+        "description": entry.get("description") or "",
+    }
 
 
 def apply_agent_config(
@@ -191,12 +177,12 @@ def apply_agent_config(
     repo_root: Path | None = None,
     verify_cmd: list[str] | None = None,
 ) -> dict:
-    """Atomically apply runtime agent config; rolls back on verify drift.
+    """Atomically apply runtime agent config to ``opencode.json``.
 
-    ``model`` edits rewrite both the spec module and the ``opencode.json``
-    agent entry; ``fallback_models`` / ``mode`` / ``description`` edit
-    ``opencode.json`` only (they live nowhere else). Every write is followed
-    by ``python -m scripts.core.agents verify``; on failure both files are
+    Only ``opencode.json`` is edited — the AgentSpec modules are identity-only
+    and never rewritten. ``model`` / ``mode`` / ``fallback_models`` /
+    ``description`` all live in the agent entry. Every write is followed by
+    ``python -m scripts.core.agents verify``; on failure the previous bytes are
     restored and a :class:`ConfigError` is raised.
     """
     spec = _resolve_agent(name)
@@ -213,14 +199,10 @@ def apply_agent_config(
         entry["description"] = description
 
     cfg_path_ = cfg_path(repo_root)
-    spec_file = _spec_path(repo_root) / f"{spec.agent}.py"
     before_cfg = cfg_path_.read_bytes() if cfg_path_.is_file() else None
-    before_spec = spec_file.read_bytes() if spec_file.is_file() else None
 
     cfg.setdefault("agent", {})[spec.agent] = entry
     save_config(cfg, repo_root)
-    if model is not None:
-        _write_spec_model(spec, model, repo_root)
 
     cmd = verify_cmd if verify_cmd is not None else \
         [sys.executable, "-m", "scripts.core.agents", "verify"]
@@ -236,10 +218,6 @@ def apply_agent_config(
             cfg_path_.unlink(missing_ok=True)
         else:
             cfg_path_.write_bytes(before_cfg)
-        if before_spec is None:
-            spec_file.unlink(missing_ok=True)
-        else:
-            spec_file.write_bytes(before_spec)
         raise ConfigError(
             "agent config rejected by verify (specs vs opencode.json drift) — change rolled back")
 

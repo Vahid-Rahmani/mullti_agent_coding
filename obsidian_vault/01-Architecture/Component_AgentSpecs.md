@@ -18,9 +18,10 @@ related: [System_Architecture, Component_RunHub, Component_Terminal, Agents_Home
 ## Purpose
 
 Defines every control-plane agent (M1–M7) plus the MASTER coordinator as plain
-`AgentSpec` instances (identity + model). The registry derives the roster and
-tab order; a CLI resolves per-agent models for the launchers and drift-checks
-the specs against `opencode.json`.
+`AgentSpec` instances (**identity only** — tag/name/agent key). The registry
+derives the roster and tab order. Runtime models are resolved from
+`opencode.json` (not from a spec), and a CLI verifies the roster's
+mode/fallback invariants against `opencode.json`.
 
 ## Source (verified)
 
@@ -32,10 +33,10 @@ the specs against `opencode.json`.
 
 ## Responsibilities
 
-- Declare the 7 plain agents + MASTER with models
+- Declare the 7 plain agents + MASTER (identity only)
 - Provide roster/tab order to [[Component_Terminal]] and [[Component_RunHub]]
-- Resolve models for launcher workers (`python -m scripts.core.agents model <a>`)
-- Verify spec ↔ `opencode.json` sync (`python -m scripts.core.agents verify`)
+- Resolve runtime models for launcher workers (`python -m scripts.core.agents model <a>`)
+- Verify roster invariants against `opencode.json` (`python -m scripts.core.agents verify`)
 
 ## Dependencies
 
@@ -45,7 +46,7 @@ the specs against `opencode.json`.
 ## Input / Output
 
 - **Input:** agent tag/key queries from terminal, hub, and launchers
-- **Output:** `AgentSpec` objects, roster tuples, model strings
+- **Output:** `AgentSpec` objects, roster tuples, runtime model strings
 
 ## Links
 

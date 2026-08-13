@@ -65,7 +65,8 @@ flowchart TD
 
 The roster is documented under [[Agents_Home]] with one node per agent
 ([[Agent_Matthew]] … [[Agent_Chloe]]). Agents dispatch through
-[[Component_RunHub]] using their configured models from [[Component_AgentSpecs]].
+[[Component_RunHub]] using their runtime models resolved from `opencode.json`
+(the Settings / BYOK layer) — identity never pins a model.
 
 ## Planned / Future
 

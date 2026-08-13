@@ -5,12 +5,13 @@ defines the agents, configuration, and memory used to drive software projects.
 It ships an Obsidian-inspired **Agent Dashboard** (primary interface), a
 retro-CRT **ZOVA terminal** (fallback), and a 7-window inbox launcher.
 
-> **Agent contract (baseline-zero):** the seven roster agents are deliberately
-> plain — identity + model only, no roles or behavioral wrappers — and dispatch
-> is plain (`opencode run --agent <a> -m <model> "<prompt>"`). On top of that
-> contract the repo ships an **Obsidian vault stack** (orchestrator,
-> vault-bridge, context-resolver, knowledge-sync, health checks), the Agent
-> Dashboard, and Settings / BYOK provider connections. See
+> **Agent contract:** the seven roster agents are deliberately plain —
+> **identity only** (tag/name/key), with model, role, and provider as *runtime*
+> concerns — and dispatch is plain (`opencode run --agent <a> -m <model>
+> "<prompt>"`). On top of that contract the repo ships an **Obsidian vault
+> stack** (orchestrator, vault-bridge, context-resolver, knowledge-sync, health
+> checks), the Agent Dashboard, Settings / BYOK provider connections, and a
+> reusable **Role** system + **Project Profile** analyzer. See
 > [`AGENTS.md`](AGENTS.md) for the full control-plane documentation.
 
 ---
@@ -18,10 +19,12 @@ retro-CRT **ZOVA terminal** (fallback), and a 7-window inbox launcher.
 ## Overview
 
 The control plane defines seven agents — Matthew, Alex, Sarah, David, Elena,
-Max, and Chloe — configured in [`opencode.json`](opencode.json). Each has a
-model assignment and an explicit fallback chain.
+Max, and Chloe — configured in [`opencode.json`](opencode.json). Each agent is
+an **identity** (tag/name/key) with a runtime model assignment and an explicit
+fallback chain; the model is not part of the identity and can be changed at
+runtime via the Settings / BYOK layer without editing any agent module.
 
-| Agent | Model |
+| Agent | Default model |
 |---|---|
 | `matthew` | opencode/deepseek-v4-flash-free |
 | `alex` | opencode/deepseek-v4-flash-free |
@@ -31,7 +34,11 @@ model assignment and an explicit fallback chain.
 | `max` | opencode/deepseek-v4-flash-free |
 | `chloe` | opencode/ling-3.0-tiny-free |
 
-All agents use **free** models (no paid credits required). See
+> Defaults above; the live model is resolved from `opencode.json` at dispatch.
+
+All default models are **free** (no paid credits required). Roles are defined
+in [`roles.json`](roles.json) (many-to-many, model-independent); a repository
+is analyzed into a `ProjectProfile` via `scripts/core/project_profile.py`. See
 [`AGENTS.md`](AGENTS.md) for workflow and fallback-policy details.
 
 ---
@@ -274,7 +281,8 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 ```
 .
 ├── AGENTS.md              # Agent roster, workflow, fallback policy, conventions
-├── opencode.json          # Agent definitions, models, providers
+├── opencode.json          # Runtime config: agents, models, providers, fallback
+├── roles.json             # Reusable roles + many-to-many agent assignments
 ├── launch_agents.bat      # 7-window inbox launcher
 ├── launch_terminal.bat    # ZOVA retro terminal launcher (fallback)
 ├── launch_dashboard.bat   # Agent Dashboard launcher (primary)
@@ -290,12 +298,14 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 │   │   ├── settings.py    # Settings facade: connections, keys (auth store only), models
 │   │   └── static/        # index.html · app.css · app.js (vanilla, no build)
 │   ├── core/              # Decoupled engine: agents, run hub, state, vault stack
-│   │   ├── agents/        # Per-agent definitions — one AgentSpec module per agent
-│   │   │   ├── base.py        # AgentSpec dataclass (plain: identity + model)
+│   │   ├── agents/        # Per-agent identity — one AgentSpec module per agent
+│   │   │   ├── base.py        # AgentSpec dataclass (identity only: tag/name/key)
 │   │   │   ├── registry.py    # Roster + tab order derived from the specs
-│   │   │   ├── matthew.py … chloe.py  # M1–M7 plain agents
+│   │   │   ├── matthew.py … chloe.py  # M1–M7 agents (identity only)
 │   │   │   ├── master.py      # Master coordinator spec
-│   │   │   └── __main__.py    # CLI: resolve per-agent models for the launcher workers
+│   │   │   └── __main__.py    # CLI: resolve per-agent runtime models from opencode.json
+│   │   ├── roles.py       # Reusable roles + many-to-many assignment (roles.json)
+│   │   ├── project_profile.py  # Repository analysis → ProjectProfile + suggested roles
 │   │   ├── run_hub.py     # Thread-safe multi-agent execution engine (plain dispatch)
 │   │   ├── orchestrator.py    # Vault task dispatch (ready-gate, --yes, locks)
 │   │   ├── vault_bridge.py    # Scoped vault I/O (atomic writes, backups, frontmatter)
@@ -305,7 +315,7 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 │   │   ├── health_check.py      # 11 read-only vault/workspace checks
 │   │   ├── state_tracker.py     # Session state (state.md)
 │   │   ├── command_parser.py    # Slash-command parsing + help text
-│   │   └── opencode_cfg.py      # Safe read/write of opencode.json (atomic, rollback)
+│   │   └── opencode_cfg.py      # Single source of truth for runtime models (atomic, rollback)
 │   ├── ui/                # Decoupled terminal UI (palette, rendering, theme)
 │   ├── run_agent_worker.ps1  # Inbox-polling worker (Windows, 7-window launcher)
 │   ├── run_agent_worker.sh   # Inbox-polling worker (Git Bash)

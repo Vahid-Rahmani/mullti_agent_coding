@@ -31,7 +31,8 @@ duplicated here — see the repo files.
 
 ## Highlights (verified)
 
-- 7 plain agents (M1–M7) + MASTER, identity + model only (baseline-zero).
+- 7 plain agents (M1–M7) + MASTER, identity only — model and role are
+  runtime concerns (opencode.json / roles.json).
 - Two entry points: ZOVA retro terminal (`launch_terminal.bat`) and the
   7-window inbox launcher (`launch_agents.bat`).
 - Dispatch: `opencode run --agent <a> --auto -m <model> "<prompt>"`.

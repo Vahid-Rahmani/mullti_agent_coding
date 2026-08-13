@@ -18,18 +18,19 @@ related: [Agents_Home, System_Core, System_Architecture, Component_RunHub, Compo
 - **Tag:** M6
 - **Agent key:** `max`
 - **Name:** Max
-- **Model:** `opencode/deepseek-v4-flash-free`
+- **Model:** runtime-configured in `opencode.json` (Settings / BYOK)
 - **Mode:** all
 
 ## Purpose
 
-Control-plane agent at baseline-zero: a plain agent — identity + model only,
-with no specialized role prompt.
+Control-plane agent: a plain agent — **identity only** — with no specialized
+role prompt; its model and role are resolved at runtime (model from
+`opencode.json`, role from `roles.json`).
 
 ## Current Responsibilities
 
 - Execute dispatched prompts via
-  `opencode run --agent max --auto -m opencode/deepseek-v4-flash-free "<prompt>"`
+  `opencode run --agent max --auto -m <runtime model> "<prompt>"`
 - Run from the [[Component_Terminal]] tab (M6) or the inbox worker
   ([[Component_Launchers]], `_inbox/max.task`)
 - Stream output back to the terminal buffer / `_logs/max.log`
@@ -50,7 +51,7 @@ with no specialized role prompt.
 
 - `opencode` CLI on PATH
 - [[Component_RunHub]] — dispatch + telemetry
-- [[Component_AgentSpecs]] — configured model (`deepseek-v4-flash-free`)
+- [[Component_AgentSpecs]] — identity; runtime model resolved from `opencode.json`
 - Model-fallback chain: `[opencode/big-pickle, opencode/deepseek-v4-flash-free, ollama/qwen2.5-coder:7b]`
 
 ## Current Status

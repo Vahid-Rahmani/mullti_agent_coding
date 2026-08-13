@@ -47,6 +47,19 @@
 - [x] Docs reconciled: AGENTS.md, README.md, architecture map, knowledge README, skills, TASKS.json
 - [x] Test suite green (426 unit tests OK, 1 skipped; JS tests 31 + 92 OK)
 
+## Phase 27 — Agent / Role / Model decoupling
+
+- [x] `AgentSpec` reduced to **identity only** (tag/name/key) — no model field
+- [x] `opencode.json` is the single source of truth for runtime models
+  (`opencode_cfg.resolve_model`); editing a model never rewrites a spec module
+- [x] Reusable **roles** in `roles.json` (`scripts/core/roles.py`) — many-to-many,
+  model-independent, composable into dispatch context
+- [x] **Project Profile** analyzer (`scripts/core/project_profile.py`) —
+  read-only repository analysis → technologies + suggested roles (never
+  auto-applied)
+- [x] Vault/architecture docs updated to describe models as runtime-configured,
+  not identity-owned
+
 ---
 
 ## Backlog / Future

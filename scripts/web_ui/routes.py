@@ -24,11 +24,16 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from scripts.core import opencode_cfg, orchestrator as orch
+from scripts.core import opencode_cfg, orchestrator as orch, roles
 from scripts.core.agents import (
     AGENTS, AGENT_SPEC_BY_AGENT, AGENT_SPEC_BY_TAG, PROJECT_ROOT,
 )
 from scripts.core.context_resolver import resolve_context
+from scripts.core.project_profile import (
+    analyze_repository,
+    suggest_roles,
+    suggested_role_reasons,
+)
 from scripts.core.run_hub import HUB
 from scripts.web_ui import settings as ui_settings
 from scripts.core.vault_bridge import (
@@ -107,6 +112,25 @@ class SettingsModeIn(BaseModel):
     description: Optional[str] = None
 
 
+class RoleCreateIn(BaseModel):
+    id: str
+    name: Optional[str] = None
+    description: str = ""
+    responsibilities: list[str] = []
+    tools: list[str] = []
+    permissions: list[str] = []
+    rules: list[str] = []
+    expected_outputs: list[str] = []
+
+
+class RolesAssignIn(BaseModel):
+    role_ids: list[str]
+
+
+class TaskRoleIn(BaseModel):
+    role: Optional[str] = None  # role id to override, or empty/None to clear
+
+
 # ---------------------------------------------------------------- helpers
 
 
@@ -174,11 +198,9 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         agents = []
         for tag, name, agent in AGENTS:
             spec = AGENT_SPEC_BY_TAG.get(tag)
-            # Persisted spec file is authoritative (in-memory spec.model is a
-            # frozen import-time snapshot); keeps dashboard == Settings model.
-            model = None
-            if spec is not None:
-                model = opencode_cfg.read_spec_model(spec.agent) or spec.model
+            # The runtime model is resolved from opencode.json (single source
+            # of truth), keeping dashboard == Settings model.
+            model = opencode_cfg.resolve_model(spec.agent) if spec is not None else None
             agents.append({
                 "tag": tag,
                 "name": name,
@@ -348,6 +370,22 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         )
         return {"name": name, "status": new_fields.get("status", "")}
 
+    @router.put("/api/tasks/{name}/role")
+    async def api_task_role(name: str, body: TaskRoleIn) -> dict:
+        """Set/clear a temporary task-level role override.
+
+        The override is written to the task node's ``role`` frontmatter field
+        (empty string clears it). It never touches ``roles.json`` — the agent's
+        persistent role assignments are unchanged. Unknown role ids are
+        rejected with 409 before any write.
+        """
+        path = _task_path(state_vault, name)
+        role_id = (body.role or "").strip()
+        if role_id and roles.get_role(role_id) is None:
+            raise HTTPException(409, f"unknown role {role_id!r}")
+        new_fields = update_task(path, "web-ui-role-override", {"role": role_id})
+        return {"name": name, "role": new_fields.get("role", "")}
+
     @router.post("/api/tasks/{name}/dispatch")
     async def api_task_dispatch(name: str) -> dict:
         path = _task_path(state_vault, name)
@@ -430,7 +468,7 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         return {
             "vault": str(state_vault),
             "sections": ["general", "connections", "models", "agents",
-                         "modes", "graph", "security"],
+                         "modes", "roles", "profile", "graph", "security"],
             "simple_providers": [
                 {"id": p["id"], "name": p["name"]} for p in ui_settings.SIMPLE_PROVIDERS
             ],
@@ -531,6 +569,62 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
     async def api_settings_remove_key(provider: str) -> dict:
         removed = ui_settings.remove_api_key(provider)
         return {"ok": True, "configured": not removed}
+
+    # ---- roles (many-to-many, model-independent) --------------------------
+
+    @router.get("/api/settings/roles")
+    async def api_settings_roles() -> dict:
+        return {"roles": ui_settings.list_roles(),
+                "assignments": ui_settings.role_assignments()}
+
+    @router.post("/api/settings/roles")
+    async def api_settings_create_role(body: RoleCreateIn) -> dict:
+        try:
+            role = ui_settings.create_role(
+                body.id, name=body.name, description=body.description,
+                responsibilities=body.responsibilities, tools=body.tools,
+                permissions=body.permissions, rules=body.rules,
+                expected_outputs=body.expected_outputs)
+        except roles.RoleError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, **role}
+
+    @router.get("/api/settings/agents/{agent}/roles")
+    async def api_settings_agent_roles(agent: str) -> dict:
+        spec = AGENT_SPEC_BY_AGENT.get(agent)
+        if spec is None:
+            raise HTTPException(404, f"unknown agent key {agent!r}")
+        return {"agent": agent, "role_ids": roles.roles_for_agent(agent)}
+
+    @router.put("/api/settings/agents/{agent}/roles")
+    async def api_settings_assign_roles(agent: str, body: RolesAssignIn) -> dict:
+        spec = AGENT_SPEC_BY_AGENT.get(agent)
+        if spec is None:
+            raise HTTPException(404, f"unknown agent key {agent!r}")
+        try:
+            role_ids = ui_settings.assign_roles(agent, body.role_ids)
+        except roles.RoleError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, "agent": agent, "role_ids": role_ids}
+
+    # ---- project profile (repository analysis) ----------------------------
+
+    @router.get("/api/settings/profile")
+    async def api_settings_profile() -> dict:
+        profile = analyze_repository(_REPO_ROOT)
+        reasons = suggested_role_reasons(profile)
+        return {
+            "root": str(profile.root),
+            "technologies": list(profile.technologies),
+            "detected_roles": list(profile.detected_roles),
+            "suggested_roles": [
+                {"id": rid, "reason": reasons.get(rid, "")}
+                for rid in suggest_roles(profile)
+            ],
+            "approved_roles": list(profile.approved_roles),
+            "manifests": {k: list(v) for k, v in profile.manifests.items()},
+            "instruction_files": sorted(profile.instructions),
+        }
 
     # ---- preferences ------------------------------------------------------
 

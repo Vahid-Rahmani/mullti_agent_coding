@@ -1,19 +1,19 @@
-"""Command-line access to the canonical agent specs.
+"""Command-line access to the agent roster and runtime model resolution.
 
 Used by the 7-window launcher (``run_agent_worker.ps1`` / ``.sh`` /
-``launch_agents.bat``) to resolve each agent's configured model and roster from
-the specs instead of parsing ``opencode.json``, keeping the specs the single
-source of truth.
+``launch_agents.bat``) to resolve each agent's roster and runtime model from
+``opencode.json`` (the single source of truth). The AgentSpec modules carry
+identity only and are never parsed for a model.
 
 Usage:
     python -m scripts.core.agents list                 # agent keys, one per line
     python -m scripts.core.agents roster               # slot table: tag agent name model
-    python -m scripts.core.agents model <tag-or-key>   # configured default model
+    python -m scripts.core.agents model <tag-or-key>   # runtime model from opencode.json
     python -m scripts.core.agents verify               # drift-check specs vs opencode.json
 
 ``<tag-or-key>`` accepts either a tag (``m1``) or an agent key (``matthew``).
 Exits 2 with an error on stderr for unknown agents or commands; ``verify``
-exits 1 when specs and ``opencode.json`` disagree.
+exits 1 when the runtime config violates an invariant.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from scripts.core import opencode_cfg  # noqa: E402
 from scripts.core.agents import (  # noqa: E402
     AGENT_SPEC_BY_AGENT,
     AGENT_SPEC_BY_TAG,
@@ -60,7 +61,8 @@ def _cmd_roster() -> int:
     the 7-window launcher arrays instead of hardcoding the roster.
     """
     for spec in AGENT_SPECS:
-        print(f"{spec.tag} {spec.agent} {spec.name} {spec.model or ''}")
+        model = opencode_cfg.resolve_model(spec.agent) or ""
+        print(f"{spec.tag} {spec.agent} {spec.name} {model}")
     return 0
 
 
@@ -70,7 +72,7 @@ def _cmd_model(name: str) -> int:
         valid = ", ".join(sorted(AGENT_SPEC_BY_AGENT))
         print(f"error: unknown agent '{name}' (valid: {valid})", file=sys.stderr)
         return 2
-    print(spec.model or "")
+    print(opencode_cfg.resolve_model(spec.agent) or "")
     return 0
 
 
@@ -102,17 +104,13 @@ def _cmd_verify() -> int:
         if entry is None:
             issues.append(f"{spec.agent}: missing from opencode.json agent config")
             continue
-        if entry.get("model") != spec.model:
-            issues.append(
-                f"{spec.agent}: spec model {spec.model!r} != opencode.json {entry.get('model')!r}"
-            )
         if entry.get("mode") == "subagent":
             issues.append(
                 f"{spec.agent}: mode 'subagent' is not primary-capable — "
                 "'opencode run --agent' would silently fall back to the default agent; "
                 "use 'all' or 'primary'"
             )
-        primary = entry.get("model") or spec.model
+        primary = entry.get("model") or config.get("model")
         chain = entry.get("fallback_models") or []
         if primary and primary in chain:
             issues.append(

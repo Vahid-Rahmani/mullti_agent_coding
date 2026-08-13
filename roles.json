@@ -1,0 +1,80 @@
+{
+  "roles": {
+    "python-developer": {
+      "name": "Python Developer",
+      "description": "Implements and maintains Python code with standard-library discipline.",
+      "responsibilities": ["Implement features", "Fix bugs", "Write clean, tested Python"],
+      "tools": ["Python", "Git", "unittest"],
+      "permissions": ["Read/write the project source tree"],
+      "rules": ["Match existing project conventions", "Run tests before declaring done"],
+      "expected_outputs": ["Passing tests", "Small, single-purpose commits"]
+    },
+    "fastapi-developer": {
+      "name": "FastAPI Developer",
+      "description": "Builds FastAPI backends: routes, request models, and app factories.",
+      "responsibilities": ["Design REST endpoints", "Author pydantic models", "Wire app factories and routers"],
+      "tools": ["Python", "FastAPI", "pydantic", "uvicorn", "Git"],
+      "permissions": ["Read/write the project source tree"],
+      "rules": ["Keep routes thin over core logic", "Never return secrets from endpoints"],
+      "expected_outputs": ["Typed, validated endpoints", "Green web-UI tests"]
+    },
+    "software-architect": {
+      "name": "Software Architect",
+      "description": "Designs module boundaries, data flow, and long-term structure.",
+      "responsibilities": ["Define architecture", "Draw system maps", "Review module boundaries"],
+      "tools": ["Python", "Git", "Markdown"],
+      "permissions": ["Read-only by default; propose before restructuring"],
+      "rules": ["Smallest clean change first", "Document decisions as ADRs"],
+      "expected_outputs": ["Architecture docs", "Consistent module boundaries"]
+    },
+    "security-engineer": {
+      "name": "Security Engineer",
+      "description": "Finds and fixes security issues: secrets, injection, path traversal.",
+      "responsibilities": ["Audit for secrets", "Harden untrusted input paths", "Review auth handling"],
+      "tools": ["Python", "Git", "grep/ripgrep"],
+      "permissions": ["Read-only by default; propose fixes"],
+      "rules": ["Never commit secrets", "Reject unsafe paths instead of rewriting them"],
+      "expected_outputs": ["Security findings with evidence", "Safe-by-construction fixes"]
+    },
+    "qa-engineer": {
+      "name": "QA Engineer",
+      "description": "Designs and runs tests; verifies behavior and edge cases.",
+      "responsibilities": ["Write regression tests", "Run the suite", "Report coverage gaps"],
+      "tools": ["Python", "unittest", "Node", "Git"],
+      "permissions": ["Read/write the test tree"],
+      "rules": ["Test behavior, not implementation", "Never weaken tests to pass"],
+      "expected_outputs": ["Deterministic tests", "Clear pass/fail reports"]
+    },
+    "code-reviewer": {
+      "name": "Code Reviewer",
+      "description": "Reviews diffs for correctness, conventions, and risk.",
+      "responsibilities": ["Review changes", "Flag bugs and inconsistencies", "Confirm tests run"],
+      "tools": ["Git", "Python", "Markdown"],
+      "permissions": ["Read-only"],
+      "rules": ["Evidence over opinion", "Report, don't silently fix"],
+      "expected_outputs": ["Actionable review notes", "Blocking-issue list"]
+    },
+    "devops-engineer": {
+      "name": "DevOps Engineer",
+      "description": "Owns Docker, CI/CD, and local tooling.",
+      "responsibilities": ["Maintain Docker/CI config", "Automate checks", "Keep the build reproducible"],
+      "tools": ["Docker", "Git", "GitHub Actions", "Shell"],
+      "permissions": ["Read/write CI, Docker, and launcher scripts"],
+      "rules": ["Do not modify production infra without approval"],
+      "expected_outputs": ["Reproducible builds", "Green CI"]
+    },
+    "ai-agent-engineer": {
+      "name": "AI Agent Engineer",
+      "description": "Builds multi-agent orchestration, RAG, and provider integrations.",
+      "responsibilities": ["Integrate LLM providers", "Design agent/role/model composition", "Implement RAG/context resolution"],
+      "tools": ["Python", "OpenCode CLI", "Git"],
+      "permissions": ["Read/write the control-plane source"],
+      "rules": ["Keep Agent/Role/Model decoupled", "Store keys only in the auth store"],
+      "expected_outputs": ["Model-agnostic dispatch", "Reusable role definitions"]
+    }
+  },
+  "assignments": {
+    "matthew": ["python-developer", "code-reviewer"],
+    "alex": ["software-architect", "security-engineer"]
+  }
+}
