@@ -30,8 +30,9 @@ AGENT_KEYS = [s.agent for s in AGENT_SPEC_BY_AGENT.values()]
 
 
 def _model_for(agent: str) -> str:
-    spec = AGENT_SPEC_BY_AGENT[agent]
-    return spec.model or "opencode/big-pickle"
+    # Models live in opencode.json (not the spec) — a fixed deterministic
+    # default for the temp fixture.
+    return "opencode/big-pickle"
 
 
 def _base_opencode_json() -> dict:
@@ -95,9 +96,11 @@ class SettingsBaseTestCase(unittest.TestCase):
 
 @mock.patch("scripts.core.opencode_cfg.subprocess.run", return_value=FakeProc(0))
 class AtomicApplyTestCase(SettingsBaseTestCase):
-    def test_model_apply_writes_spec_and_opencode_json(self, _run):
+    def test_model_apply_writes_opencode_json_only(self, _run):
+        before_spec = (self.agents_dir / "matthew.py").read_bytes()
         self._apply("matthew", model="opencode/new-flash-free")
-        self.assertIn('model="opencode/new-flash-free"', self._read_spec("matthew"))
+        # The AgentSpec module is identity-only and must NOT be rewritten.
+        self.assertEqual((self.agents_dir / "matthew.py").read_bytes(), before_spec)
         self.assertEqual(self._read_cfg()["agent"]["matthew"]["model"],
                          "opencode/new-flash-free")
         _run.assert_called_once()
@@ -122,11 +125,9 @@ class AtomicApplyErrorsTestCase(SettingsBaseTestCase):
     @mock.patch("scripts.core.opencode_cfg.subprocess.run", return_value=FakeProc(1))
     def test_model_apply_rolls_back_on_verify_failure(self, _run):
         before_cfg = self.cfg_path.read_bytes()
-        before_spec = (self.agents_dir / "matthew.py").read_bytes()
         with self.assertRaises(opencode_cfg.ConfigError):
             self._apply("matthew", model="opencode/new-flash-free")
         self.assertEqual(self.cfg_path.read_bytes(), before_cfg)
-        self.assertEqual((self.agents_dir / "matthew.py").read_bytes(), before_spec)
 
     def test_unknown_agent_rejected_before_any_write(self):
         before = self.cfg_path.read_bytes()
@@ -489,27 +490,31 @@ class ModelCatalogTestCase(SettingsBaseTestCase):
 
 
 class AgentConfigViewTestCase(SettingsBaseTestCase):
-    def test_agent_config_reads_spec_and_opencode(self):
+    def test_agent_config_reads_opencode(self):
         agents = ui_settings.agent_config(repo_root=self.root)
         by_key = {a["agent"]: a for a in agents}
         self.assertEqual(len(by_key), 7)
         self.assertEqual(by_key["matthew"]["mode"], "all")
+        self.assertEqual(by_key["matthew"]["model"],
+                         self._read_cfg()["agent"]["matthew"]["model"])
         self.assertFalse(by_key["matthew"]["drift"])
 
-    def test_drift_detected(self):
+    def test_agent_config_reflects_model_change_without_drift(self):
         cfg = self._read_cfg()
         cfg["agent"]["matthew"]["model"] = "opencode/different-model"
         self.cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         by_key = {a["agent"]: a for a in ui_settings.agent_config(repo_root=self.root)}
-        self.assertTrue(by_key["matthew"]["drift"])
+        self.assertEqual(by_key["matthew"]["model"], "opencode/different-model")
+        self.assertFalse(by_key["matthew"]["drift"])  # no spec↔config drift by design
 
     def test_available_models_from_config(self):
         avail = ui_settings.available_models(repo_root=self.root)
         ids = [m["id"] for m in avail]
         self.assertIn("ollama/qwen2.5-coder:7b", ids)
-        for spec in AGENT_SPEC_BY_AGENT.values():
-            if spec.model:
-                self.assertIn(spec.model, ids)
+        for key in AGENT_KEYS:
+            model = self._read_cfg()["agent"][key].get("model")
+            if model:
+                self.assertIn(model, ids)
 
 
 class PersistenceLifecycleTestCase(SettingsBaseTestCase):
@@ -527,15 +532,14 @@ class PersistenceLifecycleTestCase(SettingsBaseTestCase):
         by_key = {a["agent"]: a for a in ui_settings.agent_config(repo_root=self.root)}
         self.assertEqual(by_key["matthew"]["model"], "opencode/fresh-new")
         self.assertFalse(by_key["matthew"]["drift"])
-        # the in-memory registry is still frozen at the old value — the fix is
-        # that readers no longer consult it for the displayed model
-        self.assertNotEqual(AGENT_SPEC_BY_AGENT["matthew"].model, "opencode/fresh-new")
+        # The spec carries no model at all — readers resolve from opencode.json.
+        self.assertFalse(hasattr(AGENT_SPEC_BY_AGENT["matthew"], "model"))
 
     def test_agents_route_reader_returns_new_model_after_save(self):
         self._apply("alex", model="opencode/fresh-alex")
         with mock.patch.object(opencode_cfg, "PROJECT_ROOT", self.root):
             spec = AGENT_SPEC_BY_AGENT["alex"]
-            model = opencode_cfg.read_spec_model(spec.agent) or spec.model
+            model = opencode_cfg.resolve_model(spec.agent)
         self.assertEqual(model, "opencode/fresh-alex")
 
     def test_run_hub_resolve_returns_new_model_after_save(self):
@@ -545,7 +549,7 @@ class PersistenceLifecycleTestCase(SettingsBaseTestCase):
         self.assertEqual(model, "opencode/fresh-david")
 
     def test_full_lifecycle_old_to_new_across_all_readers_and_disk(self):
-        old = AGENT_SPEC_BY_AGENT["matthew"].model
+        old = opencode_cfg.resolve_model("matthew", repo_root=self.root)
         new = "opencode/lifecycle-new"
         self.assertNotEqual(old, new)
         self._apply("matthew", model=new)
@@ -556,12 +560,12 @@ class PersistenceLifecycleTestCase(SettingsBaseTestCase):
         # /api/agents equivalent reader + RunHub resolve (repo-root reads)
         with mock.patch.object(opencode_cfg, "PROJECT_ROOT", self.root):
             spec = AGENT_SPEC_BY_AGENT["matthew"]
-            self.assertEqual(opencode_cfg.read_spec_model(spec.agent), new)
+            self.assertEqual(opencode_cfg.resolve_model(spec.agent), new)
             model, _mode = HUB.resolve("m1")
             self.assertEqual(model, new)
-        # files on disk contain the new model
-        self.assertIn(f'model="{new}"', self._read_spec("matthew"))
+        # Only opencode.json changed on disk — the spec file is never rewritten.
         self.assertEqual(self._read_cfg()["agent"]["matthew"]["model"], new)
+        self.assertNotIn(f'model="{new}"', self._read_spec("matthew"))
 
 
 class SimpleProviderBlockTestCase(SettingsBaseTestCase):

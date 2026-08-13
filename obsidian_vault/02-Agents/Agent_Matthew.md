@@ -18,19 +18,20 @@ related: [Agents_Home, System_Core, System_Architecture, Component_RunHub, Compo
 - **Tag:** M1
 - **Agent key:** `matthew`
 - **Name:** Matthew
-- **Model:** `opencode/deepseek-v4-flash-free`
+- **Model:** runtime-configured in `opencode.json` (Settings / BYOK)
 - **Mode:** all
 
 ## Purpose
 
 Default control-plane agent (also the `default_agent` in `opencode.json`).
-At baseline-zero it is a plain agent — identity + model only, with no
-specialized role prompt.
+It is a plain agent — **identity only** — with no specialized role prompt;
+its model and role are resolved at runtime (model from `opencode.json`, role
+from `roles.json`).
 
 ## Current Responsibilities
 
 - Execute dispatched coding/analysis prompts via
-  `opencode run --agent matthew --auto -m opencode/deepseek-v4-flash-free "<prompt>"`
+  `opencode run --agent matthew --auto -m <runtime model> "<prompt>"`
 - Run either from the [[Component_Terminal]] tab (M1) or the inbox worker
   ([[Component_Launchers]], `_inbox/matthew.task`)
 - Stream output back to the terminal buffer / `_logs/matthew.log`
@@ -51,7 +52,7 @@ specialized role prompt.
 
 - `opencode` CLI on PATH
 - [[Component_RunHub]] — dispatch + telemetry
-- [[Component_AgentSpecs]] — configured model (`deepseek-v4-flash-free`)
+- [[Component_AgentSpecs]] — identity; runtime model resolved from `opencode.json`
 - Model-fallback chain: `[opencode/big-pickle, opencode/deepseek-v4-flash-free, ollama/qwen2.5-coder:7b]`
 
 ## Current Status

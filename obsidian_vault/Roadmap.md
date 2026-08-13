@@ -1,93 +1,75 @@
 # Roadmap — MultiAgentCoding Control Plane
 
-> **Last updated:** 2026-08-11 UTC
-> **Current branch:** `baseline-zero`
+> **Last updated:** 2026-08-12 UTC
+> **Current branch:** `feature/freebuff-byok-integration`
+> This file documents the history actually implemented. The older swarm-era
+> plan (role-swapping, self-evolve, archivist, web-app/GUI layers) was
+> intentionally removed in the baseline-zero reset; the archive of that plan
+> lives in root [`PLAN.md`](../PLAN.md) (ARCHIVED).
 
 ---
 
-## Phase Zero — Complete Structural Reset (BASELINE ZERO)
+## Phase 0 — Baseline Zero (structural reset)
 
-- [x] Wiped all agent capabilities: agents are plain (identity + model only; no roles, modes, or specialized prompts)
-- [x] Revoked external integrations: Obsidian archivist link (M7), analyzer, swarm, self-evolve, agent/prompt loggers, web dashboard — all removed
-- [x] Removed all mode menus & toggles: settings modal, mode routing, override machinery, specialized-prompt commands
-- [x] Launchers and terminal stripped to plain dispatch (`opencode run --agent <a> -m <model> "<prompt>"`)
-- [x] Tests rewritten for the plain contract; suite green
+- [x] Agents reduced to plain identity + model (no roles, modes, or specialized prompts)
+- [x] Removed swarm, self-evolve, archivist, analyzer, agent/prompt loggers, web app, desktop GUI
+- [x] Plain dispatch: `opencode run --agent <a> -m <model> "<prompt>"`
 
-## Phase A — Foundation: Swarm Coordinator Core
+## Phase 04–19 — Obsidian Vault Integration Stack
 
-- [x] `scripts/swarm.py` — pure-stdlib coordinator (state, labels, stale scan, claim, feedback, brief, CLI)
-- [x] Per-slot role state persisted in `_logs/swarm/m<slot>.json`
-- [x] Feedback JSONL in `_logs/swarm_feedback.jsonl`
-- [x] Dynamic title builder (`M3-Helper->M1`)
-- [x] Tests: `test/tests/test_swarm.py` (23 tests)
+- [x] Vault structure + schema (`obsidian_vault/`, `scripts/vault_validate.py` — 36 nodes)
+- [x] `vault_bridge.py` — scoped vault I/O, atomic writes, backups, change log
+- [x] `orchestrator.py` — controlled dispatch (ready-gate, `--yes`, per-task locks, Agent-Report parsing)
+- [x] `context_resolver.py` — bounded linked-context resolution
+- [x] `change_detector.py` — snapshot diff → node impact (detection only)
+- [x] `knowledge_sync.py` — docs ↔ code drift (dry-run by default, `check-conflicts`)
+- [x] `generate_dashboard.py` — regenerates the Dashboard's GENERATED block
+- [x] `health_check.py` — 11 read-only checks
+- [x] End-to-end integration tests (`test/tests/test_e2e_integration.py`)
 
-## Phase B — Launcher Integration
+## Phase 20 — Agent Dashboard + ZOVA Terminal
 
-- [x] `scripts/run_agent_worker.ps1` — swarm loop with stale-peer detection + atomic claim
-- [x] Domain-preserving helper takeover (peer's agent identity + model)
-- [x] Live window-title updates
-- [x] Swarm-brief prepend to task prompts
-- [x] Prompt sanitization (`ConvertTo-SafeTask`, `--` guard)
-- [x] `launch_agents.bat` — `--no-swarm` + `--stale N` flags + usage text
+- [x] `scripts/web_ui/` — Obsidian-inspired FastAPI dashboard (panels, vault graph, Status/Tasks/Execution/Logs)
+- [x] `scripts/terminal_app.py` + `scripts/ui/` — ZOVA retro terminal (fallback interface)
+- [x] 7-window inbox launcher (`launch_agents.bat` → `run_agent_worker.ps1/.sh`)
 
-## Phase C — Tests & Test Infrastructure
+## Phase 25 — Settings / AI Connections (BYOK)
 
-- [x] `test/tests/test_swarm.py` — 23 swarm tests
-- [x] `test/tests/test_terminal_app.py` — 75 terminal tests (replaced web/GUI tests)
-- [x] `test_expense_manager.py` — sys.path fix retained
-- [x] Full suite green: `python -m unittest discover -s test/tests` → 264 tests OK
+- [x] Settings UI with dual Simple / Advanced connection modes
+- [x] Secure auth store integration (`~/.local/share/opencode/auth.json`; keys never returned to the frontend)
+- [x] Per-agent model / mode / fallback editing with spec ↔ `opencode.json` drift check
 
-## Phase D — UI: Terminal App Refactoring & Styling
+## Phase 26 — Full Repository Audit & Repair
 
-- [x] Remove `web_app.py`, `unified_app.py`, `supervisor.py`, `restart_web.ps1`, `launch_web.bat`
-- [x] Ship `scripts/terminal_app.py` — ZOVA retro terminal (rich + prompt_toolkit)
-- [x] Strict 4-color CRT theme (white / orange / grey / neon-green on black)
-- [x] ASCII ZOVA banner
-- [x] Directory status indicator
-- [x] Agent tab bar (MASTER + M1–M7 with live status dots)
-- [x] Model status bar
-- [x] Scrollable per-tab console
-- [x] Rounded interactive prompt box
-- [x] Slash commands: `/help /cd /model /mode /agents /status /clear /stop /swarm /proposals /evolve /quit`
-- [x] `launch_terminal.bat` + `.vscode/tasks.json` update
-- [x] **Terminal app refactoring for unified loading bar** (current branch)
-- [x] Weighted progress aggregation across all agents (master bar)
-- [x] Session tag tracking for idle-bar reset
-- [x] Half-up rounding fix for progress display (62.5 → 63%)
-- [x] Single-row loading window (remove extra newline gap)
-- [x] Clear + terminate reset all session state
-- [ ] Code review + merge of `feature/ui-loading-refactor`
+- [x] All 7 agents `mode: all` (subagent mode silently fell back to the default agent in `opencode run --agent`)
+- [x] Fallback chains de-duplicated (no agent's own primary model in its chain)
+- [x] Secret-bearing `opencode.json.bak` deleted; secrets scan clean
+- [x] Docs reconciled: AGENTS.md, README.md, architecture map, knowledge README, skills, TASKS.json
+- [x] Test suite green (426 unit tests OK, 1 skipped; JS tests 31 + 92 OK)
 
-## Phase E — Security & Hygiene (BLOCKER)
+## Phase 27 — Agent / Role / Model decoupling
 
-- [ ] Remove hardcoded `9router` provider block from `opencode.json` (embedded API key)
-- [ ] Verify `git grep -n 'sk-'` returns nothing on tracked files
-- [ ] Ensure `__pycache__/*.pyc` and `.pyc` diffs are not committed
-- [ ] Clean `git status --short` of `_logs/` / `_inbox/` artifacts
-
-## Phase F — Verification & Ship
-
-- [ ] Full E2E pass: swarm CLI smoke, worker smoke, launcher dry run
-- [ ] `launch_agents.bat --dry --smoke` exits cleanly
-- [ ] Headless terminal: `python scripts/terminal_app.py --smoke` exits 0
-- [ ] Final commit + reviewer approval + merge to `main`
+- [x] `AgentSpec` reduced to **identity only** (tag/name/key) — no model field
+- [x] `opencode.json` is the single source of truth for runtime models
+  (`opencode_cfg.resolve_model`); editing a model never rewrites a spec module
+- [x] Reusable **roles** in `roles.json` (`scripts/core/roles.py`) — many-to-many,
+  model-independent, composable into dispatch context
+- [x] **Project Profile** analyzer (`scripts/core/project_profile.py`) —
+  read-only repository analysis → technologies + suggested roles (never
+  auto-applied)
+- [x] Vault/architecture docs updated to describe models as runtime-configured,
+  not identity-owned
 
 ---
 
 ## Backlog / Future
 
-- [ ] Web SSE endpoints for live swarm role events (deferred)
-- [ ] Desktop GUI notebook tab renaming + digest prepend (deferred)
-- [ ] `opencode.json` model-fallback tuning
+- [ ] Seed real task nodes in `03-Tasks/` and drive them through the Orchestrator end-to-end
+- [ ] Add `Component_*` nodes for orchestrator/vault_bridge/context_resolver/change_detector/knowledge_sync (zero the Dashboard known-gaps list)
+- [ ] Model-fallback tuning once free-tier quota stabilizes (observe `~/.config/opencode/opencode-model-fallback.log`)
 - [ ] Knowledge re-indexing automation
-- [ ] Prompt template library in [[prompts/]]
-- [ ] Agent run history archive in [[agents_logs/]]
----
 
-## Audit Status (M7 — Obsidian-Vault-Sync)
+## Audit Status
 
-- **Last audit:** 2026-08-10 07:33 UTC
-- **Branch:** `feature/obsidian-vault-integration`
-- **Uncommitted changes:** 6 file(s) modified
-- **Completed runs:** 21
-- **Prompt logs:** 26
+- **Last full audit:** 2026-08-12 (see root `implementation_audit.md`, `project_audit.md`, and this repository's current test/validation state)
+- **Branch:** `feature/freebuff-byok-integration`

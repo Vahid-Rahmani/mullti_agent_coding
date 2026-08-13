@@ -36,7 +36,9 @@ token usage, prompts, events) and the abort/terminate machinery.
 
 ## Dependencies
 
-- [[Component_AgentSpecs]] — roster + per-agent configured models
+- [[Component_AgentSpecs]] — roster; runtime models resolved from `opencode.json`
+- `scripts/core/roles.py` + `roles.json` — reusable roles composed onto an
+  agent at dispatch (many-to-many, model-independent)
 - `scripts/core/progress.py` — `_estimate_token_percent`, `_weighted_progress`
 - [[Component_StateTracker]] — `STATE.record_run/finish/restart`
 - `opencode` CLI on PATH (external runtime)

@@ -3,9 +3,10 @@
 RunHub spawns one worker thread per target agent; each thread streams
 ``opencode run`` output into per-tag buffers via subprocess management.
 
-Baseline-zero: dispatch is plain. Every agent runs its configured model from
-the specs; there are no operational modes, no analyzer pre-dispatch, and no
-external integrations (no Obsidian vault logging, no self-evolve).
+Dispatch is plain. Every agent runs its runtime model resolved from
+``opencode.json`` (the single source of truth); there are no operational
+modes, no analyzer pre-dispatch, and no external integrations (no Obsidian
+vault logging, no self-evolve).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import time
 from pathlib import Path
 
 from . import opencode_cfg
+from . import roles
 from .agents import (
     AGENTS, _AGENT_TAGS, AGENT_SPEC_BY_AGENT, PROJECT_ROOT,
     STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE, STATUS_THINKING,
@@ -203,9 +205,11 @@ class RunHub:
     def resolve(self, tag: str, overrides: dict[str, dict[str, str]] | None = None) -> tuple[str | None, str]:
         """Resolve (model, mode) for a tag.
 
-        Baseline-zero: every agent uses its configured spec model; the mode is
-        always plain ``"auto"`` (no operational modes exist). ``overrides`` is
-        accepted for backward compatibility but ignored.
+        The model is resolved at runtime from ``opencode.json`` (the single
+        source of truth); the agent identity never pins a model, so any agent
+        can run on any provider/model. The mode is always plain ``"auto"`` (no
+        operational modes exist). ``overrides`` is accepted for backward
+        compatibility but ignored.
         """
         spec = AGENT_SPEC_BY_AGENT.get(tag)
         if spec is None and tag != "master":
@@ -213,12 +217,7 @@ class RunHub:
                 (s for s in (AGENT_SPEC_BY_AGENT.get(a) for _, _, a in AGENTS) if s and s.tag == tag),
                 None,
             )
-        # "Full effect now": read the persisted AgentSpec file so a model
-        # save is honored by the next dispatch without an application restart.
-        if spec is not None and spec.agent:
-            model = opencode_cfg.read_spec_model(spec.agent) or spec.model
-        else:
-            model = spec.model if spec is not None else None
+        model = opencode_cfg.resolve_model(spec.agent) if spec is not None and spec.agent else None
         return model, "auto"
 
     def run(
@@ -281,6 +280,11 @@ class RunHub:
                     "opencode executable not found on PATH. Install opencode or "
                     "add it to PATH before using the terminal."
                 )
+            # Compose the agent's roles onto the task at runtime (role_default
+            # precedence layer); the agent identity and model stay untouched.
+            role_ctx = roles.agent_context(agent)
+            if role_ctx:
+                prompt = role_ctx + "\n" + prompt
             cmd = _build_run_command(exe, agent, prompt, model)
             with self.lock:
                 if tag in self._cancelled_tags:

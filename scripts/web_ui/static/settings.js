@@ -41,10 +41,18 @@
     });
   }
   function del(path) { return api(path, { method: "DELETE" }); }
+  function put(path, body) {
+    return api(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+  }
 
   const SECTION_LABEL = {
     general: "General", connections: "AI Connections", models: "Models",
-    agents: "Agents", modes: "Agent Modes", graph: "Graph", security: "Security",
+    agents: "Agents", modes: "Agent Modes", roles: "Roles",
+    profile: "Repository", graph: "Graph", security: "Security",
   };
   const STATUS_LABEL = {
     not_configured: "Not configured",
@@ -107,7 +115,8 @@
     empty(content);
     const view = {
       general: viewGeneral, connections: viewConnections, models: viewModels,
-      agents: viewAgents, modes: viewModes, graph: viewGraph, security: viewSecurity,
+      agents: viewAgents, modes: viewModes, roles: viewRoles, profile: viewProfile,
+      graph: viewGraph, security: viewSecurity,
     }[sec];
     const node = view ? view() : el("div", "muted", "no such section");
     if (node && typeof node.then === "function") node.then((n) => content.appendChild(n));
@@ -409,7 +418,8 @@
     s.appendChild(el("h3", null, "Models"));
     s.appendChild(el("span", "muted",
       "The catalog is fed by your saved connections. Discover models, then assign one to each agent — " +
-      "saves update the agent spec and opencode.json atomically."));
+      "saves update opencode.json (the runtime model config). Agent identity never pins a model, " +
+      "and no AgentSpec file is rewritten."));
     let catalog = [];
     try {
       catalog = ((await api("/api/settings/models/catalog")).providers) || [];
@@ -706,6 +716,260 @@
       "Keys are write-only: they can be added or removed but never displayed. " +
       "To log in interactively, run: opencode auth login <provider>"));
     return s;
+  }
+
+  /* ── Roles ────────────────────────────────────────────────────── */
+  async function viewRoles() {
+    const s = el("div", "set-section");
+    s.appendChild(el("h3", null, "Roles"));
+    s.appendChild(el("span", "muted",
+      "Reusable, model-independent roles (predefined + custom). One agent may hold many roles; " +
+      "many agents may share one role. Assigning a role never changes an agent's model."));
+    let data = { roles: [], assignments: {} };
+    try { data = await api("/api/settings/roles"); } catch (_) { /* empty */ }
+
+    s.appendChild(el("h4", null, "Role definitions"));
+    const list = el("div");
+    (data.roles || []).forEach((r) => list.appendChild(roleCard(r)));
+    if (!(data.roles || []).length) list.appendChild(el("div", "muted", "no roles yet"));
+    s.appendChild(list);
+
+    s.appendChild(el("h4", null, "Create custom role"));
+    s.appendChild(createRoleForm());
+
+    s.appendChild(el("h4", null, "Agent role assignment"));
+    s.appendChild(agentRoleTable(data.roles || [], data.assignments || {}));
+    return s;
+  }
+
+  function roleCard(r) {
+    const card = el("div", "conn-card");
+    card.appendChild(el("span", "conn-name", r.name || r.id));
+    card.appendChild(el("span", "conn-kind", r.id));
+    const details = el("details", "role-details");
+    const sum = el("summary", null, r.description || "view details");
+    details.appendChild(sum);
+    [
+      ["Responsibilities", r.responsibilities],
+      ["Tools", r.tools],
+      ["Rules", r.rules],
+      ["Expected outputs", r.expected_outputs],
+    ].forEach(([label, items]) => {
+      if (items && items.length) {
+        const ul = el("ul");
+        items.forEach((it) => ul.appendChild(el("li", null, it)));
+        details.appendChild(el("p", "role-sub", label + ":"));
+        details.appendChild(ul);
+      }
+    });
+    card.appendChild(details);
+    return card;
+  }
+
+  function _splitList(text) {
+    return (text || "").split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+  }
+
+  function createRoleForm() {
+    const box = el("div", "conn-wizard");
+    const id = el("input");
+    id.placeholder = "role id (lowercase, hyphenated)";
+    box.appendChild(setRow("Role id", id));
+    const name = el("input");
+    name.placeholder = "display name";
+    box.appendChild(setRow("Name", name));
+    const desc = el("input");
+    desc.placeholder = "description";
+    box.appendChild(setRow("Description", desc));
+    const resp = el("textarea");
+    resp.placeholder = "responsibilities (comma or newline separated)";
+    box.appendChild(setRow("Responsibilities", resp));
+    const tools = el("input");
+    tools.placeholder = "tools (comma separated)";
+    box.appendChild(setRow("Tools", tools));
+    const rules = el("textarea");
+    rules.placeholder = "rules (comma or newline separated)";
+    box.appendChild(setRow("Rules", rules));
+    const outputs = el("input");
+    outputs.placeholder = "expected outputs (comma separated)";
+    box.appendChild(setRow("Expected outputs", outputs));
+    const actions = el("div", "wizard-actions");
+    const createBtn = el("button", "btn primary", "Create role");
+    const badge = el("span", "verify-badge");
+    createBtn.addEventListener("click", async () => {
+      createBtn.disabled = true;
+      try {
+        await post("/api/settings/roles", {
+          id: id.value.trim(),
+          name: name.value.trim() || null,
+          description: desc.value.trim(),
+          responsibilities: _splitList(resp.value),
+          tools: _splitList(tools.value),
+          rules: _splitList(rules.value),
+          expected_outputs: _splitList(outputs.value),
+        });
+        badge.className = "verify-badge ok";
+        badge.textContent = "created ✓";
+        render("roles");
+      } catch (err) {
+        badge.className = "verify-badge err";
+        badge.textContent = err.message;
+        createBtn.disabled = false;
+      }
+    });
+    actions.appendChild(createBtn);
+    actions.appendChild(badge);
+    box.appendChild(actions);
+    return box;
+  }
+
+  function agentRoleTable(rolesList, assignments) {
+    const wrap = el("div");
+    if (!rolesList.length) {
+      wrap.appendChild(el("div", "muted", "create a role first, then assign it"));
+      return wrap;
+    }
+    state.agents.forEach((a) => {
+      if (!a.agent) return;
+      const row = el("div", "set-row");
+      row.appendChild(el("label", null, `${a.name} (${a.tag.toUpperCase()})`));
+      const chips = el("div", "model-chips");
+      const current = new Set(assignments[a.agent] || []);
+      rolesList.forEach((r) => {
+        const c = el("button", "f-chip" + (current.has(r.id) ? " active" : ""), r.name || r.id);
+        c.title = "click to toggle";
+        c.addEventListener("click", async () => {
+          if (current.has(r.id)) current.delete(r.id); else current.add(r.id);
+          c.classList.toggle("active", current.has(r.id));
+          try {
+            await put(`/api/settings/agents/${encodeURIComponent(a.agent)}/roles`,
+                      { role_ids: Array.from(current) });
+            c.title = "saved";
+          } catch (err) {
+            c.title = err.message;
+            c.classList.toggle("active", current.has(r.id));
+            if (current.has(r.id)) current.delete(r.id); else current.add(r.id);
+          }
+        });
+        chips.appendChild(c);
+      });
+      row.appendChild(chips);
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  /* ── Repository analysis ──────────────────────────────────────── */
+  function viewProfile() {
+    const s = el("div", "set-section");
+    s.appendChild(el("h3", null, "Repository analysis"));
+    s.appendChild(el("span", "muted",
+      "Read-only analysis of this repository: detected technologies, repository instructions, " +
+      "and suggested roles. Suggestions are never auto-applied — you choose whether to create " +
+      "and assign them."));
+    const run = el("button", "btn primary", "Analyze repository");
+    const out = el("div");
+    run.addEventListener("click", async () => {
+      run.disabled = true;
+      empty(out);
+      out.appendChild(el("div", "muted", "analyzing…"));
+      try {
+        const p = await api("/api/settings/profile");
+        empty(out);
+        out.appendChild(profileResult(p));
+      } catch (err) {
+        empty(out);
+        out.appendChild(el("div", "err", "✕ " + err.message));
+      } finally {
+        run.disabled = false;
+      }
+    });
+    s.appendChild(run);
+    s.appendChild(out);
+    return s;
+  }
+
+  function _chips(items, emptyText) {
+    const wrap = el("div", "model-chips");
+    if (!items.length) wrap.appendChild(el("span", "muted", emptyText || "none"));
+    items.forEach((t) => wrap.appendChild(el("span", "f-chip", t)));
+    return wrap;
+  }
+
+  function profileResult(p) {
+    const box = el("div");
+    box.appendChild(el("h4", null, "Technologies"));
+    box.appendChild(_chips(p.technologies || [], "none detected"));
+    box.appendChild(el("h4", null, "Repository instructions"));
+    const ins = el("ul");
+    (p.instruction_files || []).forEach((f) => ins.appendChild(el("li", null, f)));
+    if (!(p.instruction_files || []).length) ins.appendChild(el("li", "muted", "none"));
+    box.appendChild(ins);
+    box.appendChild(el("h4", null, "Detected roles"));
+    box.appendChild(_chips(p.detected_roles || [], "none"));
+    box.appendChild(el("h4", null, "Approved roles"));
+    box.appendChild(_chips(p.approved_roles || [], "none yet"));
+    box.appendChild(el("h4", null, "Suggested roles"));
+    const sug = el("div");
+    (p.suggested_roles || []).forEach((sr) => sug.appendChild(suggestedRoleRow(sr)));
+    if (!(p.suggested_roles || []).length) {
+      sug.appendChild(el("div", "muted", "nothing left to suggest"));
+    }
+    box.appendChild(sug);
+    return box;
+  }
+
+  function suggestedRoleRow(sr) {
+    const row = el("div", "set-row");
+    row.appendChild(el("span", "conn-name", sr.id));
+    row.appendChild(el("span", "conn-kind", sr.reason || ""));
+    const line = el("div", "wizard-actions");
+    const createBtn = el("button", "btn", "Create role");
+    const agentSel = el("select");
+    state.agents.forEach((a) => {
+      const o = el("option", null, `${a.name} (${a.tag.toUpperCase()})`);
+      o.value = a.agent;
+      agentSel.appendChild(o);
+    });
+    const assignBtn = el("button", "btn primary", "Create + assign");
+    const badge = el("span", "verify-badge");
+    createBtn.addEventListener("click", async () => {
+      createBtn.disabled = true;
+      try {
+        await post("/api/settings/roles", { id: sr.id, name: sr.id, description: sr.reason || "" });
+        badge.className = "verify-badge ok";
+        badge.textContent = "created ✓";
+      } catch (err) {
+        badge.className = "verify-badge err";
+        badge.textContent = err.message;
+        createBtn.disabled = false;
+      }
+    });
+    assignBtn.addEventListener("click", async () => {
+      assignBtn.disabled = true;
+      const agent = agentSel.value;
+      try {
+        // create-if-missing, then append to the agent's role list
+        await post("/api/settings/roles", { id: sr.id, name: sr.id, description: sr.reason || "" });
+        const cur = await api(`/api/settings/agents/${encodeURIComponent(agent)}/roles`);
+        const ids = cur.role_ids || [];
+        if (!ids.includes(sr.id)) ids.push(sr.id);
+        await put(`/api/settings/agents/${encodeURIComponent(agent)}/roles`, { role_ids: ids });
+        badge.className = "verify-badge ok";
+        badge.textContent = `assigned to ${agent} ✓`;
+      } catch (err) {
+        badge.className = "verify-badge err";
+        badge.textContent = err.message;
+      } finally {
+        assignBtn.disabled = false;
+      }
+    });
+    line.appendChild(createBtn);
+    line.appendChild(agentSel);
+    line.appendChild(assignBtn);
+    line.appendChild(badge);
+    row.appendChild(line);
+    return row;
   }
 
   /* ── wiring ───────────────────────────────────────────────────── */

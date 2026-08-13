@@ -17,9 +17,11 @@ related: [Architecture_Home]
 
 ## What This System Is
 
-A **multi-agent coding control plane** at "baseline-zero": seven plain agents
-(identity + model only) that dispatch coding tasks through the opencode CLI.
-No roles, no operational modes, no external integrations.
+A **multi-agent coding control plane**: seven plain agents (**identity only**)
+that dispatch coding tasks through the opencode CLI. Each agent's model is
+resolved at runtime from `opencode.json` (Settings / BYOK), and reusable roles
+are assigned via `roles.json` — so identity, model, and role are never
+permanently coupled.
 
 ## Core Components
 
@@ -36,13 +38,16 @@ No roles, no operational modes, no external integrations.
 
 | Tag | Agent | Model |
 |---|---|---|
-| M1 | `matthew` | opencode/deepseek-v4-flash-free |
-| M2 | `alex` | opencode/deepseek-v4-flash-free |
-| M3 | `sarah` | opencode/deepseek-v4-flash-free |
-| M4 | `david` | opencode/big-pickle |
-| M5 | `elena` | opencode/ling-3.0-tiny-free |
-| M6 | `max` | opencode/deepseek-v4-flash-free |
-| M7 | `chloe` | opencode/ling-3.0-tiny-free |
+| M1 | `matthew` | runtime-configured (opencode.json) |
+| M2 | `alex` | runtime-configured (opencode.json) |
+| M3 | `sarah` | runtime-configured (opencode.json) |
+| M4 | `david` | runtime-configured (opencode.json) |
+| M5 | `elena` | runtime-configured (opencode.json) |
+| M6 | `max` | runtime-configured (opencode.json) |
+| M7 | `chloe` | runtime-configured (opencode.json) |
+
+> Models are not part of agent identity: any agent can run on any
+> user-selected model via the Settings / BYOK layer.
 
 ## References
 

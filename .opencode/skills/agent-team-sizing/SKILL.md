@@ -1,13 +1,13 @@
 ---
 name: agent-team-sizing
-description: Use when deciding how many agents should work on a task or project. Analyzes the prompt's scope, domains, and dependencies to recommend a team size (1, 2, 4, or more agents) and role assignment. Use when planning a new project or when the user asks how many agents are needed.
+description: Use when deciding how many agents should work on a task or project. Analyzes the prompt's scope, domains, and dependencies to recommend a team size (1, 2, 4, or more agents). Use when planning a new project or when the user asks how many agents are needed.
 ---
 
 # Agent Team Sizing
 
 ## Purpose
-Decide how many agents should work on a task, and which roles to assign,
-based on the prompt's complexity and dependencies.
+Decide how many agents should work on a task, based on the prompt's
+complexity and dependencies.
 
 ## When to Use
 
@@ -32,13 +32,11 @@ Assess:
 | Complex | 5-10 files, 2-3 domains | 3-4 agents |
 | Large | many files, 3+ domains, independent streams | 4+ agents |
 
-## Step 3: Assign roles
-Match agents to domains:
-- Backend work → backend-dev
-- Frontend work → frontend-dev
-- Tests → tester
-- Analysis/planning → planner, system-architect
-- Review → reviewer
+## Step 3: Assign agents
+This roster is intentionally plain — agents (M1 matthew … M7 chloe) carry no
+specialized roles and are interchangeable for any domain. Pick as many of the
+existing agents as the team size from Step 2 allows and dispatch each slice to
+one agent (active tab, or `opencode run --agent <a> -m <model> "<task>"`).
 
 ## Step 4: Check dependencies
 - Only parallelize when tasks are truly independent

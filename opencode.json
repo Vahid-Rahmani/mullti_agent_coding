@@ -9,7 +9,7 @@
   "references": {
     "knowledge": {
       "path": "./knowledge",
-      "description": "Architecture decisions, lessons learned, and project memory written by the swarm. Consult before planning or reviewing."
+      "description": "Architecture decisions, lessons learned, and project memory written by the agents. Consult before planning or reviewing."
     }
   },
   "provider": {
@@ -53,47 +53,43 @@
     },
     "matthew": {
       "description": "M1 \u2014 plain agent.",
-      "mode": "primary",
-      "model": "opencode/deepseek-v4-flash-free",
+      "mode": "all",
+      "model": "google/gemini-3.5-flash-lite",
       "fallback_models": [
         "opencode/big-pickle",
-        "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ]
     },
     "alex": {
       "description": "M2 \u2014 plain agent.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
-        "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ]
     },
     "sarah": {
       "description": "M3 \u2014 plain agent.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
-        "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ]
     },
     "david": {
       "description": "M4 \u2014 plain agent.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/big-pickle",
       "fallback_models": [
-        "opencode/big-pickle",
         "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ]
     },
     "elena": {
       "description": "M5 \u2014 plain agent.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/ling-3.0-tiny-free",
       "fallback_models": [
         "opencode/big-pickle",
@@ -103,17 +99,16 @@
     },
     "max": {
       "description": "M6 \u2014 plain agent.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
-        "opencode/deepseek-v4-flash-free",
         "ollama/qwen2.5-coder:7b"
       ]
     },
     "chloe": {
       "description": "M7 \u2014 plain agent.",
-      "mode": "subagent",
+      "mode": "all",
       "model": "opencode/ling-3.0-tiny-free",
       "fallback_models": [
         "opencode/big-pickle",

@@ -39,6 +39,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from scripts.core import opencode_cfg  # noqa: E402
+from scripts.core import roles  # noqa: E402
 from scripts.core.agents import AGENT_SPEC_BY_AGENT  # noqa: E402
 from scripts.core.context_resolver import (  # noqa: E402
     DEFAULT_MAX_DEPTH,
@@ -51,7 +53,6 @@ from scripts.core.vault_bridge import (  # noqa: E402
     FRONTMATTER_RE,
     KEY_LINE_RE,
     LINK_RE,
-    TASKS_DIR,
     VALID_STATUSES,
     VaultError,
     _atomic_write,
@@ -63,6 +64,7 @@ from scripts.core.vault_bridge import (  # noqa: E402
     list_tasks,
     parse_frontmatter,
     read_task,
+    resolve_task,
     update_task,
     validate_vault,
 )
@@ -98,6 +100,18 @@ def resolve_vault(path_arg: str | None) -> Path:
     if env:
         return Path(env).expanduser().resolve()
     return DEFAULT_VAULT
+
+
+def _task_file(vault: Path, name: str) -> Path:
+    """Resolve a task node name to a safe path inside 03-Tasks/.
+
+    Raises VaultError when the name is unsafe (traversal/absolute/separators);
+    a safe-but-missing name is resolved and left for ``read_task`` to report.
+    """
+    path = resolve_task(vault, name)
+    if path is None:
+        raise VaultError(f"invalid task name: {name!r}")
+    return path
 
 
 def _append_execution_log(body: str, outcome: str, detail: str = "") -> str:
@@ -265,7 +279,24 @@ def resolve_agent_node(fields: dict[str, str]) -> tuple[str, str] | None:
     spec = AGENT_SPEC_BY_AGENT.get(key)
     if spec is None:
         return None
-    return spec.agent, spec.model or ""
+    return spec.agent, opencode_cfg.resolve_model(spec.agent) or ""
+
+
+def task_role_context(agent_key: str, fields: dict[str, str]) -> str:
+    """Role context for a dispatch (temporary task-level override or assigned).
+
+    A task node may carry an optional frontmatter ``role`` field naming one
+    role id. When present it **overrides** the agent's persistent role
+    assignments for this run only (precedence: user_role > role_default) and
+    never mutates ``roles.json``. When absent, the agent's assigned roles are
+    used. An unknown override id is an error (rejected, not silently ignored).
+    """
+    override = (fields.get("role") or "").strip()
+    if not override:
+        return roles.agent_context(agent_key, repo_root=_REPO_ROOT)
+    if roles.get_role(override, repo_root=_REPO_ROOT) is None:
+        raise VaultError(f"task role override {override!r} is not a known role")
+    return roles.render_role_context(agent_key, role_ids=[override], repo_root=_REPO_ROOT)
 
 
 def collect_context(vault: Path, fields: dict[str, str], body: str) -> list[Path]:
@@ -316,7 +347,7 @@ def cmd_list(vault: Path, status_filter: str | None) -> int:
 
 
 def cmd_show(vault: Path, name: str) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, body, _raw = read_task(path)
     print(f"# {name}")
     for key in ("title", "status", "priority", "assigned_agent",
@@ -351,7 +382,7 @@ def _transition(name: str, fields: dict[str, str], new_status: str) -> str:
 
 
 def cmd_set_status(vault: Path, name: str, new_status: str, force: bool = False) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, _body, _raw = read_task(path)
     if fields.get("status") == new_status:
         print(f"{name}: already {new_status} (no-op)")
@@ -376,7 +407,7 @@ Done. Everything is implemented.
 
 
 def cmd_dispatch(vault: Path, name: str, yes: bool = False, mock: bool = False) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, body, raw = read_task(path)
     status = fields.get("status", "")
 
@@ -403,6 +434,9 @@ def cmd_dispatch(vault: Path, name: str, yes: bool = False, mock: bool = False) 
     package = resolve_context(vault, path)
     ctx = [Path(ref.path) for ref in package.nodes]
     prompt = _build_prompt(name, fields, body, ctx)
+    role_ctx = task_role_context(agent_key, fields)
+    if role_ctx:
+        prompt = role_ctx + "\n" + prompt
     exe = _opencode_command() or "opencode"
     cmd = _build_run_command(exe, agent_key, prompt, model)
 
@@ -545,7 +579,7 @@ def _run_command_capture(cmd: list[str]) -> str | None:
 
 
 def cmd_report(vault: Path, name: str, outcome: str) -> int:
-    path = vault / TASKS_DIR / f"{name}.md"
+    path = _task_file(vault, name)
     fields, body, _raw = read_task(path)
     if outcome not in ("completed", "failed", "blocked"):
         raise VaultError(f"outcome must be completed|failed|blocked, got {outcome!r}")

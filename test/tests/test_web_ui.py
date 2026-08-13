@@ -341,6 +341,45 @@ class ApiTestCase(VaultTestCase):
         r = self.ctx.post("/api/settings/agents/matthew/mode", json={"mode": "architect"})
         self.assertEqual(r.status_code, 409)
 
+    def test_settings_roles_and_profile_endpoints(self):
+        meta = self.ctx.get("/api/settings").json()
+        self.assertIn("roles", meta["sections"])
+        self.assertIn("profile", meta["sections"])
+        roles_data = self.ctx.get("/api/settings/roles").json()
+        self.assertIn("roles", roles_data)
+        self.assertIn("assignments", roles_data)
+        self.assertTrue(any(r["id"] == "python-developer" for r in roles_data["roles"]))
+        agent_roles = self.ctx.get("/api/settings/agents/matthew/roles").json()
+        self.assertIn("role_ids", agent_roles)
+        profile = self.ctx.get("/api/settings/profile").json()
+        self.assertIn("technologies", profile)
+        self.assertIn("suggested_roles", profile)
+        # each suggested role carries a reason (why it was suggested)
+        for sr in profile["suggested_roles"]:
+            self.assertIn("id", sr)
+            self.assertIn("reason", sr)
+
+    def test_settings_role_assignment_rejects_unknown(self):
+        r = self.ctx.put("/api/settings/agents/matthew/roles",
+                         json={"role_ids": ["does-not-exist"]})
+        self.assertEqual(r.status_code, 409)
+
+    def test_task_role_override_endpoint(self):
+        # valid predefined role -> written to the temp task node frontmatter
+        r = self.ctx.put("/api/tasks/Task_Demo/role",
+                         json={"role": "python-developer"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["role"], "python-developer")
+        raw = self.task_path.read_text(encoding="utf-8")
+        self.assertIn("role: python-developer", raw)
+        # unknown role -> 409, no write
+        r = self.ctx.put("/api/tasks/Task_Demo/role", json={"role": "nope"})
+        self.assertEqual(r.status_code, 409)
+        # clear -> empty override
+        r = self.ctx.put("/api/tasks/Task_Demo/role", json={"role": None})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["role"], "")
+
 
 class UiAssetsTestCase(unittest.TestCase):
     """Static-asset checks for the dashboard UI (index.html / app.css / app.js)."""
@@ -519,6 +558,23 @@ class UiAssetsTestCase(unittest.TestCase):
         for cls in (".settings-modal", ".settings-nav", ".conn-wizard",
                     ".sec-table", ".model-chips", ".adv-fields", ".verify-badge"):
             self.assertIn(cls, self.css)
+
+    def test_roles_and_profile_settings_assets(self):
+        """Roles + Repository-analysis sections are wired in settings.js."""
+        settings_js = (self.STATIC / "settings.js").read_text(encoding="utf-8")
+        for token in ("viewRoles", "viewProfile", "Create custom role",
+                      "Agent role assignment", "Suggested roles",
+                      "/api/settings/roles", "/api/settings/profile"):
+            self.assertIn(token, settings_js)
+        # role-detail styling exists for the role cards
+        self.assertIn(".role-details", self.css)
+        self.assertIn(".role-sub", self.css)
+
+    def test_task_role_override_assets(self):
+        """The task detail exposes a temporary role override (app.js)."""
+        self.assertIn("role override", self.js)
+        self.assertIn("/api/tasks/", self.js)
+        self.assertIn("Set role override", self.js)
 
     # ── Agent-output session persistence (regression) ────────────────
     def test_agent_event_persists_session_before_panel_render(self):

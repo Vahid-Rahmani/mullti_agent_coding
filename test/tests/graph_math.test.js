@@ -1,6 +1,5 @@
 "use strict";
-/* graph-math.js unit tests — run with `node test/tests/graph_math.test.js`
-   (the Python wrapper test_graph_math.py shells out to this file). */
+/* graph-math.js unit tests — run with `node test/tests/graph_math.test.js`. */
 
 const assert = require("assert");
 const path = require("path");

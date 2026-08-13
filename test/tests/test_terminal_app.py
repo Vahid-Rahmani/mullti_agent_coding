@@ -225,15 +225,15 @@ class HubResolveTestCase(unittest.TestCase):
     def setUp(self):
         self.hub = RunHub()
 
-    def test_resolve_uses_spec_model_ignoring_overrides(self):
+    def test_resolve_uses_opencode_model_ignoring_overrides(self):
         overrides = {
             "master": {"model": "opencode/big-pickle", "mode": "review"},
             "m1": {"model": "opencode/deepseek-v4-flash-free", "mode": "architect"},
         }
-        from scripts.core.agents import AGENT_SPEC_BY_TAG
+        from scripts.core import opencode_cfg
 
         model, mode = self.hub.resolve("m1", overrides)
-        self.assertEqual(model, AGENT_SPEC_BY_TAG["m1"].model)
+        self.assertEqual(model, opencode_cfg.resolve_model("matthew"))
         self.assertEqual(mode, "auto")
 
     def test_master_resolves_none(self):
@@ -313,17 +313,17 @@ class RunStateWiringTestCase(unittest.TestCase):
         self.assertEqual(tags, {"m1", "m4"})
         self.assertEqual(self.hub.running, 2)
 
-    def test_run_resolves_per_tab_spec_model_for_threads(self):
-        """Each worker thread receives its agent's configured spec model."""
-        from scripts.core.agents import AGENT_SPEC_BY_AGENT
+    def test_run_resolves_per_tab_opencode_model_for_threads(self):
+        """Each worker thread receives its agent's runtime model from opencode.json."""
+        from scripts.core import opencode_cfg
 
         with mock.patch("scripts.core.run_hub.threading.Thread") as thread_mock:
             self.hub.run("task", {}, agents=["m1", "m4"])
         args_by_tag = {
             call.kwargs["args"][0]: call.kwargs["args"] for call in thread_mock.call_args_list
         }
-        self.assertEqual(args_by_tag["m1"][3], AGENT_SPEC_BY_AGENT["matthew"].model)
-        self.assertEqual(args_by_tag["m4"][3], AGENT_SPEC_BY_AGENT["david"].model)
+        self.assertEqual(args_by_tag["m1"][3], opencode_cfg.resolve_model("matthew"))
+        self.assertEqual(args_by_tag["m4"][3], opencode_cfg.resolve_model("david"))
 
     def test_run_empty_prompt_returns_error(self):
         self.assertEqual(self.hub.run("   ", {}), "Prompt must not be empty.")
@@ -357,6 +357,7 @@ class RunStateWiringTestCase(unittest.TestCase):
     def test_run_agent_guards_option_like_prompt(self):
         proc = _FakeProc(returncode=0)
         with mock.patch("scripts.core.run_hub._opencode_command", return_value="opencode"), \
+             mock.patch("scripts.core.run_hub.roles.agent_context", return_value=""), \
              mock.patch("scripts.core.run_hub.subprocess.Popen", return_value=proc) as popen:
             self.hub._run_agent("m1", "matthew", "- Peer-Assistance handoff", None)
         cmd = popen.call_args.args[0]

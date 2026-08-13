@@ -7,8 +7,8 @@ cannot log in non-interactively. No endpoint ever returns a key — the
 frontend only ever sees ``configured: true|false``.
 
 Configuration sources (never duplicated):
-    * Agent registry (``scripts/core/agents``)  — identity + default model
-    * ``opencode.json``                        — runtime agent config + providers
+    * Agent registry (``scripts/core/agents``)  — identity only (tag/name/key)
+    * ``opencode.json``                        — runtime model/mode/fallback + providers
     * OpenCode auth store                      — credentials
     * opencode CLI / provider REST APIs        — model discovery
 
@@ -33,6 +33,7 @@ import urllib.request
 from pathlib import Path
 
 from scripts.core import opencode_cfg
+from scripts.core import roles
 from scripts.core.agents import AGENT_SPECS, PROJECT_ROOT
 
 TIMEOUT_SECONDS = 12
@@ -309,10 +310,12 @@ def _configured_models(cfg: dict, provider_id: str) -> list[str]:
     if prov:
         out.update(prov.get("models") or {})
     prefix = provider_id + "/"
+    agents_cfg = cfg.get("agent") or {}
     for spec in AGENT_SPECS:
-        if spec.model and spec.model.startswith(prefix):
-            out.add(spec.model.split("/", 1)[1])
-        entry = (cfg.get("agent") or {}).get(spec.agent) or {}
+        entry = agents_cfg.get(spec.agent) or {}
+        model = entry.get("model")
+        if model and model.startswith(prefix):
+            out.add(model.split("/", 1)[1])
         for fb in entry.get("fallback_models") or []:
             if fb.startswith(prefix):
                 out.add(fb.split("/", 1)[1])
@@ -505,14 +508,15 @@ def add_manual_model(provider_id: str, model_id: str,
 
 
 def agent_config(repo_root: Path | None = None) -> list[dict]:
-    """Cross-checked per-agent runtime config (spec ↔ opencode.json)."""
+    """Per-agent runtime config resolved from ``opencode.json`` (the single
+    source of truth for models/modes/fallback). AgentSpec carries identity
+    only, so there is no spec↔config model drift by design (``drift`` is kept
+    for API compatibility and always ``False``)."""
     cfg = opencode_cfg.load_config(repo_root)
     agents: list[dict] = []
     for spec in AGENT_SPECS:
         entry = (cfg.get("agent") or {}).get(spec.agent) or {}
-        # The persisted spec file is authoritative; the frozen in-memory
-        # ``spec.model`` is only a fallback so a save shows up immediately.
-        model = opencode_cfg.read_spec_model(spec.agent, repo_root) or spec.model
+        model = entry.get("model") or cfg.get("model") or None
         agents.append({
             "tag": spec.tag,
             "name": spec.name,
@@ -521,13 +525,13 @@ def agent_config(repo_root: Path | None = None) -> list[dict]:
             "fallback_models": entry.get("fallback_models") or [],
             "mode": entry.get("mode") or "all",
             "description": entry.get("description") or "",
-            "drift": bool(entry.get("model") is not None and entry.get("model") != model),
+            "drift": False,
         })
     return agents
 
 
 def available_models(repo_root: Path | None = None) -> list[dict]:
-    """Models selectable for agents (configured providers + spec models)."""
+    """Models selectable for agents (configured providers + assigned models)."""
     cfg = opencode_cfg.load_config(repo_root)
     by_id: dict[str, dict] = {}
     for pid, prov in (cfg.get("provider") or {}).items():
@@ -535,9 +539,10 @@ def available_models(repo_root: Path | None = None) -> list[dict]:
             full = f"{pid}/{mid}"
             by_id.setdefault(full, {"id": full, "name": mid, "source": "configured"})
     for spec in AGENT_SPECS:
-        if spec.model:
-            by_id.setdefault(spec.model, {"id": spec.model, "name": spec.model,
-                                          "source": "configured"})
+        model = (cfg.get("agent") or {}).get(spec.agent, {}).get("model")
+        if model:
+            by_id.setdefault(model, {"id": model, "name": model,
+                                      "source": "configured"})
     return sorted(by_id.values(), key=lambda m: m["id"])
 
 
@@ -655,3 +660,39 @@ def apply_fallback(agent: str, fallback_models: list[str],
                    repo_root: Path | None = None, verify_cmd: list[str] | None = None) -> dict:
     return opencode_cfg.apply_agent_config(agent, fallback_models=fallback_models,
                                            repo_root=repo_root, verify_cmd=verify_cmd)
+
+
+# ------------------------------------------------------------------ roles
+
+
+def list_roles(repo_root: Path | None = None) -> list[dict]:
+    """All role definitions (predefined + custom) as dicts."""
+    return [{"id": r.id, **r.to_dict()} for r in roles.list_roles(repo_root)]
+
+
+def role_assignments(repo_root: Path | None = None) -> dict:
+    """Agent key -> ordered role ids (the many-to-many assignment map)."""
+    return {spec.agent: roles.roles_for_agent(spec.agent, repo_root)
+            for spec in AGENT_SPECS}
+
+
+def assign_roles(agent: str, role_ids: list[str],
+                 repo_root: Path | None = None) -> list[str]:
+    """Set an agent's role list (many-to-many). Raises RoleError for bad ids."""
+    return roles.assign_roles(agent, role_ids, repo_root)
+
+
+def create_role(role_id: str, *, name: str | None = None, description: str = "",
+                responsibilities: list[str] | None = None,
+                tools: list[str] | None = None,
+                permissions: list[str] | None = None,
+                rules: list[str] | None = None,
+                expected_outputs: list[str] | None = None,
+                repo_root: Path | None = None) -> dict:
+    """Create (or overwrite) a custom role. Returns the stored role dict."""
+    role = roles.create_role(
+        role_id, name=name, description=description,
+        responsibilities=responsibilities or [], tools=tools or [],
+        permissions=permissions or [], rules=rules or [],
+        expected_outputs=expected_outputs or [], repo_root=repo_root)
+    return {"id": role.id, **role.to_dict()}

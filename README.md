@@ -5,20 +5,26 @@ defines the agents, configuration, and memory used to drive software projects.
 It ships an Obsidian-inspired **Agent Dashboard** (primary interface), a
 retro-CRT **ZOVA terminal** (fallback), and a 7-window inbox launcher.
 
-> **Baseline-zero:** agents are plain (identity + model only), dispatch is
-> plain, and all external integrations (Obsidian archivist, analyzer, swarm,
-> self-evolve) have been removed. This is an unopinionated slate for
-> step-by-step rebuilding.
+> **Agent contract:** the seven roster agents are deliberately plain —
+> **identity only** (tag/name/key), with model, role, and provider as *runtime*
+> concerns — and dispatch is plain (`opencode run --agent <a> -m <model>
+> "<prompt>"`). On top of that contract the repo ships an **Obsidian vault
+> stack** (orchestrator, vault-bridge, context-resolver, knowledge-sync, health
+> checks), the Agent Dashboard, Settings / BYOK provider connections, and a
+> reusable **Role** system + **Project Profile** analyzer. See
+> [`AGENTS.md`](AGENTS.md) for the full control-plane documentation.
 
 ---
 
 ## Overview
 
 The control plane defines seven agents — Matthew, Alex, Sarah, David, Elena,
-Max, and Chloe — configured in [`opencode.json`](opencode.json). Each has a
-model assignment and an explicit fallback chain.
+Max, and Chloe — configured in [`opencode.json`](opencode.json). Each agent is
+an **identity** (tag/name/key) with a runtime model assignment and an explicit
+fallback chain; the model is not part of the identity and can be changed at
+runtime via the Settings / BYOK layer without editing any agent module.
 
-| Agent | Model |
+| Agent | Default model |
 |---|---|
 | `matthew` | opencode/deepseek-v4-flash-free |
 | `alex` | opencode/deepseek-v4-flash-free |
@@ -28,8 +34,42 @@ model assignment and an explicit fallback chain.
 | `max` | opencode/deepseek-v4-flash-free |
 | `chloe` | opencode/ling-3.0-tiny-free |
 
-All agents use **free** models (no paid credits required). See
+> Defaults above; the live model is resolved from `opencode.json` at dispatch.
+
+All default models are **free** (no paid credits required). Roles are defined
+in [`roles.json`](roles.json) (many-to-many, model-independent); a repository
+is analyzed into a `ProjectProfile` via `scripts/core/project_profile.py`. See
 [`AGENTS.md`](AGENTS.md) for workflow and fallback-policy details.
+
+---
+
+## Prerequisites
+
+- **Python 3.10+** (the code uses PEP 604 `X | Y` union type hints).
+- **OpenCode CLI** — the control plane dispatches agents via
+  `opencode run --agent <a> -m <model> "<prompt>"`.
+
+Install the Python dependencies (the dashboard and retro terminal each need
+them; the vault/orchestrator code is standard-library only):
+
+```bash
+python -m pip install -r requirements.txt          # runtime
+python -m pip install -r requirements-dev.txt      # runtime + test (httpx)
+```
+
+Run the test suite:
+
+```bash
+python -m unittest discover -s test/tests
+```
+
+Two JavaScript tests (graph math + agent-session rendering) run separately
+with Node and are **not** part of the Python suite:
+
+```bash
+node test/tests/graph_math.test.js
+node test/tests/app_sessions.test.js
+```
 
 ---
 
@@ -48,6 +88,20 @@ launch_dashboard.bat                 # start server + open browser
 python -m scripts.web_ui.server --no-browser   # start only (http://127.0.0.1:8790)
 python -m scripts.web_ui.server --smoke        # headless build check
 ```
+
+**Settings tab** — the Dashboard's Settings UI (Phase 25) manages **AI
+connections** in two modes:
+
+- **Simple** — known providers (Gemini, OpenAI, Anthropic): pick the provider
+  and enter an API key; the endpoint/auth shape is auto-determined.
+- **Advanced** — custom / OpenCode-style providers: name, Base URL, API key,
+  auth method, and default models.
+
+Keys are stored **only** in OpenCode's auth store
+(`~/.local/share/opencode/auth.json`) via the `opencode auth login` CLI; the
+frontend only ever sees `configured: true|false` — no endpoint returns a key.
+The tab also edits per-agent models, modes, and fallback chains (with a
+spec ↔ `opencode.json` drift check).
 
 **Layout** — main area shows up to **6 agent panels** (name, model, status,
 current task, live conversation, Stop), arranged in a 1/2/3/4/6 grid via the
@@ -125,6 +179,47 @@ Drop a single-line task into `_inbox/<agent>.task` (e.g. `_inbox/alex.task`).
 The agent's window polls the inbox, runs the task, appends output to
 `_logs/<agent>.log`, and moves the consumed task to `_inbox/done/`.
 
+### 4. Obsidian Vault + Orchestrator
+
+`obsidian_vault/` is a live, schema-validated Markdown vault (36 nodes). The
+Orchestrator drives the same plain dispatch through **task nodes**: it reads a
+`ready` task from `obsidian_vault/03-Tasks/`, resolves its assigned agent and
+linked context, builds a bounded prompt, and dispatches through the same
+`opencode run` command — always a dry run unless `--yes` is given.
+
+```bash
+python -m scripts.core.orchestrator list                          # task nodes
+python -m scripts.core.orchestrator set-status Task_Demo ready     # transition
+python -m scripts.core.orchestrator dispatch Task_Demo --yes       # authorized run
+python scripts/vault_validate.py                                   # vault schema check
+python scripts/generate_dashboard.py --check                       # dashboard freshness
+python -m scripts.core.health_check                                # 11 read-only checks
+```
+
+---
+
+## Plugins & Providers
+
+Plugins are loaded from npm via the `plugin` array in
+[`.opencode/opencode.json`](.opencode/opencode.json) (OpenCode resolves and
+caches them automatically):
+
+- **`@razroo/opencode-model-fallback`** — automatic model failover. Every agent
+  carries a de-duplicated `fallback_models` chain in `opencode.json` (an
+  agent's own primary model is never in its own chain); plugin behaviour is
+  tuned in [`.opencode/opencode-model-fallback.jsonc`](.opencode/opencode-model-fallback.jsonc)
+  (`cooldown_seconds: 0` = zero-wait failover, `max_fallback_attempts: 4`).
+- **`opencode-hive`** — Agent Hive workflow layer (plan → approve → execute in
+  git worktrees). Project config lives in `.hive/agent-hive.json` (gitignored
+  runtime state).
+
+Providers are defined in `opencode.json`: `ollama` (local
+`qwen2.5-coder:7b`), `mulerouter` (aggregator — unused by default, kept for the
+Settings UI), and the built-in `opencode` provider models
+(`opencode/big-pickle`, `opencode/deepseek-v4-flash-free`,
+`opencode/ling-3.0-tiny-free` — all free-tier models). Keys live only in
+`~/.local/share/opencode/auth.json`, never in the repo.
+
 ---
 
 ## Troubleshooting: "self signed certificate in certificate chain"
@@ -186,33 +281,47 @@ Now `myagent` launches the retro terminal targeting the folder you run it from.
 ```
 .
 ├── AGENTS.md              # Agent roster, workflow, fallback policy, conventions
-├── opencode.json          # Agent definitions, models, providers
+├── opencode.json          # Runtime config: agents, models, providers, fallback
+├── roles.json             # Reusable roles + many-to-many agent assignments
 ├── launch_agents.bat      # 7-window inbox launcher
 ├── launch_terminal.bat    # ZOVA retro terminal launcher (fallback)
 ├── launch_dashboard.bat   # Agent Dashboard launcher (primary)
 ├── scripts/
 │   ├── terminal_app.py    # ZOVA retro terminal entry point (thin shim → core/ + ui/)
+│   ├── vault_validate.py  # Vault node schema validator (36 nodes OK)
+│   ├── generate_dashboard.py  # Regenerates the Dashboard's GENERATED block
 │   ├── web_ui/            # Agent Dashboard — primary Obsidian-inspired UI
 │   │   ├── server.py      # FastAPI app factory + uvicorn entry (--smoke)
 │   │   ├── routes.py      # REST/SSE endpoints (thin layer over core)
 │   │   ├── state.py       # WebState: drains HUB events into per-agent sessions
 │   │   ├── graph.py       # VaultGraph: read-only node/edge model of the vault
+│   │   ├── settings.py    # Settings facade: connections, keys (auth store only), models
 │   │   └── static/        # index.html · app.css · app.js (vanilla, no build)
-│   ├── core/              # Decoupled engine: agents, run hub, state
-│   │   ├── agents/        # Per-agent definitions — one AgentSpec module per agent
-│   │   │   ├── base.py        # AgentSpec dataclass (plain: identity + model)
+│   ├── core/              # Decoupled engine: agents, run hub, state, vault stack
+│   │   ├── agents/        # Per-agent identity — one AgentSpec module per agent
+│   │   │   ├── base.py        # AgentSpec dataclass (identity only: tag/name/key)
 │   │   │   ├── registry.py    # Roster + tab order derived from the specs
-│   │   │   ├── matthew.py … chloe.py  # M1–M7 plain agents
+│   │   │   ├── matthew.py … chloe.py  # M1–M7 agents (identity only)
 │   │   │   ├── master.py      # Master coordinator spec
-│   │   │   └── __main__.py    # CLI: resolve per-agent models for the launcher workers
+│   │   │   └── __main__.py    # CLI: resolve per-agent runtime models from opencode.json
+│   │   ├── roles.py       # Reusable roles + many-to-many assignment (roles.json)
+│   │   ├── project_profile.py  # Repository analysis → ProjectProfile + suggested roles
 │   │   ├── run_hub.py     # Thread-safe multi-agent execution engine (plain dispatch)
-│   │   ├── state_tracker.py   # Session state (state.md)
-│   │   └── command_parser.py  # Slash-command parsing + help text
+│   │   ├── orchestrator.py    # Vault task dispatch (ready-gate, --yes, locks)
+│   │   ├── vault_bridge.py    # Scoped vault I/O (atomic writes, backups, frontmatter)
+│   │   ├── context_resolver.py  # Bounded linked-context resolution from a node
+│   │   ├── change_detector.py   # Snapshot diff → vault-node impact mapping
+│   │   ├── knowledge_sync.py    # Docs ↔ code drift sync (dry-run by default)
+│   │   ├── health_check.py      # 11 read-only vault/workspace checks
+│   │   ├── state_tracker.py     # Session state (state.md)
+│   │   ├── command_parser.py    # Slash-command parsing + help text
+│   │   └── opencode_cfg.py      # Single source of truth for runtime models (atomic, rollback)
 │   ├── ui/                # Decoupled terminal UI (palette, rendering, theme)
 │   ├── run_agent_worker.ps1  # Inbox-polling worker (Windows, 7-window launcher)
 │   ├── run_agent_worker.sh   # Inbox-polling worker (Git Bash)
 ├── knowledge/             # Project memory (ADRs, lessons, metrics)
-├── .opencode/             # opencode plugins/config (e.g. model fallback)
+├── obsidian_vault/        # Live vault: 00-System … 06-Testing + Dashboard.md
+├── .opencode/             # opencode plugins/config (model fallback, opencode-hive)
 └── .vscode/               # VS Code tasks (Launch All Agents / Dashboard / ZOVA)
 ```
 

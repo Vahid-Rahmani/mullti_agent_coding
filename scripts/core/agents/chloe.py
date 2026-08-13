@@ -8,5 +8,4 @@ SPEC = AgentSpec(
     tag="m7",
     name="Chloe",
     agent="chloe",
-    model="opencode/ling-3.0-tiny-free",
 )

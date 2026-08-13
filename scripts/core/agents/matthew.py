@@ -8,5 +8,4 @@ SPEC = AgentSpec(
     tag="m1",
     name="Matthew",
     agent="matthew",
-    model="opencode/deepseek-v4-flash-free",
 )

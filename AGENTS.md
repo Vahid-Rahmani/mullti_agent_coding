@@ -4,27 +4,79 @@ This repository is the **control plane** for a multi-agent coding system. It
 holds the MultiAgentCoding configuration, agent definitions, and memory used to
 drive software projects.
 
-**Baseline-zero status:** the system is a plain, unopinionated slate. Seven
-agents are defined by identity and model only — no roles, operational modes,
-specialized prompts, or behavioral wrappers. Dispatch is plain
-(`opencode run --agent <a> -m <model> "<prompt>"`). All external integrations
-(Obsidian archivist, analyzer, swarm, self-evolve) have been removed. The
-intent is to rebuild capabilities deliberately, step by step.
+**Agent contract:** the seven roster agents are deliberately plain —
+**identity only** (tag/name/agent key). An `AgentSpec` never pins a model,
+role, or provider; those are runtime concerns composed at dispatch time.
+Dispatch is plain (`opencode run --agent <a> -m <model> "<prompt>"`). The
+legacy swarm/self-evolve/archivist machinery stays removed.
+
+**Decoupled concepts** — the architecture strictly separates these and never
+permanently couples them:
+
+1. **Agent** — independent execution identity (`AgentSpec`: tag/name/key only).
+2. **Role** — reusable expertise/behavior (responsibilities, tools, permissions,
+   rules, expected outputs), defined in `roles.json` and assigned many-to-many
+   to agents via `scripts/core/roles.py`.
+3. **Model / provider** — a runtime selection owned by `opencode.json` and the
+   Settings / BYOK layer (`scripts/core/opencode_cfg.resolve_model`).
+4. **Project / repository context** — a `ProjectProfile` derived read-only by
+   `scripts/core/project_profile.py` (technologies, manifests, instructions,
+   suggested roles) and injected dynamically, never duplicated per agent.
+
+So **any agent can run on any user-selected model**, and **any role can be
+assigned to one or many agents** (and an agent may hold many roles) without
+editing an agent's source module.
+
+On top of that plain contract the repo ships an **Obsidian vault stack**
+(`scripts/core/vault_bridge.py`, `orchestrator.py`, `context_resolver.py`,
+`change_detector.py`, `knowledge_sync.py`, `health_check.py` +
+`scripts/generate_dashboard.py`, `scripts/vault_validate.py`) that coordinates
+the same plain dispatch through task nodes, plus the **Agent Dashboard**
+(`scripts/web_ui/`) and the **Settings / BYOK connections** facade
+(`scripts/web_ui/settings.py`). The runtime control plane (agents, models,
+fallback) lives in `opencode.json`; the specs under `scripts/core/agents/`
+carry identity only and mirror the roster.
 
 ## Agents
 
-| Agent | Model |
-|---|---|
-| `matthew` | opencode/deepseek-v4-flash-free |
-| `alex` | opencode/deepseek-v4-flash-free |
-| `sarah` | opencode/deepseek-v4-flash-free |
-| `david` | opencode/big-pickle |
-| `elena` | opencode/ling-3.0-tiny-free |
-| `max` | opencode/deepseek-v4-flash-free |
-| `chloe` | opencode/ling-3.0-tiny-free |
+Seven roster agents — **identity only**: `matthew`, `alex`, `sarah`, `david`,
+`elena`, `max`, `chloe` (tags `m1`…`m7`, keys lowercased names). Each carries a
+`fallback_models` chain in `opencode.json` (see
+[Fallback Policy](#fallback-policy)).
 
-Every agent carries an explicit `fallback_models` chain (see
-[Fallback Policy](#fallback-policy)). All models are free (no paid credits).
+Models are **not part of an agent's identity**. The runtime model for each
+agent is resolved from `opencode.json` at dispatch time
+(`opencode_cfg.resolve_model(agent)`), which the Settings / BYOK layer can
+change at runtime. All default models are free (no paid credits).
+
+## Roles
+
+Roles are reusable, model-independent definitions stored in **`roles.json`**
+at the repo root (override with `$ZOVA_ROLES`). A role has `name`,
+`description`, `responsibilities`, `tools`, `permissions`, `rules`, and
+`expected_outputs`. The `assignments` map is many-to-many: one agent may hold
+many roles, and many agents may share one role.
+
+- Predefined roles ship in `roles.json` (e.g. `python-developer`,
+  `fastapi-developer`, `software-architect`, `security-engineer`, `qa-engineer`,
+  `code-reviewer`, `devops-engineer`, `ai-agent-engineer`).
+- Custom roles are created/edited via `scripts/core/roles.py` (or the Dashboard
+  Settings API) — **without** editing any agent module.
+- Assignments are edited via `scripts.core/roles.assign_roles(agent, [ids])`
+  (or the API); reassigning a role never changes an agent's model, and changing
+  an agent's model never changes its role.
+- Precedence for resolving effective agent context (highest first): explicit
+  user instruction > user-selected role > repository instructions (AGENTS.md) >
+  assigned role defaults > generic agent defaults.
+
+## Project Profile
+
+`scripts/core/project_profile.py` analyzes a repository read-only (README,
+AGENTS.md, package manifests, source tree, CI/Docker config) into a
+`ProjectProfile` (technologies, manifests, instructions, detected/suggested/
+approved roles). Suggested roles are **never auto-applied** — the user approves
+one by defining + assigning it in `roles.json`. The profile is injected into
+dispatch context dynamically, not duplicated into each agent's config.
 
 ## Workflow
 
@@ -41,12 +93,13 @@ after a previous run completes.
   reviewing.
 - Keep `PLAN.md` and `TASKS.json` at the project root of the target project.
 - Commits are small and single-purpose; branch pattern `feature/{agent}-{task}`.
-- Agent definitions live in `scripts/core/agents/` — one `AgentSpec` module per
+- Agent **identity** lives in `scripts/core/agents/` — one `AgentSpec` module per
   agent (`matthew.py` … `chloe.py`) plus `master.py`. The `registry` derives the
-  roster and tab order from those specs, so edit an agent there (not in
-  `terminal_app.py` or `opencode.json`) to keep each agent independently
-  configurable, testable, and modifiable. `python -m scripts.core.agents verify`
-  checks the specs stay in sync with `opencode.json` (exit 1 on drift).
+  roster and tab order from those specs. An `AgentSpec` carries tag/name/key
+  **only** — never a model, role, or provider. To change an agent's *model*,
+  edit `opencode.json` (or the Settings API); to change its *roles*, edit
+  `roles.json`. `python -m scripts.core.agents verify` checks the roster's
+  mode/fallback invariants against `opencode.json` (exit 1 on drift).
 
 ## Fallback Policy
 
@@ -55,10 +108,21 @@ The `@razroo/opencode-model-fallback` plugin (loaded via `.opencode/opencode.jso
 automatically switches to the next model in the chain when a request fails; opencode
 itself only retries the same model, so this plugin is what makes failover real.
 
-- **Chain (all 7 agents, in priority order):**
+- **Fallback pool (in priority order):**
   1. `opencode/big-pickle` — Priority 1 fallback.
   2. `opencode/deepseek-v4-flash-free` — Priority 1 fallback (fast, reliable).
   3. `ollama/qwen2.5-coder:7b` — Priority 2 fallback (local, zero external cost).
+- **Per-agent chains are de-duplicated** — an agent's own primary model never
+  appears in its own `fallback_models` chain (retrying a just-failed model is
+  a wasted attempt, and with `cooldown_seconds: 0` nothing stays in cooldown):
+  - deepseek-primary agents (`matthew`, `alex`, `sarah`, `max`):
+    `[opencode/big-pickle, ollama/qwen2.5-coder:7b]`
+  - big-pickle-primary agent (`david`):
+    `[opencode/deepseek-v4-flash-free, ollama/qwen2.5-coder:7b]`
+  - ling-primary agents (`elena`, `chloe`):
+    `[opencode/big-pickle, opencode/deepseek-v4-flash-free, ollama/qwen2.5-coder:7b]`
+  The global chain in `.opencode/opencode-model-fallback.jsonc` applies to
+  agents without their own chain (e.g. the `opencode-hive` agents).
 - **Triggers** — the plugin falls back on: Rate Limit (HTTP 429), server errors
   (500/502/503/504/507), token limits, context exhaustion ("context length",
   "input is too long", "maximum context"), quota/usage-limit/credit-balance, and
@@ -88,6 +152,17 @@ This repo ships a human-facing UI plus a 7-window launcher.
   transitions and dispatch go through the orchestrator pipeline).
 - **Steps:** The web dashboard, the ZOVA terminal, and the inbox workers each
   drive their own agent runs; run one interface at a time.
+- **Obsidian vault stack** — `obsidian_vault/` is a live, schema-validated
+  vault (36 nodes). The Orchestrator (`python -m scripts.core.orchestrator`)
+  dispatches `ready` task nodes through the same `opencode run` command the
+  terminal uses, enforces status transitions + per-task locks, and requires an
+  explicit `--yes` to execute. `vault_validate.py`, `generate_dashboard.py
+  --check`, and `health_check.py` keep the vault schema-valid and drift-free.
+- **Settings / BYOK** — the Dashboard's Settings tab (Phase 25) manages
+  provider connections (Simple: Gemini/OpenAI/Anthropic; Advanced: custom
+  Base URL) and per-agent models/modes/fallback chains. API keys are stored
+  **only** in `~/.local/share/opencode/auth.json`; the backend never returns a
+  key to the frontend.
 - **7-window launcher** — `launch_agents.bat` opens seven terminal windows,
   titled `M1 - Matthew` … `M7 - Chloe`, positioned in a 4×2 grid.
 
@@ -109,19 +184,21 @@ Drop a single-line task into `_inbox/<agent>.task`
   cert), set `ZOVA_ALLOW_INSECURE_TLS=1` before launching to run opencode
   with `NODE_TLS_REJECT_UNAUTHORIZED=0` (opt-in; off by default). See
   `README.md` → Troubleshooting for the preferred `NODE_EXTRA_CA_CERTS` fix.
-- **Models** — the worker resolves each agent's configured model from its
-  `AgentSpec` (`scripts/core/agents/`, via `python -m scripts.core.agents
-  model <agent>`; see the [Conventions](#conventions) note on agent
-  definitions) and passes it explicitly (`-m`) so the agent's own model is
-  used. `opencode.json` remains the OpenCode runtime config but is no longer
-  parsed by the launcher. `-m` pins the session to the primary model at
-  launch, but the model-fallback plugin still applies its chain on any
-  failure within that session (see [Fallback Policy](#fallback-policy)).
+- **Models** — the worker resolves each agent's configured model from
+  `opencode.json` (via `python -m scripts.core.agents model <agent>`) and
+  passes it explicitly (`-m`); the agent's model is a runtime value, not a
+  spec field. `-m` pins the session to that model at launch, but the
+  model-fallback plugin still applies its chain on any failure within that
+  session (see [Fallback Policy](#fallback-policy)).
   The MuleRouter provider block remains defined in `opencode.json` but is no
   longer used by default; its API key lives only in
   `~/.local/share/opencode/auth.json` (never committed).
 - **Mode note** — all 7 agents are `mode: all`: they can be invoked standalone
   (`opencode run --agent X`) and still be used as subagents by other agents.
+  Agents pinned to `mode: subagent` are refused by `opencode run --agent`
+  (opencode falls back to the default agent with a warning), so every roster
+  agent must stay `all` (or `primary`). `default_agent: matthew` is a primary-
+  capable agent, which the schema requires.
 
 ## Memory
 

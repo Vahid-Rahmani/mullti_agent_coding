@@ -1,0 +1,12 @@
+# Runtime dependencies for the MultiAgentCoding control plane.
+#
+# These are the only third-party packages imported by the repository's
+# runnable Python code. Everything else is the Python standard library.
+
+# ZOVA retro terminal (scripts/ui/terminal_app.py, rendering.py, theme.py)
+prompt_toolkit>=3.0.0
+
+# Agent Dashboard (scripts/web_ui/server.py, routes.py)
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0

@@ -18,7 +18,8 @@ related: [Agent_Matthew, Agent_Alex, Agent_Sarah, Agent_David, Agent_Elena, Agen
 
 ## Purpose
 
-Central index of every agent in the control plane: tag, model, and status.
+Central index of every agent in the control plane: tag and status (model is
+runtime-configured per agent in `opencode.json`, not part of identity).
 
 - ↑ Parent: [[System_Core]]
 - ↓ Children:
@@ -35,20 +36,23 @@ Central index of every agent in the control plane: tag, model, and status.
 
 | Tag | Agent | Model |
 |---|---|---|
-| M1 | `matthew` | opencode/deepseek-v4-flash-free |
-| M2 | `alex` | opencode/deepseek-v4-flash-free |
-| M3 | `sarah` | opencode/deepseek-v4-flash-free |
-| M4 | `david` | opencode/big-pickle |
-| M5 | `elena` | opencode/ling-3.0-tiny-free |
-| M6 | `max` | opencode/deepseek-v4-flash-free |
-| M7 | `chloe` | opencode/ling-3.0-tiny-free |
+| M1 | `matthew` | runtime-configured (opencode.json) |
+| M2 | `alex` | runtime-configured (opencode.json) |
+| M3 | `sarah` | runtime-configured (opencode.json) |
+| M4 | `david` | runtime-configured (opencode.json) |
+| M5 | `elena` | runtime-configured (opencode.json) |
+| M6 | `max` | runtime-configured (opencode.json) |
+| M7 | `chloe` | runtime-configured (opencode.json) |
+
+> Models are not part of agent identity: any agent can run on any
+> user-selected model via the Settings / BYOK layer.
 
 ## Integration Status (verified 2026-08-11)
 
 All 7 agents are **fully integrated** with the core components:
 
 - Dispatch: [[Component_RunHub]] (one thread per agent → `opencode run`)
-- Definition/model: [[Component_AgentSpecs]] (specs + `opencode.json`)
+- Definition/identity: [[Component_AgentSpecs]] (specs); model: `opencode.json`
 - UI: [[Component_Terminal]] (tabs M1–M7 + MASTER)
 - Launchers: [[Component_Launchers]] (inbox workers + launch scripts)
 - State: [[Component_StateTracker]] (`state.md` completion records)
@@ -65,6 +69,7 @@ All 7 agents are **fully integrated** with the core components:
 ## Rules
 
 - One node per agent identity, named `Agent_<Name>`.
-- Update the matching `Agent_*.md` node whenever an agent's model or role changes.
+- Update the matching `Agent_*.md` node whenever an agent's **role** changes
+  (models are runtime config in `opencode.json`, not identity).
 - Future role-based agents (Architect, Coding, Testing, Orchestrator) each get
   their own `Agent_*.md` node linked here.

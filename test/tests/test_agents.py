@@ -15,6 +15,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 from scripts.core import agents  # noqa: E402
+from scripts.core import opencode_cfg  # noqa: E402
 
 
 class AgentSpecModulesTestCase(unittest.TestCase):
@@ -33,12 +34,12 @@ class AgentSpecModulesTestCase(unittest.TestCase):
         self.assertIsNone(spec.agent)
 
     def test_specs_are_plain_and_consistent(self):
-        """No specialized fields survive: specs carry identity + model only."""
+        """No specialized fields survive: specs carry identity only (no model)."""
         for spec in agents.AGENT_SPECS:
             self.assertTrue(spec.tag.startswith("m"))
             self.assertIn(spec.tag, {t for t, _n, _a in agents.AGENTS})
             self.assertIsNotNone(spec.agent)
-            self.assertIsNotNone(spec.model)
+            self.assertFalse(hasattr(spec, "model"))
             self.assertFalse(hasattr(spec, "modes"))
             self.assertFalse(hasattr(spec, "extra_modes"))
             self.assertFalse(hasattr(spec, "persona"))
@@ -85,25 +86,24 @@ class RegistryDerivationTestCase(unittest.TestCase):
 
 
 class ModelAssignmentTestCase(unittest.TestCase):
-    """Every spec's configured model matches the verified opencode.json mirror."""
+    """Every agent's runtime model is resolved from opencode.json."""
 
-    def test_models_assigned(self):
-        with open(Path(REPO_ROOT) / "opencode.json", encoding="utf-8") as fh:
-            mirror = json.load(fh)["agent"]
+    def test_models_assigned_in_opencode_json(self):
         for spec in agents.AGENT_SPECS:
-            self.assertEqual(spec.model, mirror[spec.agent]["model"], spec.agent)
+            model = opencode_cfg.resolve_model(spec.agent)
+            self.assertTrue(model, spec.agent)
 
 
 class ResolutionTestCase(unittest.TestCase):
-    """Every agent resolves to its configured spec model (no modes)."""
+    """Every agent resolves its model from opencode.json (no modes)."""
 
-    def test_resolve_uses_spec_model(self):
+    def test_resolve_uses_opencode_model(self):
         from scripts.core.run_hub import HUB
 
         for tag in ("m1", "m4", "m7"):
             model, mode = HUB.resolve(tag, {})
             spec = agents.AGENT_SPEC_BY_TAG[tag]
-            self.assertEqual(model, spec.model)
+            self.assertEqual(model, opencode_cfg.resolve_model(spec.agent))
             self.assertEqual(mode, "auto")
 
     def test_master_resolves_none(self):

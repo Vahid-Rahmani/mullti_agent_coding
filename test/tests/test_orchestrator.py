@@ -5,6 +5,7 @@ resolution, context limiting, dry-run vs --yes dispatch, atomic report writes,
 malformed-node error handling, and duplicate-execution prevention.
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -12,11 +13,13 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 from scripts.core import agents  # noqa: E402
+from scripts.core import opencode_cfg  # noqa: E402
 from scripts.core import orchestrator as orch  # noqa: E402
 
 TASK_TEXT = """---
@@ -148,7 +151,7 @@ class TestAgentResolution(OrchestratorTestCase):
     def test_resolve_known_agent(self):
         fields, _b, _r = orch.read_task(self.task_path)
         resolved = orch.resolve_agent_node(fields)
-        self.assertEqual(resolved, ("matthew", agents.AGENT_SPEC_BY_AGENT["matthew"].model))
+        self.assertEqual(resolved, ("matthew", opencode_cfg.resolve_model("matthew")))
 
     def test_resolve_unknown_agent_none(self):
         self.assertIsNone(orch.resolve_agent_node({"assigned_agent": "Agent_Nobody"}))
@@ -181,7 +184,7 @@ class TestDispatch(OrchestratorTestCase):
         self.assertEqual(code, 0)
         self.assertIn("DRY-RUN", text)
         self.assertIn("--agent matthew --auto", text)
-        self.assertIn("-m " + agents.AGENT_SPEC_BY_AGENT["matthew"].model, text)
+        self.assertIn("-m " + opencode_cfg.resolve_model("matthew"), text)
         # Node untouched by dry-run:
         self.assertIn("status: ready", self.task_path.read_text(encoding="utf-8"))
 
@@ -229,6 +232,64 @@ class TestAtomicWrite(OrchestratorTestCase):
         self.assertEqual(fields["status"], "ready")
         self.assertEqual(fields["updated"], "2026-08-12")
         self.assertIn("Do the thing.", self.task_path.read_text(encoding="utf-8"))
+
+
+class TestTaskRoleOverride(unittest.TestCase):
+    """A task node's optional `role` field is a temporary override."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "roles.json").write_text(json.dumps({
+            "roles": {
+                "python-developer": {"name": "Python Developer",
+                                      "responsibilities": ["Write Python"]},
+                "security-engineer": {"name": "Security Engineer",
+                                      "rules": ["No secrets"]},
+            },
+            "assignments": {"matthew": ["python-developer"]},
+        }), encoding="utf-8")
+        self._orig_root = orch._REPO_ROOT
+        orch._REPO_ROOT = self.root
+
+    def tearDown(self):
+        orch._REPO_ROOT = self._orig_root
+        self.tmp.cleanup()
+
+    def _fields(self, role=None):
+        fields = {"assigned_agent": "Agent_Matthew"}
+        if role is not None:
+            fields["role"] = role
+        return fields
+
+    def test_override_wins_over_assigned_roles(self):
+        ctx = orch.task_role_context("matthew", self._fields("security-engineer"))
+        self.assertIn("### Security Engineer", ctx)
+        self.assertNotIn("### Python Developer", ctx)
+
+    def test_no_override_uses_assigned_roles(self):
+        ctx = orch.task_role_context("matthew", self._fields())
+        self.assertIn("### Python Developer", ctx)
+
+    def test_empty_override_falls_back_to_assigned(self):
+        ctx = orch.task_role_context("matthew", self._fields(""))
+        self.assertIn("### Python Developer", ctx)
+
+    def test_unknown_override_raises(self):
+        with self.assertRaises(orch.VaultError):
+            orch.task_role_context("matthew", self._fields("nope"))
+
+    def test_override_never_mutates_roles_json(self):
+        before = (self.root / "roles.json").read_text(encoding="utf-8")
+        orch.task_role_context("matthew", self._fields("security-engineer"))
+        after = (self.root / "roles.json").read_text(encoding="utf-8")
+        self.assertEqual(before, after)
+
+    def test_frontmatter_adds_new_role_field(self):
+        raw = TASK_TEXT
+        updated = orch._replace_frontmatter(raw, {"role": "security-engineer"})
+        self.assertIn("role: security-engineer", updated)
+        self.assertIn("## Acceptance Criteria", updated)
 
 
 class TestCli(unittest.TestCase):

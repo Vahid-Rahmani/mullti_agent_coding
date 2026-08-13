@@ -687,6 +687,16 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
 }
 .conn-wizard h4 { margin: 0 0 8px; }
 .wizard-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+
+.role-details { flex: 1; font-size: 11px; color: var(--text-muted); }
+.role-details summary { cursor: pointer; color: var(--text-muted); font-size: 11px; }
+.role-sub { margin: 8px 0 2px; color: var(--text-faint); text-transform: uppercase; font-size: 9px; letter-spacing: .05em; }
+.role-details ul { margin: 0 0 6px; padding-left: 16px; }
+.set-row textarea {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; padding: 6px;
+  min-height: 48px; resize: vertical; font: inherit;
+}
 .wizard-actions input { flex: 1; min-width: 160px; }
 .conn-status-line { font-size: 12px; margin-top: 8px; min-height: 16px; }
 .conn-status-line.ok { color: var(--ok); }

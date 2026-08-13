@@ -13,5 +13,4 @@ SPEC = AgentSpec(
     tag="master",
     name="Master",
     agent=None,
-    model=None,
 )

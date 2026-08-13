@@ -134,12 +134,44 @@ def read_task(path: Path) -> tuple[dict[str, str], str, str]:
     return fields, body, raw
 
 
+def resolve_child(base: Path, name: str) -> Path | None:
+    """Resolve ``name`` to ``base / '<name>.md'`` only when it is a safe,
+    direct child of ``base`` — never a traversal or an escape.
+
+    The security boundary is the *resolved* filesystem path: the candidate's
+    resolved parent must equal the resolved ``base``. Names that are empty, a
+    dot component, an absolute/drive path, contain a path separator (``/`` or
+    ``\``), or contain control characters resolve to ``None`` before the
+    filesystem is touched. Unsafe names are rejected outright — never stripped
+    or rewritten into another path.
+
+    Returns the resolved Path, or None if the name is unsafe.
+    """
+    if not name or name in (".", ".."):
+        return None
+    if any(ch in name for ch in "/\\:") or any(ord(ch) < 32 for ch in name):
+        return None
+    try:
+        base_resolved = base.resolve()
+        candidate = (base_resolved / f"{name}.md").resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    if candidate.parent != base_resolved:
+        return None
+    return candidate
+
+
+def resolve_task(vault: Path, name: str) -> Path | None:
+    """Resolve a task node name to a safe path inside 03-Tasks/ (None if unsafe)."""
+    return resolve_child(vault / TASKS_DIR, name)
+
+
 def _find_node(vault: Path, name: str) -> Path | None:
     """Locate ``<name>.md`` in the vault without scanning the entire tree."""
     for sub in ("00-System", "01-Architecture", "02-Agents", "03-Tasks",
                 "04-Decisions", "05-Documentation", "06-Testing"):
-        candidate = vault / sub / f"{name}.md"
-        if candidate.is_file():
+        candidate = resolve_child(vault / sub, name)
+        if candidate is not None and candidate.is_file():
             return candidate
     return None
 
@@ -148,19 +180,26 @@ def _replace_frontmatter(text: str, updates: dict[str, str]) -> str:
     """Rebuild the frontmatter block with updated key values.
 
     Non-updated lines and the entire body are preserved. Only the frontmatter
-    block (between the first two ``---`` lines) is touched.
+    block (between the first two ``---`` lines) is touched. Keys in ``updates``
+    that are not already present are appended (so e.g. a new ``role`` field
+    can be added to a task node without editing its body).
     """
     m = FRONTMATTER_RE.match(text)
     if not m:
         raise VaultError("cannot update: missing frontmatter block")
     block = m.group(1)
     out: list[str] = []
+    handled: set[str] = set()
     for line in block.splitlines():
         km = KEY_LINE_RE.match(line)
         if km and km.group(1) in updates:
             out.append(f"{km.group(1)}: {updates[km.group(1)]}")
+            handled.add(km.group(1))
         else:
             out.append(line)
+    for key, value in updates.items():
+        if key not in handled:
+            out.append(f"{key}: {value}")
     return "---\n" + "\n".join(out) + "\n---\n" + text[m.end():]
 
 
@@ -380,7 +419,9 @@ __all__ = [
     "parse_frontmatter",
     "read_node",
     "read_task",
+    "resolve_child",
     "resolve_relationships",
+    "resolve_task",
     "update_node",
     "update_task",
     "validate_vault",
