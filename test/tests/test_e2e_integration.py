@@ -27,11 +27,12 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from scripts.core import change_detector as cd  # noqa: E402
-from scripts.core import health_check as hc  # noqa: E402
-from scripts.core import knowledge_sync as ks  # noqa: E402
-from scripts.core import orchestrator as orch  # noqa: E402
-import generate_dashboard as gd  # noqa: E402
+import generate_dashboard as gd
+
+from scripts.core import change_detector as cd
+from scripts.core import health_check as hc
+from scripts.core import knowledge_sync as ks
+from scripts.core import orchestrator as orch
 
 PASSING_REPORT = """## Agent Report
 - actions performed: implemented feature; added tests

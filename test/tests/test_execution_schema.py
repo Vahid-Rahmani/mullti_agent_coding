@@ -11,7 +11,7 @@ import unittest
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core.execution import schema as S  # noqa: E402
+from scripts.core.execution import schema as S
 
 SECRET = "sk-super-secret-test-value-abc123"
 

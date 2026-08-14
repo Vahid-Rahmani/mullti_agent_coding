@@ -15,8 +15,10 @@ from pathlib import Path
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
-from scripts.core import project_profile  # noqa: E402
-from scripts.core import roles  # noqa: E402
+from scripts.core import (
+    project_profile,
+    roles,
+)
 
 
 def _seed(root: Path, files: dict[str, str]) -> None:

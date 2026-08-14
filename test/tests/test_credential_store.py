@@ -14,8 +14,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.core.model_connections import credential_store
-from scripts.core.model_connections import create_connection, get_connection
+from scripts.core.model_connections import (
+    create_connection,
+    credential_store,
+    get_connection,
+)
 
 SECRET = "test-secret-value-abc123"
 

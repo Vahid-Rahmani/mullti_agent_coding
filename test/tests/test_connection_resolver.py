@@ -12,9 +12,9 @@ from pathlib import Path
 from scripts.core.model_connections import (
     ResolutionError,
     create_connection,
+    credential_store,
     resolve,
 )
-from scripts.core.model_connections import credential_store
 
 SECRET = "test-secret-value-abc123"
 

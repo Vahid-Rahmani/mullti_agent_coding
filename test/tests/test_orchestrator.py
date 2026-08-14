@@ -13,14 +13,12 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
-from unittest import mock
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
-from scripts.core import agents  # noqa: E402
-from scripts.core import opencode_cfg  # noqa: E402
-from scripts.core import orchestrator as orch  # noqa: E402
+from scripts.core import opencode_cfg
+from scripts.core import orchestrator as orch
 
 TASK_TEXT = """---
 type: task

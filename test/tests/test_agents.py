@@ -5,17 +5,17 @@ configured by its own ``AgentSpec`` module carrying identity (tag/name/agent
 key) and a configured model. No modes, personas, or role descriptions exist.
 """
 
-import json
 import os
 import sys
 import unittest
-from pathlib import Path
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
-from scripts.core import agents  # noqa: E402
-from scripts.core import opencode_cfg  # noqa: E402
+from scripts.core import (
+    agents,
+    opencode_cfg,
+)
 
 
 class AgentSpecModulesTestCase(unittest.TestCase):

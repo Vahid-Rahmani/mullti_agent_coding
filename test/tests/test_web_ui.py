@@ -18,10 +18,10 @@ from unittest import mock
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from scripts.web_ui import graph as vgraph  # noqa: E402
-from scripts.web_ui.state import WebState  # noqa: E402
+from scripts.web_ui import graph as vgraph
+from scripts.web_ui.state import WebState
 
 NODE_TEXT = (
     "---\ntype: {node_type}\nstatus: active\nowner: x\n"
@@ -214,8 +214,8 @@ class VaultGraphTestCase(VaultTestCase):
 class ApiTestCase(VaultTestCase):
     def setUp(self):
         super().setUp()
-        from scripts.web_ui.server import create_app
         import scripts.web_ui.routes as routes_mod
+        from scripts.web_ui.server import create_app
         self.routes_mod = routes_mod
         self.real_hub = routes_mod.HUB
         # Point the routes module at the shared fake hub so dispatch/stop
@@ -694,8 +694,8 @@ class WorkflowApiTestCase(VaultTestCase):
         self.wf_dir.mkdir(parents=True)
         self._orig_zova_wf = os.environ.get("ZOVA_WORKFLOWS")
         os.environ["ZOVA_WORKFLOWS"] = str(self.wf_dir)
-        from scripts.web_ui.server import create_app
         import scripts.web_ui.routes as routes_mod
+        from scripts.web_ui.server import create_app
         self.routes_mod = routes_mod
         self.real_hub = routes_mod.HUB
         routes_mod.HUB = self.hub

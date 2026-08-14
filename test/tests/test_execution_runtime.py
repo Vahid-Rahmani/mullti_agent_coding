@@ -17,10 +17,10 @@ from unittest import mock
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core import workflow_engine as E  # noqa: E402
-from scripts.core import workflows as W  # noqa: E402
-from scripts.core.execution import runtime  # noqa: E402
-from scripts.core.execution.schema import ModelResponse  # noqa: E402
+from scripts.core import workflow_engine as E
+from scripts.core import workflows as W
+from scripts.core.execution import runtime
+from scripts.core.execution.schema import ModelResponse
 
 
 def make_wf(nodes=None, settings=None):

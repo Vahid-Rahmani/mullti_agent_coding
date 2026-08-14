@@ -7,7 +7,6 @@ prompt_toolkit Application itself is only built lazily (needs a real console);
 everything here runs headless.
 """
 
-import json
 import os
 import sys
 import tempfile
@@ -20,32 +19,33 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 import terminal_app
-import scripts.core.state_tracker  # noqa: F401 — for mock patching
 from terminal_app import (
     AGENTS,
     BANNER,
     RetroTerminalApp,
     RunHub,
     StateTracker,
-    _loading_bar_fragments,
-    _weighted_progress,
     _build_run_command,
     _classify_block,
     _console_fragments,
-    _panel_groups,
-    _run_header,
     _dashboard_fragments,
     _dir_line,
+    _estimate_token_percent,
+    _loading_bar_fragments,
     _model_bar,
     _model_bar_fragments,
+    _panel_groups,
     _progress_bar_fragments,
+    _run_header,
     _sanitize_prompt,
-    _estimate_token_percent,
+    _weighted_progress,
     _working_fragments,
     build_help_text,
     parse_command,
     prune_prompt,
 )
+
+import scripts.core.state_tracker
 
 
 class ModelConstantsTestCase(unittest.TestCase):
@@ -266,7 +266,6 @@ class RunStateWiringTestCase(unittest.TestCase):
     """RunHub.run/_run_agent/terminate_all write state.md via STATE."""
 
     def setUp(self):
-        import scripts.core.state_tracker
 
         self._orig_state = scripts.core.state_tracker.STATE
         self._tmp = tempfile.TemporaryDirectory()
@@ -274,7 +273,6 @@ class RunStateWiringTestCase(unittest.TestCase):
         self.hub = RunHub()
 
     def tearDown(self):
-        import scripts.core.state_tracker
 
         scripts.core.state_tracker.STATE = self._orig_state
         self._tmp.cleanup()
@@ -807,14 +805,24 @@ class TabbedLayoutTestCase(unittest.TestCase):
         self.assertIn("TARGET m4", bar)
 
     def test_mouse_left_click_switches_tabs(self):
-        from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType, Point
+        from prompt_toolkit.mouse_events import (
+            MouseButton,
+            MouseEvent,
+            MouseEventType,
+            Point,
+        )
 
         event = MouseEvent(Point(x=0, y=0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset())
         self.app._handle_tab_mouse("m4", event)
         self.assertEqual(self.app.current_tab, "m4")
 
     def test_mouse_non_left_click_does_not_switch_tabs(self):
-        from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType, Point
+        from prompt_toolkit.mouse_events import (
+            MouseButton,
+            MouseEvent,
+            MouseEventType,
+            Point,
+        )
 
         event = MouseEvent(Point(x=0, y=0), MouseEventType.MOUSE_UP, MouseButton.RIGHT, frozenset())
         self.app._handle_tab_mouse("m4", event)
@@ -825,7 +833,6 @@ class CleanLinePrefixTestCase(unittest.TestCase):
     """Log lines carry exactly one agent tag — no double prefixes."""
 
     def setUp(self):
-        import scripts.core.state_tracker
 
         self._orig_state = scripts.core.state_tracker.STATE
         self._tmp = tempfile.TemporaryDirectory()
@@ -833,7 +840,6 @@ class CleanLinePrefixTestCase(unittest.TestCase):
         self.hub = RunHub()
 
     def tearDown(self):
-        import scripts.core.state_tracker
 
         scripts.core.state_tracker.STATE = self._orig_state
         self._tmp.cleanup()

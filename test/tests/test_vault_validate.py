@@ -20,7 +20,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-import vault_validate as vv  # noqa: E402
+import vault_validate as vv
 
 # A non-root node body that satisfies the parent-link check and links back to
 # the root (so the root has an inbound link and nothing is flagged orphan).

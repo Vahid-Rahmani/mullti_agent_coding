@@ -16,13 +16,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from fastapi import HTTPException  # noqa: E402
+from fastapi import HTTPException
 
-from scripts.core import vault_bridge as bridge  # noqa: E402
-from scripts.core import orchestrator as orch  # noqa: E402
-from scripts.core import context_resolver as ctx  # noqa: E402
-from scripts.web_ui import graph as vgraph  # noqa: E402
-from scripts.web_ui import routes  # noqa: E402
+from scripts.core import context_resolver as ctx
+from scripts.core import orchestrator as orch
+from scripts.core import vault_bridge as bridge
+from scripts.web_ui import graph as vgraph
+from scripts.web_ui import routes
 
 TASK_TEXT = """---\ntype: task\nstatus: planned\nowner: orchestrator\npriority: high\nassigned_agent: Agent_Matthew\nrelated_component: Component_RunHub\ndependencies: []\ncreated: 2026-08-11\nupdated: 2026-08-11\n---\n\n# Task_Demo\n\nDo the thing.\n"""
 
@@ -179,6 +179,7 @@ class ApiTraversalTestCase(unittest.TestCase):
             "TOP SECRET", encoding="utf-8")
 
         from fastapi.testclient import TestClient
+
         from scripts.web_ui.server import create_app
         from scripts.web_ui.state import WebState
 

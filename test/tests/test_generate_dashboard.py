@@ -13,7 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-import generate_dashboard as gd  # noqa: E402
+import generate_dashboard as gd
 
 NODE = ("---\ntype: {t}\nstatus: active\nowner: test\ncreated: 2026-08-11\n"
         "updated: 2026-08-11\n---\n\n# {name}\n")

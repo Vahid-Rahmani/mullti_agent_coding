@@ -17,7 +17,7 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from scripts.core import orchestrator as orch  # noqa: E402
+from scripts.core import orchestrator as orch
 
 TASK_TEXT = """---
 type: task

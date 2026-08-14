@@ -12,7 +12,6 @@ expense_tracker.py
 
 import json
 import os
-from datetime import datetime
 
 DEFAULT_DATA_FILE = "expenses.json"
 

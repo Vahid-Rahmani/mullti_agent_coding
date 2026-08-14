@@ -9,7 +9,6 @@ per environment-variable scripting.
 
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import threading
@@ -20,21 +19,19 @@ from pathlib import Path
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core.execution.errors import (  # noqa: E402
+from scripts.core.execution.errors import (
     AdapterCancelledError,
     AdapterError,
     AdapterTimeoutError,
 )
-from scripts.core.execution.schema import ModelRequest  # noqa: E402
-from scripts.core.providers.base import (  # noqa: E402
-    ProviderAdapter,
+from scripts.core.execution.schema import ModelRequest
+from scripts.core.providers.base import (
     ResolvedConnection,
 )
-from scripts.core.providers.opencode import (  # noqa: E402
+from scripts.core.providers.opencode import (
     OpenCodeAdapter,
     build_run_command,
 )
-
 
 FAKE_PY = str((Path(__file__).parent / "_fake_opencode.py").resolve())
 
@@ -117,7 +114,6 @@ class TestOpenCodeAdapter(FakeOpenCodeTestCase):
         # The schema already rejects empty prompts at construction; build the
         # request directly (bypassing __post_init__) so we can prove the
         # adapter's own defensive guard still fails loudly and typed.
-        import dataclasses
 
         req = self._request()
         object.__setattr__(req, "prompt", "   ")

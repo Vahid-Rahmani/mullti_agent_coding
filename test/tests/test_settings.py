@@ -13,18 +13,18 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
-import urllib.error
 from urllib.error import HTTPError
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core import opencode_cfg  # noqa: E402
-from scripts.core.agents import AGENT_SPEC_BY_AGENT  # noqa: E402
-from scripts.core.run_hub import HUB  # noqa: E402
-from scripts.web_ui import settings as ui_settings  # noqa: E402
+from scripts.core import opencode_cfg
+from scripts.core.agents import AGENT_SPEC_BY_AGENT
+from scripts.core.run_hub import HUB
+from scripts.web_ui import settings as ui_settings
 
 AGENT_KEYS = [s.agent for s in AGENT_SPEC_BY_AGENT.values()]
 

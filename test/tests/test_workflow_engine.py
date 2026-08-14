@@ -16,8 +16,8 @@ import unittest
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core import workflow_engine as E  # noqa: E402
-from scripts.core import workflows as W  # noqa: E402
+from scripts.core import workflow_engine as E
+from scripts.core import workflows as W
 
 
 def run_sync(workflow, dispatch_fn, initial_state=None):

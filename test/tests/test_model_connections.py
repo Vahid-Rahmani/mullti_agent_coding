@@ -17,13 +17,13 @@ from scripts.core.model_connections import (
     UnknownConnectionError,
     UnknownProviderError,
     create_connection,
+    credential_store,
     delete_connection,
     get_connection,
     list_connections,
     update_connection,
 )
 from scripts.core.model_connections import providers as providers_mod
-from scripts.core.model_connections import credential_store
 
 # test-only marker secrets (never real-looking production credentials)
 SECRET = "test-secret-value-abc123"

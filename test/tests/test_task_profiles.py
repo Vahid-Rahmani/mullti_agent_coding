@@ -12,8 +12,7 @@ import unittest
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core import prompt_library as P  # noqa: E402
-
+from scripts.core import prompt_library as P
 
 # section 17 built-in mappings → the first-ranked prompt id
 SECTION_17_CASES = [

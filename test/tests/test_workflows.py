@@ -4,7 +4,6 @@ Uses temp directories for persistence; never touches the repo ``workflows/``
 dir, ``roles.json``, or ``opencode.json``.
 """
 
-import json
 import os
 import sys
 import tempfile
@@ -14,7 +13,7 @@ from pathlib import Path
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core import workflows as W  # noqa: E402
+from scripts.core import workflows as W
 
 
 def make_workflow(nodes=None, edges=None, entry=None):

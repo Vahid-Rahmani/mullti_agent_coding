@@ -24,10 +24,10 @@ from pathlib import Path
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from scripts.core import model_connections as MC  # noqa: E402
-from scripts.core.execution import planner as P  # noqa: E402
-from scripts.core.execution.errors import PlanError  # noqa: E402
-from scripts.core.workflows import WorkflowNode  # noqa: E402
+from scripts.core import model_connections as MC
+from scripts.core.execution import planner as P
+from scripts.core.execution.errors import PlanError
+from scripts.core.workflows import WorkflowNode
 
 
 class PlannerTestCase(unittest.TestCase):

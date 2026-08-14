@@ -15,8 +15,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from scripts.core import knowledge_sync as ks  # noqa: E402
-from scripts.core import vault_bridge as bridge  # noqa: E402
+from scripts.core import knowledge_sync as ks
 
 FM = ("---\ntype: {t}\nstatus: {s}\nowner: test\ncreated: 2026-08-11\n"
       "updated: 2020-01-01\n---\n\n")

@@ -13,7 +13,7 @@
 import json
 import os
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 
 class ExpenseManager:
@@ -26,7 +26,7 @@ class ExpenseManager:
             file_path: مسیر فایل JSON که هزینه‌ها در آن ذخیره می‌شوند.
         """
         self.file_path = file_path
-        self.expenses: List[Dict[str, Any]] = []
+        self.expenses: list[dict[str, Any]] = []
         self.load()
 
     def load(self) -> None:
@@ -48,8 +48,8 @@ class ExpenseManager:
             json.dump(self.expenses, f, ensure_ascii=False, indent=2)
 
     def add_expense(self, amount: float, description: str,
-                    category: Optional[str] = None,
-                    date: Optional[str] = None) -> Dict[str, Any]:
+                    category: str | None = None,
+                    date: str | None = None) -> dict[str, Any]:
         """یک هزینه جدید اضافه می‌کند و آن را ذخیره می‌کند.
 
         Args:
@@ -87,7 +87,7 @@ class ExpenseManager:
             return 1
         return max(e["id"] for e in self.expenses) + 1
 
-    def get_expenses(self) -> List[Dict[str, Any]]:
+    def get_expenses(self) -> list[dict[str, Any]]:
         """لیست تمام هزینه‌ها را برمی‌گرداند (کپی)."""
         return list(self.expenses)
 
@@ -99,9 +99,9 @@ class ExpenseManager:
         """مجموع تمام هزینه‌ها را محاسبه و برمی‌گرداند."""
         return round(sum(e["amount"] for e in self.expenses), 2)
 
-    def get_total_by_category(self) -> Dict[str, float]:
+    def get_total_by_category(self) -> dict[str, float]:
         """مجموع هزینه‌ها را بر اساس دسته‌بندی برمی‌گرداند."""
-        result: Dict[str, float] = {}
+        result: dict[str, float] = {}
         for e in self.expenses:
             cat = e.get("category") or "بدون دسته"
             result[cat] = result.get(cat, 0.0) + e["amount"]

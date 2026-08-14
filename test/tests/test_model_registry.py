@@ -2,7 +2,6 @@
 
 import unittest
 
-from scripts.core import model_registry
 from scripts.core.model_registry import (
     ModelError,
     get_model,
