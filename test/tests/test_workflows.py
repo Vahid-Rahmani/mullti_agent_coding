@@ -59,6 +59,25 @@ class TestPersistence(unittest.TestCase):
         self.assertEqual(loaded.edges[0].condition, "success")
         self.assertEqual(loaded.entry, ["a"])
 
+    def test_save_rejects_untitled_placeholder(self):
+        # "untitled" must NEVER be persisted as a workflow id — the designer's
+        # in-memory placeholder is rejected at the save boundary.
+        wf = W.Workflow.from_dict({
+            "id": "untitled", "name": "",
+            "nodes": [{"id": "a", "agent": "matthew", "kind": "agent"}],
+            "edges": [], "entry": ["a"],
+        })
+        with self.assertRaises(W.WorkflowError):
+            W.save_workflow(wf, self.root)
+        self.assertIsNone(W.load_workflow("untitled", self.root))
+
+    def test_existing_valid_workflows_still_save_and_load(self):
+        # regression guard: valid ids (the pre-existing behavior) are untouched
+        wf = make_workflow(edges=[{"source": "a", "target": "b"}])
+        saved = W.save_workflow(wf, self.root)
+        self.assertEqual(saved.id, "test-wf")
+        self.assertEqual(W.load_workflow("test-wf", self.root).id, "test-wf")
+
     def test_list_and_delete(self):
         W.save_workflow(make_workflow(), self.root)
         W.save_workflow(W.Workflow(id="other", name="Other"), self.root)

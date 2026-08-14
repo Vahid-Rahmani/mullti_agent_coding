@@ -40,6 +40,17 @@
   --sidebar-w: 270px;
   --bottom-h: 200px;
   --topbar-h: 48px;
+
+  /* Home agent panel sizing policy (read by app.js — centralize here so the
+     whole dashboard shares one readable size spec). */
+  --home-panel-min-w: 280px;     /* readable minimum width */
+  --home-panel-min-h: 200px;     /* readable minimum height */
+  --home-panel-pref-w: 360px;    /* preferred width */
+  --home-panel-pref-h: 260px;    /* preferred height */
+  --home-panel-compact-w: 160px; /* compact mode only */
+  --home-panel-compact-h: 96px;
+  --home-panel-resize-min-w: 280px; /* interactive resize floor (readable) */
+  --home-panel-resize-min-h: 180px;
 }
 
 * { box-sizing: border-box; }
@@ -121,6 +132,20 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
 .btn.primary:disabled { opacity: .45; cursor: not-allowed; }
 .btn.danger { color: var(--err); border-color: var(--err); background: transparent; }
 .btn.danger:hover { background: rgba(248, 81, 73, .1); }
+.btn.active { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+
+/* ── Home layout controls (visual layer, independent of the workflow graph) ── */
+.home-layout-select {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.home-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.home-zoom-label { min-width: 40px; text-align: center; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 .agents-toggle { position: relative; }
 .pop {
@@ -922,15 +947,17 @@ body.ws-body {
 #workspace-grid.workflow-mode {
   position: relative;
   display: block;
-  overflow: hidden;
+  overflow: auto; /* horizontal/vertical modes may overflow → scroll, never shrink */
 }
 #workspace-grid.workflow-mode .panel {
   margin: 0;
   z-index: 2;
+  flex-shrink: 0;
 }
 .home-edges {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -944,3 +971,23 @@ body.ws-body {
   stroke: var(--busy);
   stroke-dasharray: 6 4;
 }
+
+/* Every Home panel is draggable (by header) and resizable (corner handle) in
+   any layout mode; a manual drag/resize promotes the layout to Custom. */
+#workspace-grid .panel .p-head { cursor: grab; }
+#workspace-grid .panel .p-head:active { cursor: grabbing; }
+#workspace-grid .panel.dragging .p-head { cursor: grabbing; }
+#workspace-grid .panel.dragging { box-shadow: 0 6px 20px rgba(0, 0, 0, .45); }
+.panel-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  border-right: 2px solid var(--border-strong);
+  border-bottom: 2px solid var(--border-strong);
+  opacity: .6;
+  z-index: 3;
+}
+.panel-resize:hover { opacity: 1; }

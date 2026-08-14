@@ -37,6 +37,11 @@ NODE_KINDS = ("agent", "end")
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
+# Placeholder ids that must never be persisted. The Workflow Designer's initial
+# in-memory graph uses "untitled" until the user names it; the backend refuses
+# to write that placeholder so it can never leak into workflows/*.json.
+RESERVED_WORKFLOW_IDS = frozenset({"untitled"})
+
 
 class WorkflowError(ValueError):
     """Raised for invalid workflow operations (mapped to HTTP 409/422)."""
@@ -225,6 +230,11 @@ def list_workflows(repo_root: Path | None = None) -> list[Workflow]:
 def save_workflow(workflow: Workflow, repo_root: Path | None = None) -> Workflow:
     """Persist a workflow atomically (temp + ``os.replace``)."""
     workflow.id = normalize_workflow_id(workflow.id)
+    if workflow.id in RESERVED_WORKFLOW_IDS:
+        raise WorkflowError(
+            f"{workflow.id!r} is a placeholder, not a persistent workflow id — "
+            "give the workflow a real id before saving"
+        )
     path = workflow_path(workflow.id, repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")

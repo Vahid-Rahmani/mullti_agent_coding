@@ -56,6 +56,7 @@
     dirty: false,
     selected: { type: null, id: null },   // 'node' | 'edge'
     runId: null,
+    activeWorkflowId: null, // the id /api/active-workflow reports as active
     agentFilter: "",        // live library search query
     runStatuses: {},        // {nodeId: status} from the active run (empty when idle)
     waves: {},              // {nodeId: waveIndex} from the last dry-run preview
@@ -367,6 +368,7 @@
     renderNodes();
     renderEmptyHint();
     updateTitle();
+    updateActivateButton();
   }
 
   function renderEmptyHint() {
@@ -834,15 +836,83 @@
   async function saveWorkflow() {
     setError("");
     const wf = S.workflow;
-    if (!wf.id) { newWorkflow(); return; }
+    // "untitled" is a placeholder, never a persistent workflow id. Require a
+    // real id before saving — but never call newWorkflow() here, because that
+    // resets the graph and would discard the nodes the user just built.
+    if (!wf.id || wf.id === "untitled") {
+      const name = window.prompt("Workflow id (e.g. my-pipeline):", "my-pipeline");
+      if (!name || !name.trim()) {
+        setError("save cancelled — a workflow id is required");
+        return null;
+      }
+      wf.id = name.trim().toLowerCase().replace(/\s+/g, "-");
+    }
     try {
       const r = await put(`/api/workflows/${encodeURIComponent(wf.id)}`, wf);
+      // Adopt the server-returned workflow so S.workflow.id is the real,
+      // normalized persisted id (never the "untitled" placeholder).
       S.workflow = r.workflow;
-      rememberWorkflow(wf.id);
+      rememberWorkflow(S.workflow.id);
       markClean();
       setOk("saved ✓");
       loadWorkflowList();
-    } catch (err) { setError(err.message); }
+      return S.workflow;
+    } catch (err) { setError(err.message); return null; }
+  }
+
+  /* ── activate: connect the loaded workflow to Home + Runtime ──────
+     The single source of truth stays ``active_workflow_id`` (backend prefs).
+     Activate saves the workflow first when dirty (never activates an outdated
+     version), PUTs the existing /api/active-workflow contract, then verifies
+     via GET that the backend reports this exact id as active. */
+  async function activateWorkflow() {
+    setError("");
+    // Resolve an untitled/id-less or dirty workflow into a persisted one first.
+    // saveWorkflow() requires a real id for untitled workflows (never invents
+    // one), adopts the server-returned workflow, and returns it — or null when
+    // the save is cancelled/failed (the error is already surfaced).
+    if (!S.workflow.id || S.workflow.id === "untitled" || S.dirty) {
+      const saved = await saveWorkflow();
+      if (!saved) return;
+    }
+    const id = S.workflow.id;
+    try {
+      // Existing API contract: PUT /api/active-workflow { workflow_id }.
+      await put("/api/active-workflow", { workflow_id: id });
+      // Verify the result (requirement: active_workflow_id === current id).
+      const active = await api("/api/active-workflow");
+      S.activeWorkflowId = active.active_workflow_id || null;
+      updateActivateButton();
+      if (S.activeWorkflowId === id) {
+        setOk("✓ Active — Home projects this workflow");
+      } else {
+        setError(`activation failed: active_workflow_id is ${JSON.stringify(S.activeWorkflowId)}`);
+      }
+    } catch (err) {
+      // Surface the actual API error; the workflow graph is untouched.
+      setError(err.message);
+    }
+  }
+
+  async function refreshActiveIndicator() {
+    let activeId = null;
+    try {
+      const active = await api("/api/active-workflow");
+      activeId = active.active_workflow_id || null;
+    } catch (_) { /* keep null — indicator shows "not active" */ }
+    S.activeWorkflowId = activeId;
+    updateActivateButton();
+  }
+
+  function updateActivateButton() {
+    const btn = $("#ws-activate");
+    if (!btn) return;
+    const isActive = !!S.activeWorkflowId && S.activeWorkflowId === S.workflow.id;
+    btn.textContent = isActive ? "✓ Active" : "Activate Workflow";
+    btn.classList.toggle("active", isActive);
+    btn.title = isActive
+      ? "This workflow is active on Home (click to re-activate)"
+      : "Make this workflow the active one for Home";
   }
 
   function formatErrors(errors) {
@@ -1014,6 +1084,7 @@
   function bind() {
     $("#ws-new").addEventListener("click", newWorkflow);
     $("#ws-save").addEventListener("click", saveWorkflow);
+    $("#ws-activate").addEventListener("click", activateWorkflow);
     $("#ws-load").addEventListener("click", () => loadWorkflow($("#ws-workflow-select").value));
     $("#ws-workflow-select").addEventListener("change", () => loadWorkflow($("#ws-workflow-select").value));
     $("#ws-validate").addEventListener("click", validateWorkflow);
@@ -1085,12 +1156,14 @@
       if (last) loadWorkflow(last);
     });
     loadTemplates();
+    refreshActiveIndicator();
     render();
   }
 
   window.MACWorkspace = { S, select, render, addNode, saveWorkflow, loadWorkflow,
                           validateWorkflow, runWorkflow, dryRunWorkflow, fitToScreen,
-                          loadMeta, matchingAgents, bindDragDrop, ORIGIN };
+                          loadMeta, matchingAgents, bindDragDrop, ORIGIN,
+                          activateWorkflow, refreshActiveIndicator, updateActivateButton };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

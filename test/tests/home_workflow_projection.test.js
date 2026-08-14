@@ -13,6 +13,9 @@
      F. 7 legacy agents do NOT survive workflow activation (3 nodes → 3 panels)
      G. switching workflow A → B leaves no stale panels
      I. node-aware consoles: node id, not agent tag, is the session identity
+     J. buildWorkflowWorkspace never throws with uninitialized per-node caches
+        (3 nodes w/ duplicate agent → 3 panels + 2 edges, node-id identity)
+     K. large/negative coords → compact normalized layout, fixed panel size
 */
 
 const assert = require("assert");
@@ -308,6 +311,85 @@ function main() {
   eq(empties.length, 1, "H: exactly one empty-state message");
   ok(String(empties[0].textContent).includes("No active workflow"),
      "H: message is the workflow empty state (not the legacy agent toggle)");
+
+  // ── J. REGRESSION: no per-node session/cache → no exception ──
+  // Simulate the app's fresh boot state (before any dispatch/stream): the
+  // per-node caches are undefined. buildWorkflowWorkspace must still render a
+  // panel per node (idle/ready) and every edge, never throw on a missing cache.
+  Ag.nodeSessions = undefined;
+  Ag.runStatuses = undefined;
+  Ag.runEmitted = undefined;
+  const WF_REG = {
+    id: "wf-reg", name: "Regression",
+    nodes: [
+      { id: "n2", agent: "matthew", kind: "agent", label: "Matthew", x: 100, y: 100, model: "" },
+      { id: "n3", agent: "alex", kind: "agent", label: "Alex", x: 500, y: 100, model: "" },
+      { id: "n4", agent: "alex", kind: "agent", label: "Alex #2", x: 500, y: 400, model: "" },
+    ],
+    edges: [
+      { source: "n4", target: "n2", condition: "" },
+      { source: "n4", target: "n3", condition: "success" },
+    ],
+  };
+  homeNodes(WF_REG);
+  let threw = false;
+  try { buildWorkspace(); } catch (_) { threw = true; }
+  ok(!threw, "J: buildWorkflowWorkspace does not throw with uninitialized caches");
+  eq(panels().length, 3, "J: 3 nodes → exactly 3 panels");
+  const svgR = registry.grid.children.filter((c) => c.className.includes("home-edges"))[0];
+  const linesR = svgR.children.filter((c) => c.className.includes("home-edge"));
+  eq(linesR.length, 2, "J: 2 edges → exactly 2 rendered edges");
+  eq(linesR[0].dataset.source, "n4", "J: edge source is a workflow node id");
+  eq(linesR[0].dataset.target, "n2", "J: edge target is a workflow node id");
+  eq(linesR[1].dataset.source, "n4", "J: edge source is a workflow node id");
+  eq(linesR[1].dataset.target, "n3", "J: edge target is a workflow node id");
+  // duplicate agent (Alex / Alex #2) → independent panels keyed by node id
+  ok(panelByNode("n3") !== panelByNode("n4"), "J: Alex and Alex #2 are separate panels");
+  eq(panelByNode("n3").dataset.workflowNodeId, "n3", "J: panel identity is the node id (n3)");
+  eq(panelByNode("n4").dataset.workflowNodeId, "n4", "J: panel identity is the node id (n4)");
+  eq(panelByNode("n2").dataset.workflowNodeId, "n2", "J: panel identity is the node id (n2)");
+
+  // ── K. REGRESSION: large/negative coords → compact, fixed-size panels ──
+  // The active workflow's raw coordinates can be large and negative (designer
+  // world space). Home must normalize them and never blow the graph apart.
+  const WF_NEG = {
+    id: "wf-neg", name: "Negative coords",
+    nodes: [
+      { id: "n2", agent: "matthew", kind: "agent", label: "Matthew", x: -1740.4, y: -1740.8, model: "" },
+      { id: "n3", agent: "alex", kind: "agent", label: "Alex", x: -1718.8, y: -1592.8, model: "" },
+      { id: "n4", agent: "alex", kind: "agent", label: "Alex #2", x: -1942.8, y: -1652.2, model: "" },
+    ],
+    edges: [
+      { source: "n4", target: "n2", condition: "" },
+      { source: "n4", target: "n3", condition: "" },
+    ],
+  };
+  Ag.nodeSessions = {}; Ag.runStatuses = {};
+  homeNodes(WF_NEG);
+  buildWorkspace();
+  eq(panels().length, 3, "K: 3 nodes → exactly 3 panels");
+  ok(panelByNode("n3") !== panelByNode("n4"), "K: Alex and Alex #2 are separate panels");
+  eq(panelByNode("n3").dataset.workflowNodeId, "n3", "K: panel identity is the node id (n3)");
+  eq(panelByNode("n4").dataset.workflowNodeId, "n4", "K: panel identity is the node id (n4)");
+  const svgK = registry.grid.children.filter((c) => c.className.includes("home-edges"))[0];
+  const linesK = svgK.children.filter((c) => c.className.includes("home-edge"));
+  eq(linesK.length, 2, "K: 2 workflow edges → exactly 2 rendered edges");
+  eq(linesK[0].dataset.source, "n4", "K: edge source is a workflow node id");
+  eq(linesK[0].dataset.target, "n2", "K: edge target is a workflow node id");
+  eq(linesK[1].dataset.source, "n4", "K: edge source is a workflow node id");
+  eq(linesK[1].dataset.target, "n3", "K: edge target is a workflow node id");
+  // panels keep the standard fixed Home card dimensions (never sized by coords)
+  eq(panelByNode("n2").style.width, "280px", "K: panel width meets the readable minimum");
+  eq(panelByNode("n2").style.height, "200px", "K: panel height meets the readable minimum");
+  eq(panelByNode("n4").style.width, "280px", "K: duplicate-agent panel width is standard too");
+  // normalized, compact layout: offsets are non-negative and the projected
+  // spread is NOT blown up beyond the natural span (~224px) — scale capped at 1
+  const lefts = ["n2", "n3", "n4"].map((id) => parseFloat(panelByNode(id).style.left));
+  const tops = ["n2", "n3", "n4"].map((id) => parseFloat(panelByNode(id).style.top));
+  const spreadX = Math.max(...lefts) - Math.min(...lefts);
+  ok(lefts.every((l) => l >= 0), "K: normalized x is non-negative (no raw -1942 offsets)");
+  ok(tops.every((t) => t >= 0), "K: normalized y is non-negative (no raw -1740 offsets)");
+  ok(spreadX > 0 && spreadX <= 225, `K: horizontal spread is compact (${spreadX}px, not blown apart)`);
 
   console.log("home workflow projection tests passed:", count);
 }

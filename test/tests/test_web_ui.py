@@ -594,7 +594,7 @@ class UiAssetsTestCase(unittest.TestCase):
                       self.js)
         self.assertIn("No active workflow — Create or activate a workflow to start.",
                       self.index)
-        self.assertIn('if (Ag.homeWorkflow)', self.js)
+        self.assertIn('if (!Ag.homeWorkflow)', self.js)
         # the legacy registry/prefs-driven window builder is gone
         self.assertNotIn("function visibleAgents", self.js)
         self.assertNotIn("function gridFor", self.js)
@@ -603,6 +603,42 @@ class UiAssetsTestCase(unittest.TestCase):
         # Home edges are built from WorkflowEdge and carry their node ids.
         self.assertIn('line.setAttribute("data-source", e.source)', self.js)
         self.assertIn('line.setAttribute("data-target", e.target)', self.js)
+
+    def test_home_layout_system(self):
+        # Home has an independent visual layout layer: a mode selector, zoom,
+        # reset, and per-workflow layout persistence — never touching the graph.
+        for token in ('id="home-layout-select"', 'id="home-zoom-in"',
+                      'id="home-zoom-out"', 'id="home-layout-reset"',
+                      'value="workflow"', 'value="grid"', 'value="horizontal"',
+                      'value="vertical"', 'value="compact"', 'value="custom"'):
+            self.assertIn(token, self.index)
+        for token in ("setHomeLayout", "setHomeZoom", "resetHomeLayout",
+                      "setCustomNode", "computeLayout", "workflowOrder",
+                      "gridLayout", "horizontalLayout", "verticalLayout",
+                      "customLayout", "zova-home-layouts", "homeLayouts",
+                      "panelSizes", "cssSize"):
+            self.assertIn(token, self.js)
+        # custom drag/resize handle + layout state are separate from workflow JSON
+        self.assertIn(".panel-resize", self.css)
+        self.assertIn('localStorage.setItem(HOME_LAYOUT_KEY', self.js)
+        # the panel sizing policy is centralized in CSS variables
+        for var in ("--home-panel-min-w", "--home-panel-min-h",
+                    "--home-panel-pref-w", "--home-panel-pref-h",
+                    "--home-panel-compact-w", "--home-panel-compact-h"):
+            self.assertIn(var, self.css)
+
+    def test_home_panels_draggable_resizable(self):
+        # Every Home panel is draggable (header) + resizable (corner handle) in
+        # any mode; a manual gesture promotes the layout to Custom (visual layer
+        # only — never touching the workflow graph).
+        for token in ("switchToCustom", "bindPanelInteractions",
+                      "clampToWorkspace", "bringToFront",
+                      'card.classList.add("dragging")', "pointerdown",
+                      'closest("button, input, select, textarea'):
+            self.assertIn(token, self.js)
+        for token in ("--home-panel-resize-min-w", "--home-panel-resize-min-h",
+                      "cursor: grab", "cursor: grabbing", "nwse-resize"):
+            self.assertIn(token, self.css)
 
     def test_active_workflow_api_wired(self):
         routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(
@@ -993,6 +1029,38 @@ class WorkspaceAssetsTestCase(unittest.TestCase):
                       "Research / Analysis / Writer", "Empty Workflow",
                       "Developer / Reviewer / Retry"):
             self.assertIn(label, self.js)
+
+    # ── Activate Workflow (Designer → active_workflow_id) ─────────────
+    def test_workspace_activate_button_exists(self):
+        # A visible Activate button lives in the Designer toolbar.
+        self.assertIn('id="ws-activate"', self.html)
+        self.assertIn("Activate Workflow", self.html)
+
+    def test_workspace_activate_uses_existing_api_contract(self):
+        # The button wires into the existing PUT /api/active-workflow contract
+        # (payload {workflow_id}) and verifies via GET — no new state system.
+        for token in ("activateWorkflow", "refreshActiveIndicator",
+                      "updateActivateButton", "activeWorkflowId"):
+            self.assertIn(token, self.js)
+        self.assertIn('put("/api/active-workflow", { workflow_id: id })', self.js)
+        self.assertIn('api("/api/active-workflow")', self.js)
+        # save-first when dirty OR untitled/id-less (never activate an outdated
+        # or un-persisted version) — "untitled" is never a valid workflow id
+        self.assertIn('S.workflow.id === "untitled"', self.js)
+        self.assertIn("saveWorkflow", self.js)
+        # success + failure UI states
+        self.assertIn('"✓ Active"', self.js)
+        self.assertIn('"save cancelled', self.js)
+        # the active state is a button style, not a second state store
+        self.assertIn(".btn.active", self.css)
+
+    def test_workspace_activate_reflects_active_workflow(self):
+        # workspace.js reads active_workflow_id and reflects it on the button
+        self.assertIn('$("#ws-activate")', self.js)
+        self.assertIn("S.activeWorkflowId === S.workflow.id", self.js)
+        self.assertIn('btn.classList.toggle("active", isActive)', self.js)
+        # the activate action is bound to the button
+        self.assertIn('$("#ws-activate").addEventListener("click", activateWorkflow)', self.js)
 
 
 if __name__ == "__main__":
