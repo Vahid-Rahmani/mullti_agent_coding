@@ -1,0 +1,81 @@
+{
+  "id": "template-research-analysis-writer",
+  "name": "Research / Analysis / Writer",
+  "project": "",
+  "nodes": [
+    {
+      "id": "researcher",
+      "label": "Researcher",
+      "label_auto": true,
+      "agent": "matthew",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "ai-agent-engineer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": -116.80000813802076,
+      "y": -74.13332112630201
+    },
+    {
+      "id": "analyst",
+      "label": "Analyst",
+      "label_auto": true,
+      "agent": "alex",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "code-reviewer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": 64.13334147135402,
+      "y": 149.86669921875023
+    },
+    {
+      "id": "writer",
+      "label": "Writer",
+      "label_auto": true,
+      "agent": "sarah",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "python-developer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": 435.9999186197915,
+      "y": 21.866658528645985
+    }
+  ],
+  "edges": [
+    {
+      "source": "researcher",
+      "target": "analyst",
+      "condition": ""
+    },
+    {
+      "source": "analyst",
+      "target": "writer",
+      "condition": ""
+    }
+  ],
+  "entry": [],
+  "state": {},
+  "settings": {
+    "max_iterations": 3
+  }
+}
