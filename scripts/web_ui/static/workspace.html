@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en" class="ws-page">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MultiAgentCoding · Agent Workspace</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="ws-body">
+
+  <header id="ws-topbar" class="ws-topbar">
+    <a class="brand" href="/" title="Back to dashboard">
+      <span class="brand-mark">◆</span>
+      <span class="brand-name">Agent Workspace</span>
+    </a>
+
+    <span class="ctl-label">Workflow</span>
+    <select id="ws-workflow-select" title="Select / load a workflow"></select>
+    <button id="ws-new" class="btn" title="New empty workflow">+ New</button>
+    <button id="ws-save" class="btn primary" title="Save workflow">Save</button>
+    <button id="ws-load" class="btn" title="Reload selected workflow">Load</button>
+    <button id="ws-activate" class="btn" title="Make this workflow the active one for Home">Activate Workflow</button>
+
+    <span class="ws-sep"></span>
+    <button id="ws-validate" class="btn" title="Validate the graph">Validate</button>
+    <button id="ws-run" class="btn danger" title="Run the workflow">▶ Run</button>
+    <button id="ws-dry-run" class="btn" title="Preview the execution plan without dispatching agents">Dry Run</button>
+    <button id="ws-run-cancel" class="btn hidden" title="Cancel the running workflow">■ Cancel</button>
+
+    <div class="ctl" title="Templates">
+      <span class="ctl-label">Template</span>
+      <select id="ws-template-select"></select>
+      <button id="ws-template-load" class="btn" title="Load template into the canvas">Load</button>
+    </div>
+    <button id="ws-recommend" class="btn" title="Suggest a workflow from repository analysis">Recommend</button>
+    <button id="ws-duplicate" class="btn" title="Duplicate current workflow">Duplicate</button>
+    <button id="ws-delete" class="btn" title="Delete current workflow">Delete</button>
+
+    <div class="spacer"></div>
+    <span id="ws-dirty" class="ws-dirty hidden" title="Unsaved changes">● unsaved</span>
+    <span id="ws-status" class="ws-status" title="Workflow status"></span>
+    <div class="ctl zoom-ctl">
+      <button id="ws-zoom-out" class="icon-btn" title="Zoom out">－</button>
+      <button id="ws-zoom-reset" class="icon-btn" title="Fit graph to screen">⟳</button>
+      <button id="ws-zoom-in" class="icon-btn" title="Zoom in">＋</button>
+    </div>
+  </header>
+
+  <div class="ws-main">
+    <aside id="ws-library" class="ws-library">
+      <div class="panel-title"><span>Agent Library</span>
+        <button id="ws-add-agent" class="btn primary" title="Add an agent node">+ Add Agent</button>
+      </div>
+      <div class="ws-library-search">
+        <input id="ws-agent-search" placeholder="type to filter agents…" autocomplete="off">
+      </div>
+      <div id="ws-library-list" class="ws-library-list">
+        <div class="placeholder">loading agents…</div>
+      </div>
+      <div class="ws-library-note">Click an agent, or drag it onto the canvas, to add a node. The same agent can be added many times (each node is an independent instance).</div>
+    </aside>
+
+    <section id="ws-canvas-wrap" class="ws-canvas-wrap">
+      <div id="ws-canvas" class="ws-canvas">
+        <div id="ws-world" class="ws-world">
+          <svg id="ws-edges" class="ws-edges"></svg>
+          <div id="ws-nodes" class="ws-nodes"></div>
+        </div>
+        <div id="ws-empty-hint" class="ws-empty-hint">
+          <div>Add agents from the library, then drag from a node's right handle to another node's left handle to connect them.</div>
+        </div>
+      </div>
+      <div id="ws-validation" class="ws-validation hidden"></div>
+      <div id="ws-run-legend" class="ws-run-legend">
+        <span class="dot st-ok"></span> completed
+        <span class="dot st-busy"></span> running
+        <span class="dot st-idle"></span> waiting
+        <span class="dot st-err"></span> failed
+        <span class="dot st-skip"></span> skipped
+        <span class="dot st-dis"></span> disabled
+      </div>
+    </section>
+
+    <aside id="ws-props" class="ws-props">
+      <div class="panel-title"><span>Properties</span></div>
+      <div id="ws-props-body" class="ws-props-body">
+        <div class="placeholder">select a node or edge to configure it</div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="/static/workspace.js"></script>
+</body>
+</html>

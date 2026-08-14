@@ -59,6 +59,42 @@
   // they are never appended as console rows — live and replay stay identical.
   const PANEL_KINDS = ["run", "line", "error", "usermsg", "taskline"];
 
+  /* ── Home layout system ──────────────────────────────────────────
+     The workflow graph (nodes/edges/x/y) is the single source of truth; the
+     Home layout layer is independent and only controls how that graph is shown.
+     Layout state is persisted separately (localStorage, keyed by workflow id)
+     and never mutates WorkflowNode.x/y or WorkflowEdge values. */
+  const HOME_LAYOUTS = ["workflow", "grid", "horizontal", "vertical", "compact", "custom"];
+  const HOME_GAP = 12;                     // grid/flow spacing
+  const HOME_PAD = 24;                     // viewport padding
+  const HOME_ZOOM_MIN = 0.5, HOME_ZOOM_MAX = 1.5;
+  const HOME_LAYOUT_KEY = "zova-home-layouts";
+  const HOME_MODE_KEY = "zova-home-mode";
+
+  // Panel-sizing policy, centralized in CSS variables (--home-panel-*) so the
+  // whole dashboard shares one readable size spec. cssSize reads them at render
+  // time with fallbacks for headless/older environments.
+  function cssSize(varName, fallback) {
+    try {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+      const v = parseFloat(raw);
+      if (Number.isFinite(v) && v > 0) return v;
+    } catch (_) { /* no CSSOM */ }
+    return fallback;
+  }
+  function panelSizes() {
+    return {
+      minW: cssSize("--home-panel-min-w", 280),
+      minH: cssSize("--home-panel-min-h", 200),
+      prefW: cssSize("--home-panel-pref-w", 360),
+      prefH: cssSize("--home-panel-pref-h", 260),
+      compactW: cssSize("--home-panel-compact-w", 160),
+      compactH: cssSize("--home-panel-compact-h", 96),
+      resizeMinW: cssSize("--home-panel-resize-min-w", 280),
+      resizeMinH: cssSize("--home-panel-resize-min-h", 180),
+    };
+  }
+
   /* ─────────────────────────── state ─────────────────────────── */
   const Ag = {
     agents: [],                 // roster from /api/agents
@@ -73,6 +109,25 @@
     activeTag: null,
     taskDetail: null,
     logKey: "orchestrator",
+    // Active-workflow projection: when set, the Workflow Designer graph is the
+    // single source of truth for the Home agent windows (panels, positions,
+    // edges) instead of the registry/prefs panel set.
+    homeWorkflow: null,        // {id,name,nodes,edges} | null
+    homeNodes: [],             // workflow agent nodes in canonical layout order
+    homeEdges: [],             // [{source,target,condition}]
+    homeSignature: "",         // signature of the projected graph (reconcile on change)
+    nodeSessions: {},          // workflowNodeId -> [{kind,text,n}] (per-node, independent)
+    runStatuses: {},           // workflowNodeId -> run status (empty when idle)
+    runEmitted: {},            // runId -> {nodeId: true} (already-replayed outputs)
+    activeRunId: null,         // workflow run currently streaming into Home
+    activeNodeId: null,        // selected workflow node id (Home)
+    // Home visual layout layer (independent of the workflow graph).
+    homeMode: "workflow",      // selected Home layout mode
+    homeZoom: 1,               // Home panel/graph zoom (0.5–1.5)
+    homeLayouts: {},           // wfId -> {mode, zoom, nodes: {nodeId: {x,y,width,height}}}
+    homePositions: new Map(),  // last-rendered nodeId -> {x,y} (center)
+    homeSizes: new Map(),      // last-rendered nodeId -> {w,h}
+    homeZTop: 0,               // z-index counter for bring-to-front
   };
 
   /* ─────────────────────── toolbar wiring ────────────────────── */
@@ -84,6 +139,17 @@
         savePrefs(); buildWorkspace();
       });
     });
+  }
+
+  // Home layout toolbar: mode selector + zoom + reset (visual layer only).
+  function bindHomeLayout() {
+    const sel = $("#home-layout-select");
+    if (sel) sel.addEventListener("change", () => setHomeLayout(sel.value));
+    const zin = $("#home-zoom-in"), zout = $("#home-zoom-out");
+    if (zin) zin.addEventListener("click", () => setHomeZoom(currentHomeLayout().zoom + 0.1));
+    if (zout) zout.addEventListener("click", () => setHomeZoom(currentHomeLayout().zoom - 0.1));
+    const reset = $("#home-layout-reset");
+    if (reset) reset.addEventListener("click", resetHomeLayout);
   }
 
   function togglePop(show) { $("#agents-pop").classList.toggle("hidden", !show); }
@@ -136,6 +202,19 @@
     all.value = "all";
     sel.appendChild(active);
     sel.appendChild(all);
+    if (Ag.homeNodes.length) {
+      // A Home command with an active workflow runs the whole graph — the
+      // backend ignores the per-agent target in that mode.
+      const wfOpt = el("option", null,
+        "Active workflow · " + (Ag.homeWorkflow ? (Ag.homeWorkflow.name || Ag.homeWorkflow.id) : "graph"));
+      wfOpt.value = "workflow";
+      sel.insertBefore(wfOpt, all);
+      Ag.homeNodes.forEach((n) => {
+        const opt = el("option", null, n.label + (n.model ? " · " + n.model : " · Auto"));
+        opt.value = "node:" + n.id;
+        sel.appendChild(opt);
+      });
+    }
     Ag.agents.forEach((a) => {
       const opt = el("option", null, `${a.tag.toUpperCase()} · ${a.name}`);
       opt.value = a.tag;
@@ -169,7 +248,14 @@
       if (tag === "all") tag = null;
       if (tag && !Ag.agents.some((a) => a.tag === tag)) tag = null;
       try {
-        await post("/api/dispatch", { prompt, agent: tag });
+        const resp = await post("/api/dispatch", { prompt, agent: tag });
+        // A Home command with an active workflow executes the workflow graph;
+        // track its run so Home can show node-aware status/output.
+        if (resp && resp.mode === "workflow" && resp.run_id) {
+          Ag.activeRunId = resp.run_id;
+          Ag.runStatuses = {};
+          pollActiveRun();
+        }
         input.value = "";
         autosize();
       } catch (err) {
@@ -186,25 +272,6 @@
   }
 
   /* ─────────────────────── agent workspace ───────────────────── */
-  function visibleAgents() {
-    const visible = Ag.prefs.agents_visible || [];
-    const agents = [];
-    for (const a of Ag.agents) {           // AGENTS roster order preserved
-      if (visible.includes(a.tag)) agents.push(a);
-    }
-    const count = Math.min(parseInt(Ag.prefs.layout, 10) || 4, agents.length);
-    return agents.slice(0, count);
-  }
-
-  function gridFor(count) {
-    const base = "minmax(180px, 1fr)";
-    if (count <= 1) return { cols: "1fr", rows: "1fr" };
-    if (count === 2) return { cols: "1fr 1fr", rows: `${base}` };
-    if (count === 3) return { cols: "1fr 1fr 1fr", rows: `${base}` };
-    if (count === 4) return { cols: "1fr 1fr", rows: `${base} ${base}` };
-    return { cols: "1fr 1fr 1fr", rows: `${base} ${base}` }; // 5–6
-  }
-
   function statusCls(status) {
     if (status === "active") return "st-ok";
     if (status === "error") return "st-err";
@@ -212,9 +279,11 @@
     return "st-idle";
   }
 
-  function panelFor(a) {
+  function panelFor(a, opts) {
+    opts = opts || {};
     const card = el("section", "panel");
     card.dataset.tag = a.tag;
+    if (opts.nodeId) card.dataset.workflowNodeId = opts.nodeId;
     const head = el("header", "p-head");
     head.appendChild(el("span", "p-name", `${a.tag.toUpperCase()} · ${a.name}`));
     head.appendChild(el("span", "p-model", a.model || ""));
@@ -222,13 +291,15 @@
     status.appendChild(el("span", "dot"));
     status.appendChild(el("span", "p-status-label", "idle"));
     head.appendChild(status);
-    const stop = el("button", "p-stop", "Stop");
-    stop.disabled = !a.running;
-    stop.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
-      try { await post(`/api/stop/${a.tag}`); } catch (err) { console.error(err); }
-    });
-    head.appendChild(stop);
+    if (!opts.noStop) {
+      const stop = el("button", "p-stop", "Stop");
+      stop.disabled = !a.running;
+      stop.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        try { await post(`/api/stop/${a.tag}`); } catch (err) { console.error(err); }
+      });
+      head.appendChild(stop);
+    }
     card.appendChild(head);
 
     const task = el("div", "p-task", a.prompt || "…");
@@ -242,13 +313,19 @@
 
     const consoleEl = el("div", "p-console");
     card.appendChild(consoleEl);
-    card.addEventListener("click", () => setActive(a.tag));
+    card.addEventListener("click", () => {
+      if (opts.nodeId) setActiveNode(opts.nodeId);
+      else setActive(a.tag);
+    });
 
     updatePanelUi(card, a);
     return card;
   }
 
   function updatePanelUi(card, a) {
+    // Workflow panels (data-workflow-node-id) are driven by the workflow run
+    // (node-aware status/session), never by the registry agent row.
+    if (card.dataset.workflowNodeId) return;
     const label = card.querySelector(".p-status-label");
     label.textContent = STATUS_LABEL[a.status] || a.status;
     card.querySelector(".p-status").className = "p-status " + statusCls(a.status);
@@ -256,34 +333,584 @@
     card.querySelector(".p-task").textContent = a.prompt || "…";
     card.querySelector(".p-task").title = a.prompt || "";
     card.querySelector(".fill").style.width = (a.progress || 0) + "%";
+    const modelEl = card.querySelector(".p-model");
+    // Workflow panels (data-node) carry their node's per-instance model — the
+    // registry agent's default must not clobber that display.
+    if (modelEl && !card.dataset.node) modelEl.textContent = a.model || "";
     card.classList.toggle("active", a.tag === Ag.activeTag);
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function enabledNodes() {
+    return (Ag.homeNodes || []).filter((n) => n.enabled !== false);
+  }
+
+  // Topological order of nodes (workflow direction: entry nodes first). Cycles
+  // and disconnected nodes fall back to their original order.
+  function workflowOrder(nodes, edges) {
+    const ids = nodes.map((n) => n.id);
+    const indeg = new Map(ids.map((id) => [id, 0]));
+    const adj = new Map(ids.map((id) => [id, []]));
+    (edges || []).forEach((e) => {
+      if (indeg.has(e.source) && indeg.has(e.target) && e.source !== e.target) {
+        indeg.set(e.target, indeg.get(e.target) + 1);
+        adj.get(e.source).push(e.target);
+      }
+    });
+    const queue = ids.filter((id) => indeg.get(id) === 0);
+    const order = [];
+    const seen = new Set();
+    while (queue.length) {
+      const id = queue.shift();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      order.push(id);
+      (adj.get(id) || []).forEach((t) => {
+        indeg.set(t, indeg.get(t) - 1);
+        if (indeg.get(t) === 0) queue.push(t);
+      });
+    }
+    ids.forEach((id) => { if (!seen.has(id)) order.push(id); });
+    return order;
+  }
+
+  function homeAvail() {
+    const wg = $("#workspace-grid");
+    const w = (wg && wg.clientWidth) || window.innerWidth || 800;
+    const h = (wg && wg.clientHeight) || window.innerHeight || 600;
+    // floor at the readable minimum so a tiny viewport never collapses to zero
+    return { w: Math.max(280, w - HOME_PAD * 2), h: Math.max(200, h - HOME_PAD * 2) };
+  }
+
+  // Uniform zoom: scale panel sizes and positions around the viewport center.
+  function applyZoom(positions, sizes, zoom, avail) {
+    if (zoom === 1) return { positions, sizes };
+    const cx = HOME_PAD + avail.w / 2, cy = HOME_PAD + avail.h / 2;
+    const p2 = new Map(), s2 = new Map();
+    positions.forEach((p, id) => p2.set(id, { x: cx + (p.x - cx) * zoom, y: cy + (p.y - cy) * zoom }));
+    sizes.forEach((s, id) => s2.set(id, { w: s.w * zoom, h: s.h * zoom }));
+    return { positions: p2, sizes: s2 };
+  }
+
+  /* ── layout engines (each returns {positions: Map<id,{x,y}>, sizes: Map<id,{w,h}>}) ──
+     Sizing policy: larger readable panels + scrolling over tiny panels.
+       minW/minH = readable floor; prefW/prefH = comfortable preferred size.
+     Only Compact mode may use smaller panels; Custom preserves user sizes. */
+  function workflowLayout(nodes, avail, S) {
+    const positions = new Map(), sizes = new Map();
+    if (!nodes.length) return { positions, sizes };
+    const xs = nodes.map((n) => n.x || 0), ys = nodes.map((n) => n.y || 0);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const spanX = Math.max(1, maxX - minX), spanY = Math.max(1, maxY - minY);
+    const scale = Math.min(1, avail.w / spanX, avail.h / spanY);
+    const ox = HOME_PAD + (avail.w - spanX * scale) / 2;
+    const oy = HOME_PAD + (avail.h - spanY * scale) / 2;
+    nodes.forEach((n) => {
+      positions.set(n.id, { x: ox + ((n.x || 0) - minX) * scale, y: oy + ((n.y || 0) - minY) * scale });
+      sizes.set(n.id, { w: S.minW, h: S.minH });   // sensible readable default
+    });
+    return { positions, sizes };
+  }
+
+  function gridLayout(nodes, edges, avail, S, gap) {
+    const order = workflowOrder(nodes, edges);
+    const positions = new Map(), sizes = new Map();
+    const n = order.length;
+    if (!n) return { positions, sizes };
+    // responsive columns: as many as fit at the readable minimum width,
+    // never creating tiny columns.
+    const cols = Math.max(1, Math.min(n, Math.floor((avail.w + gap) / (S.minW + gap))));
+    const rows = Math.ceil(n / cols);
+    // panels expand to fill each column, up to the preferred width
+    const pw = clamp((avail.w - (cols - 1) * gap) / cols, S.minW, S.prefW);
+    const ph = S.prefH;
+    const totalW = cols * pw + (cols - 1) * gap;
+    const totalH = rows * ph + (rows - 1) * gap;
+    const ox = HOME_PAD + (avail.w - totalW) / 2;
+    const oy = HOME_PAD + Math.max(0, (avail.h - totalH) / 2);
+    order.forEach((id, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      positions.set(id, { x: ox + col * (pw + gap) + pw / 2, y: oy + row * (ph + gap) + ph / 2 });
+      sizes.set(id, { w: pw, h: ph });
+    });
+    return { positions, sizes };
+  }
+
+  function horizontalLayout(nodes, edges, avail, S, gap) {
+    const order = workflowOrder(nodes, edges);
+    const positions = new Map(), sizes = new Map();
+    const n = order.length;
+    if (!n) return { positions, sizes };
+    // fixed readable size — never shrink to fit; overflow scrolls horizontally
+    const pw = S.prefW, ph = S.prefH;
+    const ox = HOME_PAD;
+    const oy = HOME_PAD + avail.h / 2;
+    order.forEach((id, i) => {
+      positions.set(id, { x: ox + i * (pw + gap) + pw / 2, y: oy });
+      sizes.set(id, { w: pw, h: ph });
+    });
+    return { positions, sizes };
+  }
+
+  function verticalLayout(nodes, edges, avail, S, gap) {
+    const order = workflowOrder(nodes, edges);
+    const positions = new Map(), sizes = new Map();
+    const n = order.length;
+    if (!n) return { positions, sizes };
+    // one column that uses (nearly) the full available Home width
+    const pw = avail.w;
+    const ph = S.prefH;
+    const ox = HOME_PAD + avail.w / 2;
+    const totalH = n * ph + (n - 1) * gap;
+    const oy = HOME_PAD + Math.max(0, (avail.h - totalH) / 2);
+    order.forEach((id, i) => {
+      positions.set(id, { x: ox, y: oy + i * (ph + gap) + ph / 2 });
+      sizes.set(id, { w: pw, h: ph });
+    });
+    return { positions, sizes };
+  }
+
+  function customLayout(nodes, avail, custom, S) {
+    const base = workflowLayout(nodes, avail, S);
+    const positions = new Map(), sizes = new Map();
+    nodes.forEach((n) => {
+      const c = (custom && custom[n.id]) || null;
+      if (c && Number.isFinite(c.x) && Number.isFinite(c.y)) positions.set(n.id, { x: c.x, y: c.y });
+      else positions.set(n.id, base.positions.get(n.id));
+      if (c && Number.isFinite(c.w) && Number.isFinite(c.h)) sizes.set(n.id, { w: clamp(c.w, 120, 480), h: clamp(c.h, 80, 400) });
+      else sizes.set(n.id, base.sizes.get(n.id));
+    });
+    return { positions, sizes };
+  }
+
+  function computeLayout(nodes, edges, layout) {
+    const avail = homeAvail();
+    const mode = layout.mode || "workflow";
+    const zoom = clamp(layout.zoom || 1, HOME_ZOOM_MIN, HOME_ZOOM_MAX);
+    const S = panelSizes();
+    let out;
+    if (mode === "grid") out = gridLayout(nodes, edges, avail, S, HOME_GAP);
+    else if (mode === "horizontal") out = horizontalLayout(nodes, edges, avail, S, HOME_GAP);
+    else if (mode === "vertical") out = verticalLayout(nodes, edges, avail, S, HOME_GAP);
+    else if (mode === "compact") out = gridLayout(nodes, edges, avail,
+      { minW: S.compactW, prefW: S.compactW, minH: S.compactH, prefH: S.compactH }, 6);
+    else if (mode === "custom") return customLayout(nodes, avail, layout.custom, S);
+    else out = workflowLayout(nodes, avail, S);
+    return applyZoom(out.positions, out.sizes, zoom, avail);
+  }
+
+  /* ── Home layout persistence (localStorage, keyed by workflow id) ── */
+  function loadHomeLayouts() {
+    try {
+      const raw = window.localStorage.getItem(HOME_LAYOUT_KEY);
+      Ag.homeLayouts = raw ? (JSON.parse(raw) || {}) : {};
+    } catch (_) { Ag.homeLayouts = {}; }
+    try {
+      const mode = window.localStorage.getItem(HOME_MODE_KEY);
+      if (HOME_LAYOUTS.includes(mode)) Ag.homeMode = mode;
+    } catch (_) { /* keep default */ }
+  }
+  function saveHomeLayouts() {
+    try { window.localStorage.setItem(HOME_LAYOUT_KEY, JSON.stringify(Ag.homeLayouts || {})); } catch (_) { /* blocked */ }
+    try { window.localStorage.setItem(HOME_MODE_KEY, Ag.homeMode); } catch (_) { /* blocked */ }
+  }
+  function currentWorkflowId() { return Ag.homeWorkflow ? Ag.homeWorkflow.id : null; }
+  function currentHomeLayout() {
+    const wfId = currentWorkflowId();
+    const saved = (wfId && Ag.homeLayouts && Ag.homeLayouts[wfId]) || null;
+    return {
+      mode: (saved && saved.mode && HOME_LAYOUTS.includes(saved.mode)) ? saved.mode : (Ag.homeMode || "workflow"),
+      zoom: clamp((saved && saved.zoom) || Ag.homeZoom || 1, HOME_ZOOM_MIN, HOME_ZOOM_MAX),
+      custom: (saved && saved.custom) || {},
+    };
+  }
+  function updateHomeLayout(layout) {
+    const wfId = currentWorkflowId();
+    if (wfId) {
+      if (!Ag.homeLayouts) Ag.homeLayouts = {};
+      const cur = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
+      cur.mode = layout.mode;
+      cur.zoom = layout.zoom;
+      if (layout.custom) cur.custom = layout.custom;
+    }
+    Ag.homeMode = layout.mode;
+    Ag.homeZoom = layout.zoom;
+    saveHomeLayouts();
+  }
+
+  function setHomeLayout(mode) {
+    if (!HOME_LAYOUTS.includes(mode)) return;
+    const layout = currentHomeLayout();
+    layout.mode = mode;
+    updateHomeLayout(layout);
+    buildWorkspace();
+  }
+  function setHomeZoom(zoom) {
+    const layout = currentHomeLayout();
+    layout.zoom = clamp(zoom, HOME_ZOOM_MIN, HOME_ZOOM_MAX);
+    updateHomeLayout(layout);
+    buildWorkspace();
+  }
+  function resetHomeLayout() {
+    const wfId = currentWorkflowId();
+    // Discard custom positions/sizes, then return to the *selected default*
+    // mode (Ag.homeMode). A manual drag/resize auto-switches to Custom without
+    // changing Ag.homeMode, so Reset returns the user to their chosen layout.
+    const defaultMode = (Ag.homeMode && HOME_LAYOUTS.includes(Ag.homeMode)) ? Ag.homeMode : "workflow";
+    if (wfId && Ag.homeLayouts) {
+      const layout = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
+      layout.custom = {};
+      layout.zoom = 1;
+      layout.mode = defaultMode;
+    }
+    Ag.homeZoom = 1;
+    saveHomeLayouts();
+    buildWorkspace();
+  }
+  function updateHomeLayoutUi() {
+    const sel = $("#home-layout-select");
+    const layout = currentHomeLayout();
+    if (sel) sel.value = layout.mode;
+    const label = $("#home-zoom-label");
+    if (label) label.textContent = Math.round(layout.zoom * 100) + "%";
+  }
+
+  /* ── shared renderer: panels + edges for any layout mode ── */
+  function renderHomeGraph(wg, nodes, edges, positions, sizes, mode) {
+    wg.classList.add("workflow-mode");
+    wg.classList.toggle("custom-mode", mode === "custom");
+    nodes.forEach((n) => {
+      const a = Ag.agents.find((x) => x.agent === n.agent);
+      const view = {
+        tag: a ? a.tag : (n.agent || "node"),
+        name: n.label || (a ? a.name : n.agent),
+        model: n.resolved_model || n.model || "",
+        status: "idle",
+        progress: 0,
+        token_usage: 0,
+        running: false,
+        prompt: "",
+      };
+      const card = panelFor(view, { nodeId: n.id, noStop: true });
+      const p = positions.get(n.id) || { x: HOME_PAD, y: HOME_PAD };
+      const s = sizes.get(n.id) || { w: 280, h: 200 };
+      card.style.position = "absolute";
+      card.style.width = s.w + "px";
+      card.style.height = s.h + "px";
+      card.style.left = p.x + "px";
+      card.style.top = p.y + "px";
+      card.style.transform = "translate(-50%, -50%)";
+      wg.appendChild(card);
+      // node-aware console: replay this node's own session (independent per
+      // workflow node id — duplicate agents never share output)
+      const sess = (Ag.nodeSessions ? Ag.nodeSessions[n.id] : null) || [];
+      sess.forEach((ev) => {
+        if (PANEL_KINDS.includes(ev.kind)) {
+          appendEv(card.querySelector(".p-console"), ev);
+        }
+      });
+      // node-aware run status (from the active workflow run, keyed by node id)
+      const st = Ag.runStatuses ? Ag.runStatuses[n.id] : undefined;
+      if (st) {
+        card.querySelector(".p-status-label").textContent = st;
+        card.querySelector(".p-status").className =
+          "p-status " + statusCls(runStatusToUi(st));
+      }
+    });
+    drawHomeEdges(wg, edges, positions, sizes);
+    bindPanelInteractions(wg);
+  }
+
+  function drawHomeEdges(wg, edges, positions, sizes) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "home-edges");
+    // Size the SVG to the full content extent so edges stay aligned when the
+    // workspace scrolls (horizontal/vertical/custom layouts can overflow).
+    let extW = 0, extH = 0;
+    positions.forEach((p, id) => {
+      const s = (sizes && sizes.get(id)) || { w: 0, h: 0 };
+      extW = Math.max(extW, p.x + s.w / 2);
+      extH = Math.max(extH, p.y + s.h / 2);
+    });
+    svg.style.width = Math.max(extW, 1) + "px";
+    svg.style.height = Math.max(extH, 1) + "px";
+    (edges || []).forEach((e) => {
+      const a = positions.get(e.source), b = positions.get(e.target);
+      if (!a || !b) return;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
+      line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
+      line.setAttribute("class", "home-edge");
+      // edges reference workflow NODE ids (not agent tags)
+      line.setAttribute("data-source", e.source);
+      line.setAttribute("data-target", e.target);
+      if (e.condition) line.setAttribute("data-condition", e.condition);
+      svg.appendChild(line);
+    });
+    wg.appendChild(svg);
+  }
+
+  function panelCenter(nodeId) {
+    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
+    if (!card) return null;
+    return { x: parseFloat(card.style.left), y: parseFloat(card.style.top) };
+  }
+  function redrawHomeEdges() {
+    const wg = $("#workspace-grid");
+    if (!wg) return;
+    let svg = null;
+    for (const c of wg.children || []) {
+      if (String(c.className).includes("home-edges")) svg = c;
+    }
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    let extW = 0, extH = 0;
+    (Ag.homeEdges || []).forEach((e) => {
+      const a = panelCenter(e.source), b = panelCenter(e.target);
+      if (!a || !b) return;
+      extW = Math.max(extW, a.x, b.x);
+      extH = Math.max(extH, a.y, b.y);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
+      line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
+      line.setAttribute("class", "home-edge");
+      line.setAttribute("data-source", e.source);
+      line.setAttribute("data-target", e.target);
+      if (e.condition) line.setAttribute("data-condition", e.condition);
+      svg.appendChild(line);
+    });
+    svg.style.width = Math.max(extW, 1) + "px";
+    svg.style.height = Math.max(extH, 1) + "px";
+  }
+
+  /* ── Home panel drag + resize (visual layer, persisted per workflow) ── */
+  function customNodeBase(nodeId) {
+    const c = (currentHomeLayout().custom || {})[nodeId];
+    return c || null;
+  }
+
+  /* A manual drag/resize promotes the layout to Custom: snapshot every
+     rendered panel's current position/size into the per-workflow layout, then
+     switch the effective mode to Custom WITHOUT touching the user's selected
+     default (Ag.homeMode) so Reset Layout can revert to it. Idempotent — once
+     Custom, subsequent moves update only the one node. */
+  function switchToCustom() {
+    const wfId = currentWorkflowId();
+    if (!wfId) return;
+    if (currentHomeLayout().mode === "custom") return;
+    if (!Ag.homeLayouts) Ag.homeLayouts = {};
+    const layout = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
+    if (!layout.custom) layout.custom = {};
+    $$(".panel[data-workflow-node-id]").forEach((card) => {
+      const id = card.dataset.workflowNodeId;
+      const x = parseFloat(card.style.left), y = parseFloat(card.style.top);
+      const w = parseFloat(card.style.width), h = parseFloat(card.style.height);
+      if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h)) {
+        layout.custom[id] = { x: x, y: y, w: w, h: h };
+      }
+    });
+    layout.mode = "custom";
+    saveHomeLayouts();
+    updateHomeLayoutUi();
+    const wg = $("#workspace-grid");
+    if (wg) wg.classList.add("custom-mode");
+  }
+
+  /* Keep a dragged panel's top-left corner on the workspace (center ≥ half-size)
+     so it can't be lost off the top/left. Positive overflow is allowed because
+     horizontal/vertical/custom layouts scroll instead of clipping. */
+  function clampToWorkspace(x, y, w, h) {
+    return { x: Math.max(x, w / 2), y: Math.max(y, h / 2) };
+  }
+
+  function moveNode(nodeId, x, y) {
+    switchToCustom();
+    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
+    const w = card ? (parseFloat(card.style.width) || 280) : 280;
+    const h = card ? (parseFloat(card.style.height) || 200) : 200;
+    const p = clampToWorkspace(x, y, w, h);
+    const wfId = currentWorkflowId();
+    if (wfId && Ag.homeLayouts) {
+      const layout = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
+      if (!layout.custom) layout.custom = {};
+      const cur = layout.custom[nodeId] || {};
+      layout.custom[nodeId] = { x: p.x, y: p.y, w: cur.w, h: cur.h };
+    }
+    if (card) { card.style.left = p.x + "px"; card.style.top = p.y + "px"; }
+    saveHomeLayouts();
+    redrawHomeEdges();
+  }
+  function resizeNode(nodeId, w, h) {
+    switchToCustom();
+    const S = panelSizes();
+    const avail = homeAvail();
+    // interactive resize floor: readable minimums; ceiling: the workspace size.
+    const minW = S.resizeMinW, minH = S.resizeMinH;
+    const maxW = Math.max(minW, avail.w), maxH = Math.max(minH, avail.h);
+    const wc = clamp(w, minW, maxW), hc = clamp(h, minH, maxH);
+    const wfId = currentWorkflowId();
+    if (wfId && Ag.homeLayouts) {
+      const layout = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
+      if (!layout.custom) layout.custom = {};
+      const cur = layout.custom[nodeId] || {};
+      layout.custom[nodeId] = { x: cur.x, y: cur.y, w: wc, h: hc };
+    }
+    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
+    if (card) { card.style.width = wc + "px"; card.style.height = hc + "px"; }
+    saveHomeLayouts();
+    redrawHomeEdges();
+  }
+  function setCustomNode(nodeId, patch) {
+    const wfId = currentWorkflowId();
+    if (!wfId) return;
+    if (!Ag.homeLayouts) Ag.homeLayouts = {};
+    const layout = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
+    if (!layout.custom) layout.custom = {};
+    const cur = layout.custom[nodeId] || {};
+    layout.custom[nodeId] = {
+      x: Number.isFinite(patch.x) ? patch.x : cur.x,
+      y: Number.isFinite(patch.y) ? patch.y : cur.y,
+      w: Number.isFinite(patch.w) ? clamp(patch.w, 120, 480) : cur.w,
+      h: Number.isFinite(patch.h) ? clamp(patch.h, 80, 400) : cur.h,
+    };
+    saveHomeLayouts();
+    buildWorkspace();
+  }
+  function commitCustomLayout() { saveHomeLayouts(); }
+
+  function bringToFront(card) {
+    // stay above the edge SVG (z-index 1) and sibling panels (z-index 2)
+    card.style.zIndex = ++Ag.homeZTop + 2;
+    card.classList.add("active");
+  }
+
+  function bindPanelInteractions(wg) {
+    $$(".panel[data-workflow-node-id]").forEach((card) => {
+      const nodeId = card.dataset.workflowNodeId;
+      if (!nodeId || card.dataset.panelBound) return;
+      card.dataset.panelBound = "1";
+      if (!card.querySelector(".panel-resize")) {
+        card.appendChild(el("div", "panel-resize"));
+      }
+      const head = card.querySelector(".p-head");
+      const start = (ev, isResize) => {
+        if (ev.button !== 0) return;   // primary button only
+        // never start a drag from an interactive control inside the panel
+        if (!isResize && ev.target && ev.target.closest &&
+            ev.target.closest("button, input, select, textarea, a, .p-console, .p-status, .panel-resize")) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        switchToCustom();          // manual move/resize → Custom (visual layer only)
+        bringToFront(card);
+        card.classList.add("dragging");
+        const sx = ev.clientX, sy = ev.clientY;
+        const startX = parseFloat(card.style.left), startY = parseFloat(card.style.top);
+        const startW = parseFloat(card.style.width), startH = parseFloat(card.style.height);
+        const move = (e) => {
+          if (isResize) resizeNode(nodeId, startW + (e.clientX - sx), startH + (e.clientY - sy));
+          else moveNode(nodeId, startX + (e.clientX - sx), startY + (e.clientY - sy));
+        };
+        const up = () => {
+          card.classList.remove("dragging");
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          commitCustomLayout();
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      };
+      if (head) head.addEventListener("pointerdown", (ev) => start(ev, false));
+      const handle = card.querySelector(".panel-resize");
+      if (handle) handle.addEventListener("pointerdown", (ev) => start(ev, true));
+    });
   }
 
   function buildWorkspace() {
     const wg = $("#workspace-grid");
     empty(wg);
-    const agents = visibleAgents();
-    const emptyMsg = el("div", "workspace-empty hidden", "No agents visible — toggle agents on in the toolbar.");
-    wg.appendChild(emptyMsg);
-    if (agents.length === 0) {
-      emptyMsg.classList.remove("hidden");
+    wg.classList.remove("workflow-mode", "custom-mode");
+    wg.style.gridTemplateColumns = "";
+    wg.style.gridTemplateRows = "";
+    // The active workflow is the single source of truth for the Home agent
+    // windows. When one is active, Home renders it through the selected layout
+    // mode; otherwise Home shows an empty workflow state — it never falls back
+    // to the global registry / agents_visible layout.
+    if (!Ag.homeWorkflow) {
+      wg.appendChild(el("div", "workspace-empty",
+        "No active workflow — Create or activate a workflow to start."));
+      updateHomeLayoutUi();
+      return;
     }
-    const g = gridFor(agents.length);
-    wg.style.gridTemplateColumns = g.cols;
-    wg.style.gridTemplateRows = g.rows;
-    agents.forEach((a) => wg.appendChild(panelFor(a)));
-    // replay saved sessions (current Ag.sessions, not an init snapshot; status
-    // events are skipped so live and replay rendering stay identical)
-    for (const a of Ag.agents) {
-      const card = wg.querySelector(`.panel[data-tag="${a.tag}"]`);
-      if (card && Ag.sessions[a.tag]) {
-        Ag.sessions[a.tag].forEach((ev) => {
-          if (PANEL_KINDS.includes(ev.kind)) {
-            appendEv(card.querySelector(".p-console"), ev);
-          }
-        });
+    const nodes = enabledNodes();
+    const edges = Ag.homeEdges || [];
+    const layout = currentHomeLayout();
+    const { positions, sizes } = computeLayout(nodes, edges, layout);
+    renderHomeGraph(wg, nodes, edges, positions, sizes, layout.mode);
+    updateHomeLayoutUi();
+  }
+
+  /* ── back-compat entry: force the Workflow (designer-graph) layout ── */
+  function buildWorkflowWorkspace(wg) {
+    wg = wg || $("#workspace-grid");
+    empty(wg);
+    wg.classList.remove("custom-mode");
+    const nodes = enabledNodes();
+    const edges = Ag.homeEdges || [];
+    const { positions, sizes } = workflowLayout(nodes, homeAvail());
+    renderHomeGraph(wg, nodes, edges, positions, sizes, "workflow");
+  }
+
+  function runStatusToUi(st) {
+    if (st === "running") return "thinking";
+    if (st === "completed") return "active";
+    if (st === "failed") return "error";
+    return "idle";
+  }
+
+  function setActiveNode(nodeId) {
+    Ag.activeNodeId = nodeId;
+    $$(".panel").forEach((card) =>
+      card.classList.toggle("active", card.dataset.workflowNodeId === nodeId));
+    const n = Ag.homeNodes.find((x) => x.id === nodeId);
+    const elTarget = $("#send-target");
+    if (elTarget) elTarget.textContent = n ? (n.label || n.agent) : nodeId;
+  }
+
+  function nodeEvent(nodeId, ev) {
+    // Node-aware session persistence: workflow node id, not agent tag.
+    const sess = (Ag.nodeSessions[nodeId] = Ag.nodeSessions[nodeId] || []);
+    sess.push(ev);
+    if (sess.length > 400) sess.splice(0, sess.length - 400);
+    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
+    if (card && PANEL_KINDS.includes(ev.kind)) {
+      appendEv(card.querySelector(".p-console"), ev);
+    }
+  }
+
+  async function pollActiveRun() {
+    if (!Ag.activeRunId) return;
+    let snap;
+    try { snap = await api(`/api/workflows/runs/${Ag.activeRunId}`); } catch (_) { return; }
+    Ag.runStatuses = snap.statuses || {};
+    const em = (Ag.runEmitted[Ag.activeRunId] = Ag.runEmitted[Ag.activeRunId] || {});
+    Object.entries(snap.outputs || {}).forEach(([nid, text]) => {
+      if (!text || em[nid]) return;
+      const st = (snap.statuses || {})[nid];
+      if (st === "completed" || st === "failed") {
+        em[nid] = true;
+        nodeEvent(nid, { kind: "line", text });
       }
-    }
+    });
+    Object.entries(Ag.runStatuses).forEach(([nid, st]) => {
+      const card = $(`.panel[data-workflow-node-id="${nid}"]`);
+      if (!card) return;
+      card.querySelector(".p-status-label").textContent = st;
+      card.querySelector(".p-status").className = "p-status " + statusCls(runStatusToUi(st));
+      card.classList.toggle("running", st === "running");
+    });
+    if (snap.finished) Ag.activeRunId = null;
   }
 
   function setActive(tag) {
@@ -1507,6 +2134,10 @@
         if (a) updatePanelUi(card, a);
       });
       buildStatusTable();
+      // reconcile Home with the active workflow graph (activate/switch/save)
+      // and stream the active workflow run into node-aware consoles
+      await refreshActiveWorkflow();
+      await pollActiveRun();
     } catch (_) { /* transient */ }
   }
 
@@ -1516,6 +2147,7 @@
     Ag.agents = data.agents;
     Ag.prefs = Object.assign({}, Ag.prefs, data.prefs || {});
     Ag.activeTag = Ag.prefs.active_tag;
+    await refreshActiveWorkflow();
     applyPrefs();
     buildPop();
     buildDispatchTarget();
@@ -1524,6 +2156,59 @@
     buildLogSelect();
     $("#send-target").textContent = tagName(Ag.activeTag);
     $("#workspace-dir").textContent = window.location.host;
+  }
+
+  function homeSignatureOf(wf) {
+    if (!wf) return "";
+    return JSON.stringify([
+      wf.id,
+      (wf.nodes || []).map((n) =>
+        [n.id, n.agent, n.model, n.x, n.y, n.enabled, n.kind, n.label]),
+      (wf.edges || []).map((e) => [e.source, e.target, e.condition]),
+    ]);
+  }
+
+  async function refreshActiveWorkflow() {
+    // The Workflow Designer's saved graph (if activated) is the single source
+    // of truth for Home agent windows. This is idempotent: it re-fetches on
+    // every poll and reconciles Home ONLY when the graph actually changed
+    // (activate/switch/rename/move/model/edge edits in the Designer flow
+    // through here automatically — no stale legacy windows survive).
+    let data = null;
+    try { data = await api("/api/active-workflow"); } catch (_) { return; }
+    const wf = data && data.workflow;
+    const sig = homeSignatureOf(wf);
+    if (sig === Ag.homeSignature) return;
+    Ag.homeSignature = sig;
+    if (wf) {
+      // An active workflow is projected even when it has zero agent nodes;
+      // only ``workflow: null`` (no active id / missing file) is "inactive".
+      Ag.homeWorkflow = wf;
+      Ag.homeNodes = (wf.nodes || []).filter((n) => n.kind === "agent");
+      Ag.homeEdges = wf.edges || [];
+    } else {
+      Ag.homeWorkflow = null; Ag.homeNodes = []; Ag.homeEdges = [];
+    }
+    buildWorkspace();
+    buildDispatchTarget();
+  }
+
+  async function refreshAgentModels() {
+    // Re-read /api/agents and sync model labels into Ag.agents + panel headers.
+    try {
+      const data = await api("/api/agents");
+      const byTag = new Map(data.agents.map((x) => [x.tag, x]));
+      Ag.agents.forEach((a) => {
+        const fresh = byTag.get(a.tag);
+        if (fresh) a.model = fresh.model;
+      });
+      buildPop();
+      buildDispatchTarget();
+      $$(".panel").forEach((card) => {
+        const a = Ag.agents.find((x) => x.tag === card.dataset.tag);
+        if (a) updatePanelUi(card, a);
+      });
+    } catch (_) { /* transient */ }
   }
 
   async function loadSessions() {
@@ -1577,7 +2262,9 @@
 
   /* ─────────────────────── init ──────────────────────────────── */
   function init() {
+    loadHomeLayouts();
     bindLayout();
+    bindHomeLayout();
     bindAgentsPop();
     bindDispatch();
     bindGraph();
@@ -1603,5 +2290,13 @@
 
   // Test/embedding hook (mirrors window.MACSettings): exposes the live event →
   // session pipeline so behavioral tests can drive it headlessly.
-  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream, loadSessions, checkBackendRestart, pollState };
+  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream,
+                    loadSessions, checkBackendRestart, pollState, refreshAgentModels,
+                    refreshActiveWorkflow, buildWorkflowWorkspace, nodeEvent,
+                    pollActiveRun, setActiveNode, homeSignatureOf,
+                    setHomeLayout, setHomeZoom, resetHomeLayout, setCustomNode,
+                    moveNode, resizeNode, redrawHomeEdges, computeLayout,
+                    currentHomeLayout, workflowOrder, buildWorkspace,
+                    switchToCustom, clampToWorkspace, bindPanelInteractions,
+                    bringToFront, commitCustomLayout };
 })();

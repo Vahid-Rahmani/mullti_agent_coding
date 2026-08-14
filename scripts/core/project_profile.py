@@ -163,12 +163,15 @@ def suggest_roles(profile: ProjectProfile | None = None,
 
 
 def suggested_role_reasons(profile: ProjectProfile | None = None,
-                           repo_root: Path | None = None) -> dict[str, str]:
-    """Human reason for each *pending* suggested role (why it was suggested).
+                           repo_root: Path | None = None,
+                           include_approved: bool = False) -> dict[str, str]:
+    """Human reason for each suggested role (why it was suggested).
 
     Maps role id → the technology signal that produced it (or "universal
-    maintenance role" for the always-suggested reviewer/architect pair). Only
-    roles still to consider are included (approved ones are dropped).
+    maintenance role" for the always-suggested reviewer/architect pair). By
+    default only roles still to consider are returned (approved ones are
+    dropped); ``include_approved=True`` keeps them (used by workflow
+    recommendations, which want the full picture).
     """
     prof = profile if profile is not None else analyze_repository(repo_root)
     reasons: dict[str, str] = {}
@@ -177,6 +180,8 @@ def suggested_role_reasons(profile: ProjectProfile | None = None,
             reasons.setdefault(rid, f"detected: {tech}")
     for rid in _UNIVERSAL_ROLES:
         reasons.setdefault(rid, "universal maintenance role")
+    if include_approved:
+        return reasons
     approved = set(prof.approved_roles)
     return {rid: reason for rid, reason in reasons.items() if rid not in approved}
 

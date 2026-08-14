@@ -15,15 +15,22 @@
       <span class="brand-name">MultiAgent</span>
     </div>
 
-    <div class="ctl layout-ctl" title="Workspace layout">
+    <div class="ctl layout-ctl" title="Home layout">
       <span class="ctl-label">Layout</span>
-      <div class="seg" id="layout-seg">
-        <button class="seg-btn" data-layout="1" title="1 panel">1</button>
-        <button class="seg-btn" data-layout="2" title="2 panels">2</button>
-        <button class="seg-btn" data-layout="3" title="3 panels">3</button>
-        <button class="seg-btn" data-layout="4" title="4 panels">4</button>
-        <button class="seg-btn" data-layout="6" title="6 panels">6</button>
-      </div>
+      <select id="home-layout-select" class="home-layout-select" title="Home layout mode">
+        <option value="workflow">Workflow</option>
+        <option value="grid">Grid</option>
+        <option value="horizontal">Horizontal</option>
+        <option value="vertical">Vertical</option>
+        <option value="compact">Compact</option>
+        <option value="custom">Custom</option>
+      </select>
+      <span class="home-zoom" id="home-zoom" title="Home panel/graph scaling">
+        <button id="home-zoom-out" class="icon-btn" title="Zoom out">−</button>
+        <span id="home-zoom-label" class="home-zoom-label">100%</span>
+        <button id="home-zoom-in" class="icon-btn" title="Zoom in">＋</button>
+      </span>
+      <button id="home-layout-reset" class="btn" title="Reset to the default layout">Reset Layout</button>
     </div>
 
     <div class="ctl agents-ctl">
@@ -36,6 +43,7 @@
 
     <div class="spacer"></div>
     <div id="workspace-dir" class="dir" title="Workspace directory"></div>
+    <a id="workspace-link" class="btn" href="/workspace" title="Agent Workspace / workflow designer">Workflow ▸</a>
     <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
     <button id="stop-all" class="btn danger" title="Stop all agents">■ Stop All</button>
   </header>
@@ -95,7 +103,7 @@
   <!-- ── Center: agent workspace (grid + prompt box below) ───────── -->
   <main id="workspace" class="workspace">
     <div id="workspace-grid">
-      <div class="workspace-empty hidden">No agents visible — toggle agents on in the toolbar.</div>
+      <div class="workspace-empty">No active workflow — Create or activate a workflow to start.</div>
     </div>
 
     <form id="prompt-box" class="prompt-box" autocomplete="off">

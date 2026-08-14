@@ -37,6 +37,10 @@ DEFAULT_PREFS: dict = {
     "graph_h": 300,      # graph canvas height (Settings → Graph)
     "minimap_on": True,  # graph minimap visible at start (Settings → Graph)
     "conn_status": {},   # provider -> "tested" | "validation_failed" (Settings)
+    # The Workflow Designer's saved graph is the single source of truth for
+    # the Home agent windows and the Home runtime path. None = the classic
+    # registry/prefs-driven Home (all agents, no graph).
+    "active_workflow_id": None,
 }
 
 _SESSION_KINDS = {"run", "line", "error", "status"}
@@ -99,6 +103,9 @@ class WebState:
                 k: v for k, v in conn_status.items()
                 if isinstance(k, str) and v in ("tested", "validation_failed")
             }
+        awid = self.prefs.get("active_workflow_id")
+        self.prefs["active_workflow_id"] = (
+            awid if isinstance(awid, str) and awid.strip() else None)
 
     def save_prefs(self) -> None:
         try:

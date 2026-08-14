@@ -52,9 +52,9 @@
       "model": "opencode/ling-3.0-tiny-free"
     },
     "matthew": {
-      "description": "M1 \u2014 plain agent.",
-      "mode": "all",
-      "model": "google/gemini-3.5-flash-lite",
+      "description": "M1 \u2014 manager",
+      "mode": "primary",
+      "model": "opencode/deepseek-v4-flash-free",
       "fallback_models": [
         "opencode/big-pickle",
         "ollama/qwen2.5-coder:7b"
@@ -63,7 +63,7 @@
     "alex": {
       "description": "M2 \u2014 plain agent.",
       "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "google/gemini-3.6-flash",
       "fallback_models": [
         "opencode/big-pickle",
         "ollama/qwen2.5-coder:7b"
@@ -79,7 +79,7 @@
       ]
     },
     "david": {
-      "description": "M4 \u2014 plain agent.",
+      "description": "M4 \u2014 building",
       "mode": "all",
       "model": "opencode/big-pickle",
       "fallback_models": [
@@ -88,7 +88,7 @@
       ]
     },
     "elena": {
-      "description": "M5 \u2014 plain agent.",
+      "description": "M5 \u2014 pbuilding",
       "mode": "all",
       "model": "opencode/ling-3.0-tiny-free",
       "fallback_models": [
@@ -98,9 +98,9 @@
       ]
     },
     "max": {
-      "description": "M6 \u2014 plain agent.",
+      "description": "M6 \u2014 building",
       "mode": "all",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "google/gemini-3.1-flash-lite",
       "fallback_models": [
         "opencode/big-pickle",
         "ollama/qwen2.5-coder:7b"
