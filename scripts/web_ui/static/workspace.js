@@ -55,6 +55,8 @@
     models: [],            // [{id,name}] available models
     modelCatalog: [],      // Phase 3 model-registry catalog [{id,provider,...}]
     modelById: {},         // {id: ModelSpec} quick lookup
+    connections: [],       // Phase 4 BYOK connections (metadata only, never secrets)
+    connectionProviders: [],  // [{provider, display_name, requires_api_key, ...}]
     prompts: [],           // prompt-profile metadata from /api/prompts
     promptById: {},        // {id: meta} quick lookup
     promptTexts: {},       // {id: full prompt text} cache (fetched on demand)
@@ -432,6 +434,242 @@
     body.appendChild(wrap);
   }
 
+  /* ── Phase 4: BYOK connections ──────────────────────────────────
+     Connections are metadata only; secrets live in the backend auth store
+     and are NEVER placed into JS state, DOM, or console output. The node
+     only ever carries a connection_id. */
+  async function loadConnections() {
+    try {
+      const r = await api("/api/connections");
+      S.connections = r.connections || [];
+      S.connectionProviders = r.providers || [];
+    } catch (_) {
+      S.connections = [];
+      S.connectionProviders = [];
+    }
+  }
+
+  function connectionById(id) {
+    return (S.connections || []).find((c) => c.id === id) || null;
+  }
+
+  function providerForNode(n) {
+    const m = (n && n.model) || "";
+    const slash = m.indexOf("/");
+    return slash > 0 ? m.slice(0, slash) : "";
+  }
+
+  function connectionCombo(n) {
+    const box = el("div", "conn-combo");
+    const sel = el("select", "ws-conn-select");
+    const auto = el("option", null, "Auto");
+    auto.value = "";
+    sel.appendChild(auto);
+    const local = el("option", null, "Local / None");
+    local.value = "local";
+    sel.appendChild(local);
+    (S.connections || []).forEach((c) => {
+      const o = el("option", null, c.display_name || c.id);
+      o.value = c.id;
+      if (n.connection_id === c.id) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.value = n.connection_id || "";
+    sel.addEventListener("change", () => {
+      n.connection_id = sel.value;   // persists in the workflow (id only)
+      markDirty();
+      renderNodes();
+    });
+    box.appendChild(sel);
+    const mgr = el("button", "btn ws-conn-manage", "Manage Connections");
+    mgr.type = "button";
+    mgr.addEventListener("click", openConnectionManager);
+    box.appendChild(mgr);
+    return box;
+  }
+
+  function openConnectionManager() {
+    const host = $("#ws-conn-mgr");
+    if (!host) return;
+    host.classList.remove("hidden");
+    renderConnectionManager();
+  }
+
+  function closeConnectionManager() {
+    const host = $("#ws-conn-mgr");
+    if (host) host.classList.add("hidden");
+  }
+
+  async function renderConnectionManager() {
+    const host = $("#ws-conn-mgr");
+    if (!host) return;
+    await loadConnections();
+    empty(host);
+    const card = el("div", "ws-conn-mgr-card");
+    const head = el("div", "ws-conn-mgr-head");
+    head.appendChild(el("span", "ws-conn-mgr-title", "AI Connections"));
+    const closeBtn = el("button", "btn", "✕");
+    closeBtn.type = "button";
+    closeBtn.addEventListener("click", closeConnectionManager);
+    head.appendChild(closeBtn);
+    card.appendChild(head);
+
+    const list = el("div", "ws-conn-list");
+    (S.connections || []).forEach((c) => list.appendChild(connectionCard(c, list)));
+    if (!(S.connections || []).length) {
+      list.appendChild(el("div", "placeholder", "no connections yet — add one below"));
+    }
+    card.appendChild(list);
+
+    const formHost = el("div", "ws-conn-form-host");
+    card.appendChild(formHost);
+    connectionForm(formHost, null);
+    host.appendChild(card);
+  }
+
+  function connectionCard(c, list) {
+    const item = el("div", "ws-conn-item");
+    const title = el("div", "ws-conn-item-title");
+    title.appendChild(el("span", "ws-conn-item-name", c.display_name || c.id));
+    title.appendChild(el("span", "ws-conn-item-id", c.id));
+    item.appendChild(title);
+    item.appendChild(el("div", "ws-conn-item-meta",
+      `Provider: ${c.provider} · Status: ${c.status}${c.default ? " · default" : ""}`));
+    const actions = el("div", "ws-conn-item-actions");
+    const val = el("button", "btn", "Validate");
+    val.type = "button";
+    val.addEventListener("click", async () => {
+      try {
+        const r = await post(`/api/connections/${encodeURIComponent(c.id)}/validate`);
+        setOk(r.ok ? `connection ${c.id} validated` : `validation failed: ${r.detail || ""}`);
+      } catch (err) {
+        setError(err.message || "validation failed");
+      }
+      renderConnectionManager();
+    });
+    actions.appendChild(val);
+    const edit = el("button", "btn", "Edit");
+    edit.type = "button";
+    edit.addEventListener("click", () => {
+      // the form host is a sibling of the list inside the manager card
+      const card = list.parentNode;
+      const formHost = card && (card.children || []).find(
+        (child) => child.className === "ws-conn-form-host") || null;
+      if (formHost) connectionForm(formHost, c);
+    });
+    actions.appendChild(edit);
+    const delBtn = el("button", "btn danger", "Delete");
+    delBtn.type = "button";
+    delBtn.addEventListener("click", async () => {
+      if (!window.confirm(`Delete connection ${c.id}?`)) return;
+      try {
+        await del(`/api/connections/${encodeURIComponent(c.id)}`);
+        setOk(`connection ${c.id} deleted`);
+      } catch (err) {
+        setError(err.message || "delete failed");
+      }
+      renderConnectionManager();
+    });
+    actions.appendChild(delBtn);
+    item.appendChild(actions);
+    return item;
+  }
+
+  function connectionForm(host, editing) {
+    empty(host);
+    const wrap = el("div", "ws-conn-form" + (editing ? " editing" : ""));
+    wrap.appendChild(el("div", "ws-conn-form-title", editing ? "Edit connection" : "Add connection"));
+
+    const provSel = el("select", "ws-conn-provider");
+    (S.connectionProviders || []).forEach((p) => {
+      const o = el("option", null, p.display_name || p.provider);
+      o.value = p.provider;
+      if (editing && editing.provider === p.provider) o.selected = true;
+      provSel.appendChild(o);
+    });
+    if (!editing) provSel.value = (S.connectionProviders[0] || {}).provider || "";
+    if (editing) provSel.disabled = true;
+    wrap.appendChild(setRow("Provider", provSel));
+
+    const idInput = el("input");
+    idInput.placeholder = "auto-generated if left empty";
+    idInput.value = editing ? editing.id : "";
+    if (editing) idInput.disabled = true;
+    wrap.appendChild(setRow("Connection ID", idInput));
+
+    const nameInput = el("input");
+    nameInput.value = editing ? (editing.display_name || "") : "";
+    nameInput.placeholder = "e.g. OpenAI Primary";
+    wrap.appendChild(setRow("Display name", nameInput));
+
+    const endpointInput = el("input");
+    endpointInput.value = editing ? (editing.endpoint || "") : "";
+    endpointInput.placeholder = "https://… (custom providers)";
+    wrap.appendChild(setRow("Endpoint (optional)", endpointInput));
+
+    const deployInput = el("input");
+    deployInput.value = editing ? (editing.deployment || "") : "";
+    deployInput.placeholder = "deployment name (Azure OpenAI)";
+    wrap.appendChild(setRow("Deployment (optional)", deployInput));
+
+    // API key: never display a stored secret. Create shows an empty password
+    // field; edit shows a masked "configured" marker + a Replace Key toggle.
+    const keyRow = el("div", "set-row");
+    keyRow.appendChild(el("label", null, "API Key"));
+    const keyInput = el("input");
+    keyInput.type = "password";
+    keyInput.autocomplete = "new-password";
+    keyRow.appendChild(keyInput);
+    if (editing) {
+      const masked = el("span", "ws-conn-masked",
+        editing.status === "configured" || editing.status === "tested"
+          ? "•••••• configured (leave empty to keep)" : "no key stored");
+      keyRow.appendChild(masked);
+    } else {
+      keyInput.placeholder = "api key";
+    }
+    wrap.appendChild(keyRow);
+
+    const actions = el("div", "ws-conn-form-actions");
+    const save = el("button", "btn primary", editing ? "Save" : "Add Connection");
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      const bodyJson = {
+        provider: provSel.value,
+        display_name: nameInput.value.trim(),
+        endpoint: endpointInput.value.trim(),
+        deployment: deployInput.value.trim(),
+      };
+      if (!editing) {
+        bodyJson.connection_id = idInput.value.trim() || undefined;
+        if (keyInput.value) bodyJson.api_key = keyInput.value;
+      } else if (keyInput.value) {
+        bodyJson.api_key = keyInput.value;   // replace only when provided
+      }
+      try {
+        if (editing) {
+          await put(`/api/connections/${encodeURIComponent(editing.id)}`, bodyJson);
+        } else {
+          await post("/api/connections", bodyJson);
+        }
+        keyInput.value = "";
+        setOk(editing ? `connection ${editing.id} updated` : "connection added");
+        renderConnectionManager();
+      } catch (err) {
+        setError(err.message || "save failed");
+      }
+    });
+    actions.appendChild(save);
+    const cancel = el("button", "btn", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      if (editing) connectionForm(host, null);
+    });
+    actions.appendChild(cancel);
+    wrap.appendChild(actions);
+    host.appendChild(wrap);
+  }
+
   /* ── meta loading ─────────────────────────────────────────────── */
   async function loadMeta() {
     try {
@@ -454,6 +692,7 @@
       S.prompts.forEach((p) => { S.promptById[p.id] = p; });
     } catch (_) { /* keep empty */ }
     await loadModelCatalog();
+    await loadConnections();
     renderLibrary();
   }
 
@@ -1038,6 +1277,19 @@
         body.appendChild(el("p", "set-note",
           `Auto → resolves to ${agentHint.model} (agent default from opencode.json)`));
       }
+
+      // BYOK connection (Phase 4): an optional per-node reference to a named
+      // connection. The workflow carries only the id — never a secret.
+      body.appendChild(setRow("Connection", connectionCombo(n)));
+      const connProv = providerForNode(n);
+      if (connProv) {
+        body.appendChild(el("p", "set-note", `Provider: ${connProv}`));
+      }
+      const chosen = connectionById(n.connection_id);
+      if (chosen) {
+        body.appendChild(el("p", "set-note",
+          `${chosen.display_name || chosen.id} · ${chosen.provider} · ${chosen.status}`));
+      }
     }
 
     const rolesBox = el("div", "ws-roles-box");
@@ -1612,7 +1864,10 @@
                           nodeTaskDescription, nodePromptRole, suggestPrompt,
                           renderRecommendationPreview, renderModelCapabilityPreview,
                           loadModelCatalog, modelProviderOptions, modelDisplayName,
-                          renderModelRecommendation, renderModelDetails };
+                          renderModelRecommendation, renderModelDetails,
+                          loadConnections, connectionById, providerForNode,
+                          connectionCombo, openConnectionManager, closeConnectionManager,
+                          renderConnectionManager };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

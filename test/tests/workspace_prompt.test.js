@@ -153,6 +153,7 @@ function fetchPromptsHandler() {
     if (p === "/api/agents") return jsonRes(200, { agents: [] });
     if (p === "/api/settings/roles") return jsonRes(200, { roles: [], assignments: {} });
     if (p === "/api/settings/models") return jsonRes(200, { available: [] });
+    if (p === "/api/connections") return jsonRes(200, { connections: [], providers: [] });
     if (p === "/api/prompts") {
       return jsonRes(200, { prompts: PROMPT_LIST, roles: [] });
     }

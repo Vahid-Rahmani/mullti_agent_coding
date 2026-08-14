@@ -563,6 +563,128 @@ class ApiTestCase(VaultTestCase):
         self.assertEqual(r.status_code, 404)
 
 
+class ConnectionsApiTestCase(VaultTestCase):
+    """BYOK /api/connections endpoints, isolated via temp files (Phase 4)."""
+
+    SECRET = "test-secret-value-abc123"
+
+    def setUp(self):
+        super().setUp()
+        self._conn_env = os.environ.get("ZOVA_CONNECTIONS")
+        self._auth_env = os.environ.get("ZOVA_AUTH_STORE")
+        self.conn_file = Path(self.tmp.name) / "connections.json"
+        self.auth_file = Path(self.tmp.name) / "auth.json"
+        os.environ["ZOVA_CONNECTIONS"] = str(self.conn_file)
+        os.environ["ZOVA_AUTH_STORE"] = str(self.auth_file)
+        from scripts.web_ui.server import create_app
+        self.app = create_app(vault=self.vault, state=self.state)
+        self.ctx = TestClient(self.app)
+
+    def tearDown(self):
+        if self._conn_env is None:
+            os.environ.pop("ZOVA_CONNECTIONS", None)
+        else:
+            os.environ["ZOVA_CONNECTIONS"] = self._conn_env
+        if self._auth_env is None:
+            os.environ.pop("ZOVA_AUTH_STORE", None)
+        else:
+            os.environ["ZOVA_AUTH_STORE"] = self._auth_env
+        super().tearDown()
+
+    def test_create_connection_never_echoes_secret(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "display_name": "OpenAI Primary",
+            "api_key": self.SECRET})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()["connection"]
+        self.assertNotIn(self.SECRET, r.text)
+        self.assertEqual(body["status"], "configured")
+        self.assertEqual(body["provider"], "openai")
+        for banned in ("key", "secret", "token", "authorization"):
+            self.assertNotIn(banned, body)
+
+    def test_list_get_never_returns_secret(self):
+        self.ctx.post("/api/connections", json={
+            "provider": "anthropic", "api_key": self.SECRET})
+        listed = self.ctx.get("/api/connections")
+        self.assertEqual(listed.status_code, 200)
+        self.assertNotIn(self.SECRET, listed.text)
+        self.assertTrue(listed.json()["connections"])
+        self.assertTrue(listed.json()["providers"])
+        got = self.ctx.get(f"/api/connections/{listed.json()['connections'][0]['id']}")
+        self.assertEqual(got.status_code, 200)
+        self.assertNotIn(self.SECRET, got.text)
+
+    def test_update_and_replace_key(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        r2 = self.ctx.put(f"/api/connections/{cid}", json={
+            "display_name": "Renamed", "api_key": "replacement-secret"})
+        self.assertEqual(r2.status_code, 200)
+        self.assertNotIn(self.SECRET, r2.text)
+        self.assertNotIn("replacement-secret", r2.text)
+        self.assertEqual(r2.json()["connection"]["display_name"], "Renamed")
+
+    def test_delete_connection(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "google", "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        self.assertEqual(self.ctx.delete(f"/api/connections/{cid}").status_code, 200)
+        self.assertEqual(self.ctx.get(f"/api/connections/{cid}").status_code, 404)
+
+    def test_validate_endpoint(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        v = self.ctx.post(f"/api/connections/{cid}/validate")
+        self.assertEqual(v.status_code, 200)
+        self.assertTrue(v.json()["ok"])
+        self.assertNotIn(self.SECRET, v.text)
+
+    def test_resolve_endpoint(self):
+        self.ctx.post("/api/connections", json={
+            "provider": "openai", "api_key": self.SECRET})
+        r = self.ctx.post("/api/connections/resolve", json={"model": "openai/gpt-5"})
+        self.assertEqual(r.status_code, 200)
+        res = r.json()["resolution"]
+        self.assertEqual(res["source"], "provider-default")
+        self.assertNotIn(self.SECRET, r.text)
+
+    def test_error_paths(self):
+        self.assertEqual(
+            self.ctx.post("/api/connections", json={"provider": "nope-corp", "api_key": "x"}).status_code,
+            422)
+        self.assertEqual(
+            self.ctx.get("/api/connections/conn_missing").status_code, 404)
+        # duplicate id
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": "conn_dup",
+            "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        dup = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": cid, "api_key": self.SECRET})
+        self.assertEqual(dup.status_code, 409)
+        # provider requiring a key without one
+        self.assertEqual(
+            self.ctx.post("/api/connections", json={"provider": "anthropic"}).status_code,
+            422)
+
+    def test_errors_never_contain_secret(self):
+        # even error bodies must not echo the submitted secret
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": "conn_x",
+            "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        dup = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": cid, "api_key": self.SECRET})
+        self.assertEqual(dup.status_code, 409)
+        self.assertNotIn(self.SECRET, dup.text)
+        # errors for unknown connections don't leak anything either
+        missing = self.ctx.get("/api/connections/conn_y")
+        self.assertNotIn(self.SECRET, missing.text)
+
+
 class WorkflowApiTestCase(VaultTestCase):
     """Workflow REST endpoints, isolated via $ZOVA_WORKFLOWS temp dir."""
 
@@ -1383,6 +1505,42 @@ class WorkspaceAssetsTestCase(unittest.TestCase):
                       "model_registry.select_models", "model_registry.list_models",
                       "model_registry.get_model", "explicit_model",
                       "hard_requirements", "prompt_profile"):
+            self.assertIn(token, routes)
+
+    # ── Phase 4: BYOK connections UI + API ─────────────────────────
+    def test_workspace_connections_assets(self):
+        # Connection control near the Model row + Manage Connections manager
+        for token in ("Connection", "Manage Connections", "loadConnections",
+                      "connectionCombo", "connectionById", "providerForNode",
+                      "openConnectionManager", "renderConnectionManager",
+                      "connectionCard", "connectionForm", "ws-conn-select",
+                      "ws-conn-mgr", "ws-conn-item", "ws-conn-masked",
+                      "Local / None", "AI Connections", "Replace",
+                      "connection_id", "/api/connections"):
+            self.assertIn(token, self.js)
+        self.assertIn('id="ws-conn-mgr"', self.html)
+        for cls in (".ws-conn-mgr", ".ws-conn-item", ".ws-conn-masked",
+                    ".ws-conn-form", ".conn-combo", ".ws-conn-manage"):
+            self.assertIn(cls, self.css)
+
+    def test_workspace_connections_never_handle_secrets_in_js(self):
+        # the workspace never stores or logs secret material
+        self.assertIn("never", self.js)
+        for banned in ("apiKey", "api_key"):
+            # the JS talks to the API but must not keep secrets in state
+            self.assertNotIn("S." + banned, self.js)
+
+    def test_phase4_api_wired(self):
+        routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(
+            encoding="utf-8")
+        for token in ('"/api/connections"', '"/api/connections/{connection_id}"',
+                      '"/api/connections/{connection_id}/validate"',
+                      "model_connections.create_connection",
+                      "model_connections.get_connection",
+                      "model_connections.update_connection",
+                      "model_connections.delete_connection",
+                      "model_connections.validate_connection",
+                      "model_connections.resolve"):
             self.assertIn(token, routes)
 
 

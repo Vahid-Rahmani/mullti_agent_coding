@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from scripts.core import opencode_cfg, orchestrator as orch, roles
+from scripts.core import model_connections
 from scripts.core import model_registry
 from scripts.core import prompt_library
 from scripts.core import workflow_engine, workflows
@@ -169,6 +170,32 @@ class ModelRecommendIn(BaseModel):
     explicit_model: Optional[str] = None
     hard_requirements: Optional[dict] = None
     available_models: Optional[list[dict]] = None
+
+
+class ConnectionCreateIn(BaseModel):
+    provider: str
+    connection_id: Optional[str] = None
+    display_name: Optional[str] = None
+    api_key: Optional[str] = None             # accepted ONCE at create; never echoed
+    credential_type: str = "api_key"
+    endpoint: Optional[str] = None
+    deployment: Optional[str] = None
+    default: bool = False
+
+
+class ConnectionUpdateIn(BaseModel):
+    display_name: Optional[str] = None
+    api_key: Optional[str] = None             # optional replace; never echoed
+    credential_type: Optional[str] = None
+    endpoint: Optional[str] = None
+    deployment: Optional[str] = None
+    default: Optional[bool] = None
+    status: Optional[str] = None
+
+
+class ConnectionResolveIn(BaseModel):
+    model: Optional[str] = None
+    connection_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------- helpers
@@ -855,6 +882,96 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
             "requirements": requirements.to_dict(),
             "recommendations": [r.to_dict() for r in recs],
         }
+
+    # ---- BYOK connections (Phase 4) ---------------------------------------
+
+    def _conn_error(exc: Exception) -> HTTPException:
+        """Map connection-layer errors to safe, secret-free HTTP responses."""
+        from scripts.core.model_connections.errors import (
+            CredentialError,
+            DuplicateConnectionError,
+            ResolutionError,
+            UnknownConnectionError,
+            UnknownProviderError,
+        )
+        if isinstance(exc, UnknownConnectionError):
+            return HTTPException(404, str(exc))
+        if isinstance(exc, DuplicateConnectionError):
+            return HTTPException(409, str(exc))
+        if isinstance(exc, (UnknownProviderError, CredentialError,
+                            ResolutionError, ConnectionError)):
+            return HTTPException(422, str(exc))
+        return HTTPException(500, "connection operation failed")
+
+    @router.get("/api/connections")
+    async def api_connections() -> dict:
+        """Connection metadata only — never a secret."""
+        return {
+            "connections": [c.to_dict() for c in model_connections.list_connections()],
+            "providers": model_connections.providers.provider_meta(),
+        }
+
+    @router.post("/api/connections")
+    async def api_connections_create(body: ConnectionCreateIn) -> dict:
+        try:
+            connection = model_connections.create_connection(
+                body.provider, body.display_name or "",
+                api_key=body.api_key, endpoint=body.endpoint or "",
+                deployment=body.deployment or "", default=body.default,
+                credential_type=body.credential_type or "api_key",
+                connection_id=body.connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"connection": connection.to_dict()}
+
+    @router.get("/api/connections/{connection_id}")
+    async def api_connection_get(connection_id: str) -> dict:
+        try:
+            return {"connection": model_connections.get_connection(connection_id).to_dict()}
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+
+    @router.put("/api/connections/{connection_id}")
+    async def api_connection_update(connection_id: str, body: ConnectionUpdateIn) -> dict:
+        try:
+            connection = model_connections.update_connection(
+                connection_id,
+                display_name=body.display_name, endpoint=body.endpoint,
+                deployment=body.deployment, api_key=body.api_key,
+                default=body.default, credential_type=body.credential_type,
+                status=body.status)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"connection": connection.to_dict()}
+
+    @router.delete("/api/connections/{connection_id}")
+    async def api_connection_delete(connection_id: str) -> dict:
+        try:
+            model_connections.delete_connection(connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"ok": True}
+
+    @router.post("/api/connections/{connection_id}/validate")
+    async def api_connection_validate(connection_id: str) -> dict:
+        """Configuration-based validation (no network call, no secret)."""
+        try:
+            return model_connections.validate_connection(connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+
+    @router.post("/api/connections/resolve")
+    async def api_connections_resolve(body: ConnectionResolveIn) -> dict:
+        """Resolve a node's model/connection to its runtime configuration.
+
+        Returns metadata + a masked credential flag — never the secret.
+        """
+        try:
+            resolution = model_connections.resolve(
+                model=body.model, connection_id=body.connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"resolution": resolution.to_dict()}
 
     # ---- project profile (repository analysis) ----------------------------
 

@@ -62,6 +62,7 @@ class WorkflowNode:
     agent: str = ""               # opencode agent key; "" = no agent (end/pass)
     kind: str = "agent"           # "agent" | "end"
     model: str = ""               # runtime override; "" = Auto / runtime default
+    connection_id: str = ""       # optional BYOK connection reference (never a secret)
     roles: tuple[str, ...] = ()
     instructions: str = ""
     prompt_profile: str = ""      # optional prompt-library id (source of instruction)
@@ -83,6 +84,7 @@ class WorkflowNode:
             agent=str(data.get("agent") or ""),
             kind=str(data.get("kind") or "agent"),
             model=str(data.get("model") or ""),
+            connection_id=str(data.get("connection_id") or ""),
             roles=_tup("roles"),
             instructions=str(data.get("instructions") or ""),
             prompt_profile=str(data.get("prompt_profile") or ""),
@@ -100,6 +102,7 @@ class WorkflowNode:
             "agent": self.agent,
             "kind": self.kind,
             "model": self.model,
+            "connection_id": self.connection_id,
             "roles": list(self.roles),
             "instructions": self.instructions,
             "prompt_profile": self.prompt_profile,
@@ -343,6 +346,14 @@ def validate_workflow(workflow: Workflow, repo_root: Path | None = None) -> list
                 opencode_cfg.validate_model_id(node.model)
             except opencode_cfg.ConfigError as exc:
                 errors.append({"node": node.id, "message": f"Model {node.model!r} is invalid ({exc})"})
+        if node.connection_id:
+            # Format-only here: existence is enforced by the connection
+            # resolver at dispatch time (connections are user-level state,
+            # not workflow data, and never contain secrets).
+            if not node.connection_id.strip() or any(
+                    ch.isspace() for ch in node.connection_id):
+                errors.append({"node": node.id,
+                               "message": f"connection id {node.connection_id!r} is invalid"})
 
     # edges
     for edge in workflow.edges:
