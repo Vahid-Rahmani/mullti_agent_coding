@@ -181,6 +181,25 @@ class ActiveWorkflowApiTestCase(unittest.TestCase):
         self.assertNotIn("alex", agents, "Alex must not remain active")
         self.assertNotIn("sarah", agents, "Sarah must not remain active")
 
+    # TEST C — two nodes using the SAME agent are independent --------------
+    def test_duplicate_agent_nodes_are_independent(self):
+        wf = make_workflow("wf-dup", [
+            {"id": "n1", "agent": "matthew", "kind": "agent", "label": "Matthew #1", "x": 100, "y": 100},
+            {"id": "n2", "agent": "matthew", "kind": "agent", "label": "Matthew #2", "x": 500, "y": 100},
+        ], [{"source": "n1", "target": "n2"}])
+        W.save_workflow(wf, self.wf_root)
+        self._activate("wf-dup")
+        nodes = self._home()["workflow"]["nodes"]
+        self.assertEqual(len(nodes), 2, "two workflow nodes → two Home windows")
+        self.assertEqual({n["id"] for n in nodes}, {"n1", "n2"})
+        self.assertTrue(all(n["agent"] == "matthew" for n in nodes),
+                        "both windows reference the same agent key")
+        # the runtime treats them as two separate graph nodes too
+        d = FakeDispatch()
+        run_sync(wf, d)
+        self.assertEqual([c[0] for c in d.calls], ["n1", "n2"],
+                         "each node dispatches independently (node id identity)")
+
     # TEST 3 — layout synchronization (WorkflowNode.x/y is canonical) -------
     def test_layout_synchronization(self):
         wf = make_workflow("wf-l", [

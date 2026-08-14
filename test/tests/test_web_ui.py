@@ -570,12 +570,39 @@ class UiAssetsTestCase(unittest.TestCase):
     def test_home_consumes_active_workflow(self):
         # app.js loads the active workflow and renders its nodes as agent
         # windows (one panel per node, workflow edges as an SVG overlay).
-        for token in ("loadActiveWorkflow", "buildWorkflowWorkspace",
-                      "homeNodes", "homeEdges", "data-node", "resolved_model",
-                      "/api/active-workflow", "workflow-mode"):
+        for token in ("refreshActiveWorkflow", "buildWorkflowWorkspace",
+                      "homeNodes", "homeEdges", "resolved_model",
+                      "/api/active-workflow", "workflow-mode",
+                      "homeSignatureOf", "pollActiveRun"):
             self.assertIn(token, self.js)
         for token in (".home-edge", "#workspace-grid.workflow-mode"):
             self.assertIn(token, self.css)
+
+    def test_home_uses_node_id_identity_not_agent_tag(self):
+        # workflow windows are keyed by workflow node id, so two nodes using
+        # the same agent stay independent (identity + sessions + consoles).
+        for token in ("data-workflow-node-id", "workflowNodeId",
+                      "nodeSessions", "nodeEvent", "setActiveNode",
+                      "buildWorkflowWorkspace", "Ag.homeNodes"):
+            self.assertIn(token, self.js)
+        self.assertIn("card.dataset.workflowNodeId = opts.nodeId", self.js)
+
+    def test_home_empty_state_when_no_workflow(self):
+        # No active workflow → an empty workflow state, never the legacy
+        # registry / agents_visible window layout.
+        self.assertIn("No active workflow — Create or activate a workflow to start.",
+                      self.js)
+        self.assertIn("No active workflow — Create or activate a workflow to start.",
+                      self.index)
+        self.assertIn('if (Ag.homeWorkflow)', self.js)
+        # the legacy registry/prefs-driven window builder is gone
+        self.assertNotIn("function visibleAgents", self.js)
+        self.assertNotIn("function gridFor", self.js)
+
+    def test_workflow_edges_reference_node_ids(self):
+        # Home edges are built from WorkflowEdge and carry their node ids.
+        self.assertIn('line.setAttribute("data-source", e.source)', self.js)
+        self.assertIn('line.setAttribute("data-target", e.target)', self.js)
 
     def test_active_workflow_api_wired(self):
         routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(

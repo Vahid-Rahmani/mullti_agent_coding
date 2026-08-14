@@ -188,7 +188,14 @@
       if (tag === "all") tag = null;
       if (tag && !Ag.agents.some((a) => a.tag === tag)) tag = null;
       try {
-        await post("/api/dispatch", { prompt, agent: tag });
+        const resp = await post("/api/dispatch", { prompt, agent: tag });
+        // A Home command with an active workflow executes the workflow graph;
+        // track its run so Home can show node-aware status/output.
+        if (resp && resp.mode === "workflow" && resp.run_id) {
+          Ag.activeRunId = resp.run_id;
+          Ag.runStatuses = {};
+          pollActiveRun();
+        }
         input.value = "";
         autosize();
       } catch (err) {
@@ -205,25 +212,6 @@
   }
 
   /* ─────────────────────── agent workspace ───────────────────── */
-  function visibleAgents() {
-    const visible = Ag.prefs.agents_visible || [];
-    const agents = [];
-    for (const a of Ag.agents) {           // AGENTS roster order preserved
-      if (visible.includes(a.tag)) agents.push(a);
-    }
-    const count = Math.min(parseInt(Ag.prefs.layout, 10) || 4, agents.length);
-    return agents.slice(0, count);
-  }
-
-  function gridFor(count) {
-    const base = "minmax(180px, 1fr)";
-    if (count <= 1) return { cols: "1fr", rows: "1fr" };
-    if (count === 2) return { cols: "1fr 1fr", rows: `${base}` };
-    if (count === 3) return { cols: "1fr 1fr 1fr", rows: `${base}` };
-    if (count === 4) return { cols: "1fr 1fr", rows: `${base} ${base}` };
-    return { cols: "1fr 1fr 1fr", rows: `${base} ${base}` }; // 5–6
-  }
-
   function statusCls(status) {
     if (status === "active") return "st-ok";
     if (status === "error") return "st-err";
@@ -231,9 +219,11 @@
     return "st-idle";
   }
 
-  function panelFor(a) {
+  function panelFor(a, opts) {
+    opts = opts || {};
     const card = el("section", "panel");
     card.dataset.tag = a.tag;
+    if (opts.nodeId) card.dataset.workflowNodeId = opts.nodeId;
     const head = el("header", "p-head");
     head.appendChild(el("span", "p-name", `${a.tag.toUpperCase()} · ${a.name}`));
     head.appendChild(el("span", "p-model", a.model || ""));
@@ -241,13 +231,15 @@
     status.appendChild(el("span", "dot"));
     status.appendChild(el("span", "p-status-label", "idle"));
     head.appendChild(status);
-    const stop = el("button", "p-stop", "Stop");
-    stop.disabled = !a.running;
-    stop.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
-      try { await post(`/api/stop/${a.tag}`); } catch (err) { console.error(err); }
-    });
-    head.appendChild(stop);
+    if (!opts.noStop) {
+      const stop = el("button", "p-stop", "Stop");
+      stop.disabled = !a.running;
+      stop.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        try { await post(`/api/stop/${a.tag}`); } catch (err) { console.error(err); }
+      });
+      head.appendChild(stop);
+    }
     card.appendChild(head);
 
     const task = el("div", "p-task", a.prompt || "…");
@@ -261,13 +253,19 @@
 
     const consoleEl = el("div", "p-console");
     card.appendChild(consoleEl);
-    card.addEventListener("click", () => setActive(a.tag));
+    card.addEventListener("click", () => {
+      if (opts.nodeId) setActiveNode(opts.nodeId);
+      else setActive(a.tag);
+    });
 
     updatePanelUi(card, a);
     return card;
   }
 
   function updatePanelUi(card, a) {
+    // Workflow panels (data-workflow-node-id) are driven by the workflow run
+    // (node-aware status/session), never by the registry agent row.
+    if (card.dataset.workflowNodeId) return;
     const label = card.querySelector(".p-status-label");
     label.textContent = STATUS_LABEL[a.status] || a.status;
     card.querySelector(".p-status").className = "p-status " + statusCls(a.status);
@@ -285,43 +283,30 @@
   function buildWorkspace() {
     const wg = $("#workspace-grid");
     empty(wg);
-    // Active workflow (if any) is the authoritative agent-window set.
-    if (Ag.homeNodes.length) { buildWorkflowWorkspace(wg); return; }
+    // The active workflow is the single source of truth for the Home agent
+    // windows. When one is active, Home is a pure projection of its graph;
+    // otherwise Home shows an empty workflow state — it never falls back to
+    // the global registry / agents_visible layout.
+    if (Ag.homeWorkflow) { buildWorkflowWorkspace(wg); return; }
     wg.classList.remove("workflow-mode");
-    const agents = visibleAgents();
-    const emptyMsg = el("div", "workspace-empty hidden", "No agents visible — toggle agents on in the toolbar.");
-    wg.appendChild(emptyMsg);
-    if (agents.length === 0) {
-      emptyMsg.classList.remove("hidden");
-    }
-    const g = gridFor(agents.length);
-    wg.style.gridTemplateColumns = g.cols;
-    wg.style.gridTemplateRows = g.rows;
-    agents.forEach((a) => wg.appendChild(panelFor(a)));
-    // replay saved sessions (current Ag.sessions, not an init snapshot; status
-    // events are skipped so live and replay rendering stay identical)
-    for (const a of Ag.agents) {
-      const card = wg.querySelector(`.panel[data-tag="${a.tag}"]`);
-      if (card && Ag.sessions[a.tag]) {
-        Ag.sessions[a.tag].forEach((ev) => {
-          if (PANEL_KINDS.includes(ev.kind)) {
-            appendEv(card.querySelector(".p-console"), ev);
-          }
-        });
-      }
-    }
+    wg.style.gridTemplateColumns = "";
+    wg.style.gridTemplateRows = "";
+    wg.appendChild(el("div", "workspace-empty",
+      "No active workflow — Create or activate a workflow to start."));
   }
 
   /* ── active-workflow projection: Home renders the Workflow Designer graph ──
-     When an active workflow exists, the agent windows on Home ARE its nodes:
-     one panel per workflow node, positioned from WorkflowNode.x/y through a
-     deterministic bbox→container transform, with WorkflowEdge connections
-     drawn as an SVG overlay. Panels keep data-tag (the node's agent tag) so
-     the existing session/status pipeline keeps working; data-node preserves
-     the workflow node identity. */
+     When an active workflow exists, the agent windows on Home ARE its nodes —
+     a **pure projection**: the panel count equals the enabled workflow nodes,
+     each panel is identified by its workflow node id (data-workflow-node-id,
+     so two nodes may use the same agent and stay independent), positioned from
+     WorkflowNode.x/y through a deterministic bbox→container transform, with
+     WorkflowEdge connections drawn as an SVG overlay. Consoles replay the
+     node-aware session store (Ag.nodeSessions[nodeId]) — never the agent tag
+     sessions — so duplicate-agent nodes never share a window. */
   function buildWorkflowWorkspace(wg) {
     wg.classList.add("workflow-mode");
-    const nodes = Ag.homeNodes;
+    const nodes = Ag.homeNodes.filter((n) => n.enabled !== false);
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const pad = 28;
     const xs = nodes.map((n) => n.x || 0);
@@ -344,14 +329,13 @@
         tag: a ? a.tag : (n.agent || "node"),
         name: n.label || (a ? a.name : n.agent),
         model: n.resolved_model || n.model || "",
-        status: a ? a.status : "idle",
-        progress: a ? a.progress : 0,
-        token_usage: a ? a.token_usage : 0,
-        running: a ? a.running : false,
-        prompt: a ? a.prompt : "",
+        status: "idle",
+        progress: 0,
+        token_usage: 0,
+        running: false,
+        prompt: "",
       };
-      const card = panelFor(view);
-      card.dataset.node = n.id;
+      const card = panelFor(view, { nodeId: n.id, noStop: true });
       const p = pos(n);
       card.style.position = "absolute";
       card.style.width = "240px";
@@ -359,12 +343,20 @@
       card.style.top = p.top + "px";
       card.style.transform = "translate(-50%, -50%)";
       wg.appendChild(card);
-      if (a && Ag.sessions[a.tag]) {
-        Ag.sessions[a.tag].forEach((ev) => {
-          if (PANEL_KINDS.includes(ev.kind)) {
-            appendEv(card.querySelector(".p-console"), ev);
-          }
-        });
+      // node-aware console: replay this node's own session (independent per
+      // workflow node id — duplicate agents never share output)
+      const sess = Ag.nodeSessions[n.id] || [];
+      sess.forEach((ev) => {
+        if (PANEL_KINDS.includes(ev.kind)) {
+          appendEv(card.querySelector(".p-console"), ev);
+        }
+      });
+      // node-aware run status (from the active workflow run, keyed by node id)
+      const st = Ag.runStatuses[n.id];
+      if (st) {
+        card.querySelector(".p-status-label").textContent = st;
+        card.querySelector(".p-status").className =
+          "p-status " + statusCls(runStatusToUi(st));
       }
     });
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -379,10 +371,64 @@
       line.setAttribute("x1", pa.left); line.setAttribute("y1", pa.top);
       line.setAttribute("x2", pb.left); line.setAttribute("y2", pb.top);
       line.setAttribute("class", "home-edge");
+      // edges reference workflow NODE ids (not agent tags)
+      line.setAttribute("data-source", e.source);
+      line.setAttribute("data-target", e.target);
       if (e.condition) line.setAttribute("data-condition", e.condition);
       svg.appendChild(line);
     });
     wg.appendChild(svg);
+  }
+
+  function runStatusToUi(st) {
+    if (st === "running") return "thinking";
+    if (st === "completed") return "active";
+    if (st === "failed") return "error";
+    return "idle";
+  }
+
+  function setActiveNode(nodeId) {
+    Ag.activeNodeId = nodeId;
+    $$(".panel").forEach((card) =>
+      card.classList.toggle("active", card.dataset.workflowNodeId === nodeId));
+    const n = Ag.homeNodes.find((x) => x.id === nodeId);
+    const elTarget = $("#send-target");
+    if (elTarget) elTarget.textContent = n ? (n.label || n.agent) : nodeId;
+  }
+
+  function nodeEvent(nodeId, ev) {
+    // Node-aware session persistence: workflow node id, not agent tag.
+    const sess = (Ag.nodeSessions[nodeId] = Ag.nodeSessions[nodeId] || []);
+    sess.push(ev);
+    if (sess.length > 400) sess.splice(0, sess.length - 400);
+    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
+    if (card && PANEL_KINDS.includes(ev.kind)) {
+      appendEv(card.querySelector(".p-console"), ev);
+    }
+  }
+
+  async function pollActiveRun() {
+    if (!Ag.activeRunId) return;
+    let snap;
+    try { snap = await api(`/api/workflows/runs/${Ag.activeRunId}`); } catch (_) { return; }
+    Ag.runStatuses = snap.statuses || {};
+    const em = (Ag.runEmitted[Ag.activeRunId] = Ag.runEmitted[Ag.activeRunId] || {});
+    Object.entries(snap.outputs || {}).forEach(([nid, text]) => {
+      if (!text || em[nid]) return;
+      const st = (snap.statuses || {})[nid];
+      if (st === "completed" || st === "failed") {
+        em[nid] = true;
+        nodeEvent(nid, { kind: "line", text });
+      }
+    });
+    Object.entries(Ag.runStatuses).forEach(([nid, st]) => {
+      const card = $(`.panel[data-workflow-node-id="${nid}"]`);
+      if (!card) return;
+      card.querySelector(".p-status-label").textContent = st;
+      card.querySelector(".p-status").className = "p-status " + statusCls(runStatusToUi(st));
+      card.classList.toggle("running", st === "running");
+    });
+    if (snap.finished) Ag.activeRunId = null;
   }
 
   function setActive(tag) {
@@ -1606,6 +1652,10 @@
         if (a) updatePanelUi(card, a);
       });
       buildStatusTable();
+      // reconcile Home with the active workflow graph (activate/switch/save)
+      // and stream the active workflow run into node-aware consoles
+      await refreshActiveWorkflow();
+      await pollActiveRun();
     } catch (_) { /* transient */ }
   }
 
@@ -1615,7 +1665,7 @@
     Ag.agents = data.agents;
     Ag.prefs = Object.assign({}, Ag.prefs, data.prefs || {});
     Ag.activeTag = Ag.prefs.active_tag;
-    await loadActiveWorkflow();
+    await refreshActiveWorkflow();
     applyPrefs();
     buildPop();
     buildDispatchTarget();
@@ -1626,22 +1676,39 @@
     $("#workspace-dir").textContent = window.location.host;
   }
 
-  async function loadActiveWorkflow() {
+  function homeSignatureOf(wf) {
+    if (!wf) return "";
+    return JSON.stringify([
+      wf.id,
+      (wf.nodes || []).map((n) =>
+        [n.id, n.agent, n.model, n.x, n.y, n.enabled, n.kind, n.label]),
+      (wf.edges || []).map((e) => [e.source, e.target, e.condition]),
+    ]);
+  }
+
+  async function refreshActiveWorkflow() {
     // The Workflow Designer's saved graph (if activated) is the single source
-    // of truth for Home agent windows; otherwise fall back to the registry set.
-    try {
-      const data = await api("/api/active-workflow");
-      const wf = data && data.workflow;
-      if (wf && (wf.nodes || []).length) {
-        Ag.homeWorkflow = wf;
-        Ag.homeNodes = (wf.nodes || []).filter((n) => n.kind === "agent");
-        Ag.homeEdges = wf.edges || [];
-      } else {
-        Ag.homeWorkflow = null; Ag.homeNodes = []; Ag.homeEdges = [];
-      }
-    } catch (_) {
+    // of truth for Home agent windows. This is idempotent: it re-fetches on
+    // every poll and reconciles Home ONLY when the graph actually changed
+    // (activate/switch/rename/move/model/edge edits in the Designer flow
+    // through here automatically — no stale legacy windows survive).
+    let data = null;
+    try { data = await api("/api/active-workflow"); } catch (_) { return; }
+    const wf = data && data.workflow;
+    const sig = homeSignatureOf(wf);
+    if (sig === Ag.homeSignature) return;
+    Ag.homeSignature = sig;
+    if (wf) {
+      // An active workflow is projected even when it has zero agent nodes;
+      // only ``workflow: null`` (no active id / missing file) is "inactive".
+      Ag.homeWorkflow = wf;
+      Ag.homeNodes = (wf.nodes || []).filter((n) => n.kind === "agent");
+      Ag.homeEdges = wf.edges || [];
+    } else {
       Ag.homeWorkflow = null; Ag.homeNodes = []; Ag.homeEdges = [];
     }
+    buildWorkspace();
+    buildDispatchTarget();
   }
 
   async function refreshAgentModels() {
@@ -1739,5 +1806,8 @@
 
   // Test/embedding hook (mirrors window.MACSettings): exposes the live event →
   // session pipeline so behavioral tests can drive it headlessly.
-  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream, loadSessions, checkBackendRestart, pollState, refreshAgentModels };
+  window.MACApp = { Ag, onAgentEvent, buildWorkspace, panelEl, appendEv, openStream,
+                    loadSessions, checkBackendRestart, pollState, refreshAgentModels,
+                    refreshActiveWorkflow, buildWorkflowWorkspace, nodeEvent,
+                    pollActiveRun, setActiveNode, homeSignatureOf };
 })();
