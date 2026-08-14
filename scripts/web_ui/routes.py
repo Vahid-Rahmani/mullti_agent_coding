@@ -25,6 +25,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from scripts.core import opencode_cfg, orchestrator as orch, roles
+from scripts.core import model_connections
+from scripts.core import model_registry
+from scripts.core import prompt_library
 from scripts.core import workflow_engine, workflows
 from scripts.core.agents import (
     AGENTS, AGENT_SPEC_BY_AGENT, AGENT_SPEC_BY_TAG, PROJECT_ROOT,
@@ -151,6 +154,50 @@ class WorkflowRunIn(BaseModel):
     initial_state: dict = {}
 
 
+class PromptRecommendIn(BaseModel):
+    task: Optional[str] = None
+    role: Optional[str] = None
+    capabilities: list[str] = []
+    complexity: Optional[str] = None
+    risk: Optional[str] = None
+
+
+class ModelRecommendIn(BaseModel):
+    task: Optional[str] = None
+    prompt_id: Optional[str] = None            # Phase 2 field (kept for compat)
+    prompt_profile: Optional[str] = None      # Phase 3 alias
+    provider: Optional[str] = None
+    explicit_model: Optional[str] = None
+    hard_requirements: Optional[dict] = None
+    available_models: Optional[list[dict]] = None
+
+
+class ConnectionCreateIn(BaseModel):
+    provider: str
+    connection_id: Optional[str] = None
+    display_name: Optional[str] = None
+    api_key: Optional[str] = None             # accepted ONCE at create; never echoed
+    credential_type: str = "api_key"
+    endpoint: Optional[str] = None
+    deployment: Optional[str] = None
+    default: bool = False
+
+
+class ConnectionUpdateIn(BaseModel):
+    display_name: Optional[str] = None
+    api_key: Optional[str] = None             # optional replace; never echoed
+    credential_type: Optional[str] = None
+    endpoint: Optional[str] = None
+    deployment: Optional[str] = None
+    default: Optional[bool] = None
+    status: Optional[str] = None
+
+
+class ConnectionResolveIn(BaseModel):
+    model: Optional[str] = None
+    connection_id: Optional[str] = None
+
+
 # ---------------------------------------------------------------- helpers
 
 
@@ -266,9 +313,10 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
     async def api_active_workflow() -> dict:
         """The workflow Home renders and the Home runtime executes.
 
-        Returns ``workflow: null`` when no workflow is active (Home then falls
-        back to the classic registry/prefs panel set). Node ``model`` keeps the
-        per-node override; ``resolved_model`` is what would actually run.
+        Returns ``workflow: null`` when no workflow is active (Home then shows
+        its empty state — it never falls back to a registry layout). Node
+        ``model`` keeps the per-node override; ``resolved_model`` is what would
+        actually run.
         """
         active_id = state.prefs.get("active_workflow_id")
         wf = workflows.load_workflow(active_id) if active_id else None
@@ -679,6 +727,252 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         except roles.RoleError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {"ok": True, "agent": agent, "role_ids": role_ids}
+
+    # ---- prompt library (reusable, role-typed prompt profiles) -----------
+
+    def _prompt_meta(profile: prompt_library.PromptProfile) -> dict:
+        """UI metadata + resolved model requirements (no prompt text)."""
+        meta = profile.meta_dict()
+        meta["model_preferences"] = (
+            prompt_library.preferences_for_profile(profile).to_dict())
+        return meta
+
+    @router.get("/api/prompts")
+    async def api_prompts(role: Optional[str] = None) -> dict:
+        """List prompt profile metadata, optionally suggested for a role/agent.
+
+        ``?role=developer`` maps keywords/role-store ids to prompt roles via
+        :func:`prompt_library.suggest_prompts_for_role` (deterministic, no LLM).
+        The list returns UI metadata only (no prompt text); the full profile —
+        including its prompt — is available from ``GET /api/prompts/{id}``.
+        """
+        profiles = (prompt_library.suggest_prompts_for_role(role)
+                    if (role and role.strip())
+                    else prompt_library.list_prompts())
+        return {
+            "prompts": [_prompt_meta(p) for p in profiles],
+            "roles": list(prompt_library.list_prompt_roles()),
+        }
+
+    @router.get("/api/prompts/recommend")
+    async def api_prompts_recommend_meta() -> dict:
+        """Task-classification metadata: categories, roles, and the built-in
+        deterministic task → prompt example mappings (no LLM)."""
+        examples = [
+            {"task": "security audit", "role": "security_engineer",
+             "prompt_id": "security-auditor"},
+            {"task": "threat model", "role": "security_engineer",
+             "prompt_id": "security-threat-modeler"},
+            {"task": "implement feature", "role": "software_engineer",
+             "prompt_id": "software-engineer-expert"},
+            {"task": "write code", "role": "software_engineer",
+             "prompt_id": "software-engineer"},
+            {"task": "design architecture", "role": "software_architect",
+             "prompt_id": "system-architect"},
+            {"task": "debug error", "role": "debugger",
+             "prompt_id": "debugger-root-cause"},
+            {"task": "find bugs", "role": "code_reviewer",
+             "prompt_id": "code-reviewer"},
+            {"task": "CI/CD", "role": "devops_engineer",
+             "prompt_id": "devops-cicd"},
+            {"task": "multi-agent workflow", "role": "orchestrator",
+             "prompt_id": "orchestrator-multi-agent"},
+        ]
+        return {
+            "categories": list(prompt_library.TASK_CATEGORIES),
+            "roles": list(prompt_library.list_prompt_roles()),
+            "examples": examples,
+        }
+
+    @router.post("/api/prompts/recommend")
+    async def api_prompts_recommend(body: PromptRecommendIn) -> dict:
+        """Rank prompt profiles for a task (deterministic matching, no LLM).
+
+        Returns the task classification plus ``{prompt_id, score, reason}``
+        entries. ``score`` is a deterministic matching score (not ML confidence).
+        """
+        task = prompt_library.classify_task(body.task or "")
+        recs = prompt_library.recommend_prompts(
+            task, role=body.role, capabilities=body.capabilities,
+            complexity=body.complexity, risk=body.risk)
+        return {
+            "task": task.to_dict(),
+            "recommendations": [r.to_dict() for r in recs],
+        }
+
+    @router.get("/api/prompts/{prompt_id}")
+    async def api_prompt(prompt_id: str) -> dict:
+        try:
+            profile = prompt_library.get_prompt(prompt_id)
+        except prompt_library.PromptError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"prompt": profile.to_dict()}
+
+    # ---- model capabilities + recommendation (provider-neutral) ---------
+
+    @router.get("/api/models")
+    async def api_models(provider: str = "") -> dict:
+        """Model Registry catalog (Phase 3) — metadata only, no credentials."""
+        if provider:
+            models = model_registry.list_models_by_provider(provider)
+        else:
+            models = model_registry.list_models()
+        return {
+            "models": [m.to_dict() for m in models],
+            "providers": model_registry.model_providers(),
+        }
+
+    @router.get("/api/models/capabilities")
+    async def api_models_capabilities() -> dict:
+        """Provider-neutral model capability archetypes (Phase 2 metadata).
+
+        These are capability shapes, not providers; the Phase 3 registry maps
+        concrete models onto them.
+        """
+        return {"models": [m.to_dict() for m in prompt_library.model_archetypes()]}
+
+    # ``:path`` so provider/model ids (e.g. ``opencode/big-pickle``) resolve.
+    # Registered after /api/models and /api/models/capabilities so those exact
+    # routes always win (FastAPI matches in registration order).
+    @router.get("/api/models/{model_id:path}")
+    async def api_model(model_id: str) -> dict:
+        try:
+            spec = model_registry.get_model(model_id)
+        except model_registry.ModelError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"model": spec.to_dict()}
+
+    @router.post("/api/models/recommend")
+    async def api_models_recommend(body: ModelRecommendIn) -> dict:
+        """Rank models for a task/prompt (deterministic, never changes a
+        user's model).
+
+        Phase 2 compat: when ``available_models`` (capability dicts) is
+        supplied those are ranked as before. Otherwise the Phase 3 registry
+        catalog is ranked via :func:`select_models` — an ``explicit_model`` is
+        always preserved and flagged ``explicit``.
+        """
+        prompt_id = body.prompt_profile or body.prompt_id
+        profile = None
+        if prompt_id:
+            try:
+                profile = prompt_library.get_prompt(prompt_id)
+            except prompt_library.PromptError as exc:
+                raise HTTPException(404, str(exc)) from exc
+        requirements = prompt_library.recommend_model_capabilities(
+            task=body.task, prompt_profile=profile)
+
+        if body.available_models:
+            # Phase 2 path: rank the caller-supplied capability profiles.
+            recs = prompt_library.recommend_model_capabilities(
+                task=body.task, prompt_profile=profile,
+                available_models=body.available_models)
+            return {
+                "requirements": requirements.to_dict(),
+                "recommendations": [r.to_dict() for r in recs],
+            }
+
+        # Phase 3 path: rank the registry catalog.
+        recs = model_registry.select_models(
+            requirements=requirements,
+            provider=body.provider,
+            explicit_model=body.explicit_model,
+            hard_requirements=body.hard_requirements,
+        )
+        return {
+            "requirements": requirements.to_dict(),
+            "recommendations": [r.to_dict() for r in recs],
+        }
+
+    # ---- BYOK connections (Phase 4) ---------------------------------------
+
+    def _conn_error(exc: Exception) -> HTTPException:
+        """Map connection-layer errors to safe, secret-free HTTP responses."""
+        from scripts.core.model_connections.errors import (
+            CredentialError,
+            DuplicateConnectionError,
+            ResolutionError,
+            UnknownConnectionError,
+            UnknownProviderError,
+        )
+        if isinstance(exc, UnknownConnectionError):
+            return HTTPException(404, str(exc))
+        if isinstance(exc, DuplicateConnectionError):
+            return HTTPException(409, str(exc))
+        if isinstance(exc, (UnknownProviderError, CredentialError,
+                            ResolutionError, ConnectionError)):
+            return HTTPException(422, str(exc))
+        return HTTPException(500, "connection operation failed")
+
+    @router.get("/api/connections")
+    async def api_connections() -> dict:
+        """Connection metadata only — never a secret."""
+        return {
+            "connections": [c.to_dict() for c in model_connections.list_connections()],
+            "providers": model_connections.providers.provider_meta(),
+        }
+
+    @router.post("/api/connections")
+    async def api_connections_create(body: ConnectionCreateIn) -> dict:
+        try:
+            connection = model_connections.create_connection(
+                body.provider, body.display_name or "",
+                api_key=body.api_key, endpoint=body.endpoint or "",
+                deployment=body.deployment or "", default=body.default,
+                credential_type=body.credential_type or "api_key",
+                connection_id=body.connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"connection": connection.to_dict()}
+
+    @router.get("/api/connections/{connection_id}")
+    async def api_connection_get(connection_id: str) -> dict:
+        try:
+            return {"connection": model_connections.get_connection(connection_id).to_dict()}
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+
+    @router.put("/api/connections/{connection_id}")
+    async def api_connection_update(connection_id: str, body: ConnectionUpdateIn) -> dict:
+        try:
+            connection = model_connections.update_connection(
+                connection_id,
+                display_name=body.display_name, endpoint=body.endpoint,
+                deployment=body.deployment, api_key=body.api_key,
+                default=body.default, credential_type=body.credential_type,
+                status=body.status)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"connection": connection.to_dict()}
+
+    @router.delete("/api/connections/{connection_id}")
+    async def api_connection_delete(connection_id: str) -> dict:
+        try:
+            model_connections.delete_connection(connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"ok": True}
+
+    @router.post("/api/connections/{connection_id}/validate")
+    async def api_connection_validate(connection_id: str) -> dict:
+        """Configuration-based validation (no network call, no secret)."""
+        try:
+            return model_connections.validate_connection(connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+
+    @router.post("/api/connections/resolve")
+    async def api_connections_resolve(body: ConnectionResolveIn) -> dict:
+        """Resolve a node's model/connection to its runtime configuration.
+
+        Returns metadata + a masked credential flag — never the secret.
+        """
+        try:
+            resolution = model_connections.resolve(
+                model=body.model, connection_id=body.connection_id)
+        except model_connections.ConnectionError as exc:
+            raise _conn_error(exc) from exc
+        return {"resolution": resolution.to_dict()}
 
     # ---- project profile (repository analysis) ----------------------------
 

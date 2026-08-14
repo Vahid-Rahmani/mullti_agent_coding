@@ -12,8 +12,6 @@ vault logging, no self-evolve).
 from __future__ import annotations
 
 import os
-import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -36,13 +34,16 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent.parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07")
-
-
-def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences from a log string."""
-    return _ANSI_RE.sub("", text)
-
+# Phase 5: the OpenCode command/exec helpers are canonical in
+# scripts.core.providers.opencode; run_hub re-exports them under the same
+# private names so every dispatch path shares one command builder.
+from scripts.core.providers.opencode import (  # noqa: E402
+    build_run_command as _build_run_command,
+    insecure_tls_env as _insecure_tls_env,
+    opencode_command as _opencode_command,
+    sanitize_prompt as _sanitize_prompt,
+    strip_ansi as _strip_ansi,
+)
 
 _TRUNCATE_MARKER = "… [truncated] …"
 
@@ -80,48 +81,7 @@ def prune_prompt(prompt: str, max_chars: int = 12000) -> str:
     return result[:head_len] + _TRUNCATE_MARKER + result[-tail_len:]
 
 
-def _opencode_command() -> str | None:
-    """Resolve the opencode executable path (PATHEXT-aware, Windows-safe)."""
-    return shutil.which("opencode") or shutil.which("opencode.cmd")
 
-
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-
-
-def _sanitize_prompt(prompt: str) -> str:
-    """Strip control characters and leading whitespace from a raw prompt."""
-    return _CONTROL_CHARS_RE.sub("", prompt).lstrip()
-
-
-def _insecure_tls_env() -> dict[str, str] | None:
-    """Env override for opencode subprocesses when the TLS bypass is on.
-
-    ``ZOVA_ALLOW_INSECURE_TLS=1`` (or ``true``/``yes``) sets
-    ``NODE_TLS_REJECT_UNAUTHORIZED=0`` so the opencode CLI skips certificate
-    verification. Strictly opt-in for environments with self-signed or
-    intercepting certificates (antivirus/EDR web filters, corporate proxies):
-    default (unset or 0) leaves Node's TLS verification fully enabled.
-    Returns ``None`` when disabled, so subprocesses inherit the environment
-    unchanged.
-    """
-    raw = os.environ.get("ZOVA_ALLOW_INSECURE_TLS", "").strip().lower()
-    if raw not in ("1", "true", "yes"):
-        return None
-    return {**os.environ, "NODE_TLS_REJECT_UNAUTHORIZED": "0"}
-
-
-def _build_run_command(
-    exe: str, agent: str, prompt: str, model: str | None = None
-) -> list[str]:
-    """Build the ``opencode run`` argv for one agent (plain dispatch)."""
-    cmd = [exe, "run", "--agent", agent, "--auto"]
-    if model:
-        cmd += ["-m", model]
-    prompt = _sanitize_prompt(prompt)
-    if prompt.startswith("-"):
-        cmd.append("--")
-    cmd.append(prompt)
-    return cmd
 
 
 class RunHub:

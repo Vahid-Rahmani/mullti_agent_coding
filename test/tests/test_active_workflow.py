@@ -34,6 +34,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import scripts.web_ui.routes as routes_mod  # noqa: E402
 from scripts.core import workflow_engine as E  # noqa: E402
+from scripts.core.execution import runtime  # noqa: E402
 from scripts.core import workflows as W  # noqa: E402
 from scripts.web_ui.server import create_app  # noqa: E402
 from scripts.web_ui.state import WebState  # noqa: E402
@@ -354,6 +355,67 @@ class ActiveWorkflowRuntimeTestCase(unittest.TestCase):
         self.assertEqual([c[0] for c in d2.calls], ["m", "e"],
                          "runtime follows the newly active workflow")
         self.assertNotIn("a", [c[0] for c in d2.calls], "no stale graph nodes")
+
+    # TEST 8 — Phase 5: default adapter-backed dispatch keeps the same graph
+    # semantics while adding per-node execution records + ordered events.
+    def test_default_dispatch_emits_records_without_changing_graph(self):
+        from unittest import mock
+
+        from scripts.core.execution.schema import ModelResponse
+
+        class FakeAdapter:
+            provider_id = "fake"
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                return ModelResponse(text=f"out-{request.node_id}",
+                                     provider="fake", model=request.model)
+
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=FakeAdapter()):
+            r = run_sync(WF_A, None)   # default dispatch (adapter-backed)
+        snap = r.snapshot()
+        # graph semantics unchanged
+        self.assertEqual([n for n in snap["statuses"]],
+                         [n.id for n in WF_A.nodes])
+        self.assertEqual(set(snap["statuses"].values()), {"completed"})
+        # per-node execution records + ordered events exist
+        for nid in ("m", "a", "s"):
+            self.assertEqual(snap["executions"][nid]["status"], "completed")
+            self.assertEqual(snap["executions"][nid]["provider"], "fake")
+        types = [e["event_type"] for e in snap["events"]]
+        self.assertEqual(types[0], "workflow_started")
+        self.assertEqual(types[-1], "workflow_completed")
+        # execution events never carry credentials
+        for e in snap["events"]:
+            for key in ("api_key", "secret", "token", "credential",
+                        "authorization", "password"):
+                self.assertNotIn(key, e)
+
+    # TEST 9 — Phase 5: dry-run resolves per-node plan metadata (model /
+    # connection / adapter / prompt profile / task) without executing.
+    def test_dry_run_resolves_plan_metadata_without_executing(self):
+        runtime.clear_runs()
+        self.addCleanup(runtime.clear_runs)
+
+        wf = make_workflow("wf-plan", [
+            {"id": "p", "agent": "matthew", "kind": "agent",
+             "model": "opencode/big-pickle",
+             "prompt_profile": "software-engineer-expert",
+             "task": {"category": "development", "capabilities": ["coding"]}},
+            {"id": "q", "agent": "alex", "kind": "agent", "model": ""},
+        ], [{"source": "p", "target": "q"}])
+        plan = E.simulate_workflow(wf)
+        # dry-run never starts a real run and never resolves credentials
+        self.assertEqual(runtime.list_runs(), [], "dry-run starts no run")
+        rows = {r["node_id"]: r for r in plan["plan"]}
+        self.assertEqual(rows["p"]["model"], "opencode/big-pickle")
+        self.assertEqual(rows["p"]["adapter"], "opencode")
+        self.assertEqual(rows["p"]["prompt_profile"], "software-engineer-expert")
+        self.assertEqual(rows["p"]["task"]["category"], "development")
+        self.assertIn("connection_id", rows["p"])
+        # a second node resolves its own plan row (agent model fallback)
+        self.assertIn("q", rows)
 
 
 if __name__ == "__main__":

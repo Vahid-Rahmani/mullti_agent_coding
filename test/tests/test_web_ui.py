@@ -381,6 +381,310 @@ class ApiTestCase(VaultTestCase):
         self.assertEqual(r.json()["role"], "")
 
 
+    # ---- prompt library endpoints -----------------------------------
+    def test_prompts_endpoint_lists_all(self):
+        data = self.ctx.get("/api/prompts").json()
+        self.assertIn("prompts", data)
+        self.assertEqual(len(data["prompts"]), 42)
+        self.assertIn("roles", data)
+        # list returns metadata only — never the prompt text
+        first = data["prompts"][0]
+        self.assertNotIn("prompt", first)
+        for field in ("id", "name", "description", "role", "category",
+                      "capabilities", "recommended_models", "tags", "version"):
+            self.assertIn(field, first)
+
+    def test_prompts_role_filter(self):
+        # ?role=developer maps keywords to the software_engineer prompt role
+        data = self.ctx.get("/api/prompts", params={"role": "developer"}).json()
+        self.assertEqual({p["role"] for p in data["prompts"]}, {"software_engineer"})
+        # ?role=security → security_engineer
+        data = self.ctx.get("/api/prompts", params={"role": "security"}).json()
+        self.assertEqual({p["role"] for p in data["prompts"]}, {"security_engineer"})
+        # no match → empty list, still 200
+        data = self.ctx.get("/api/prompts", params={"role": "zzz"}).json()
+        self.assertEqual(data["prompts"], [])
+
+    def test_prompts_detail_and_unknown(self):
+        full = self.ctx.get("/api/prompts/software-engineer-expert").json()["prompt"]
+        self.assertEqual(full["name"], "Expert Software Engineer")
+        self.assertIn("prompt", full)
+        self.assertTrue(full["prompt"])
+        self.assertEqual(self.ctx.get("/api/prompts/nope").status_code, 404)
+
+    def test_prompts_list_includes_model_preferences(self):
+        first = self.ctx.get("/api/prompts").json()["prompts"][0]
+        self.assertIn("model_preferences", first)
+        prefs = first["model_preferences"]
+        for key in ("reasoning", "coding", "context", "tool_use", "latency", "cost"):
+            self.assertIn(key, prefs)
+
+    def test_prompts_recommend_meta(self):
+        data = self.ctx.get("/api/prompts/recommend").json()
+        self.assertIn("categories", data)
+        self.assertIn("roles", data)
+        self.assertIn("examples", data)
+        self.assertIn("security", data["categories"])
+        self.assertTrue(any(e["prompt_id"] == "security-auditor"
+                            for e in data["examples"]))
+
+    def test_prompts_recommend_post(self):
+        r = self.ctx.post("/api/prompts/recommend",
+                          json={"task": "security audit"})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("task", body)
+        self.assertEqual(body["task"]["category"], "security")
+        recs = body["recommendations"]
+        self.assertTrue(recs)
+        self.assertEqual(recs[0]["prompt_id"], "security-auditor")
+        # each recommendation carries a deterministic score + reason
+        for rec in recs:
+            self.assertIn("prompt_id", rec)
+            self.assertIn("score", rec)
+            self.assertIn("reason", rec)
+            self.assertTrue(0.0 <= rec["score"] <= 1.0)
+
+    def test_models_capabilities_endpoint(self):
+        models = self.ctx.get("/api/models/capabilities").json()["models"]
+        self.assertTrue(models)
+        for m in models:
+            self.assertIn("id", m)
+            self.assertIn("context_window", m)
+            self.assertNotIn("/", m["id"])  # provider-neutral
+
+    def test_models_recommend_requirements(self):
+        r = self.ctx.post("/api/models/recommend",
+                          json={"prompt_id": "software-engineer-expert"})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("requirements", body)
+        self.assertEqual(body["requirements"]["reasoning"], "high")
+        # Phase 3: without supplied models the registry catalog is ranked
+        # deterministically (the response shape is unchanged).
+        self.assertIn("recommendations", body)
+        self.assertTrue(body["recommendations"])
+        for rec in body["recommendations"]:
+            self.assertIn("model_id", rec)
+            self.assertIn("score", rec)
+            self.assertIn("reason", rec)
+        scores = [rec["score"] for rec in body["recommendations"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_models_registry_endpoint(self):
+        body = self.ctx.get("/api/models").json()
+        models = body["models"]
+        self.assertTrue(models)
+        for m in models:
+            self.assertIn("id", m)
+            self.assertIn("provider", m)
+            self.assertIn("capabilities", m)
+            self.assertIn("context_window", m)
+        self.assertIn("providers", body)
+        self.assertIn("google", body["providers"])
+
+    def test_models_registry_provider_filter(self):
+        body = self.ctx.get("/api/models", params={"provider": "google"}).json()
+        self.assertTrue(body["models"])
+        self.assertTrue(all(m["provider"] == "google" for m in body["models"]))
+
+    def test_models_registry_detail(self):
+        r = self.ctx.get("/api/models/opencode/deepseek-v4-flash-free")
+        self.assertEqual(r.status_code, 200)
+        model = r.json()["model"]
+        self.assertEqual(model["id"], "opencode/deepseek-v4-flash-free")
+        self.assertEqual(model["capabilities"]["reasoning"], "high")
+
+    def test_models_registry_detail_unknown_404(self):
+        r = self.ctx.get("/api/models/does/not-exist")
+        self.assertEqual(r.status_code, 404)
+
+    def test_models_recommend_prompt_profile_alias(self):
+        # Phase 3 payload uses ``prompt_profile``; the handler falls back to
+        # Phase 2's ``prompt_id`` so old consumers keep working.
+        r = self.ctx.post("/api/models/recommend", json={
+            "prompt_profile": "software-engineer-expert"})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["recommendations"])
+
+    def test_models_recommend_explicit_model_preserved(self):
+        r = self.ctx.post("/api/models/recommend", json={
+            "prompt_profile": "software-engineer-expert",
+            "explicit_model": "ollama/qwen2.5-coder:7b",
+        })
+        self.assertEqual(r.status_code, 200)
+        recs = r.json()["recommendations"]
+        self.assertEqual(recs[0]["model_id"], "ollama/qwen2.5-coder:7b")
+        self.assertTrue(recs[0]["explicit"])
+
+    def test_models_recommend_hard_requirements(self):
+        r = self.ctx.post("/api/models/recommend", json={
+            "prompt_profile": "software-engineer-expert",
+            "hard_requirements": {"context_window": 100000},
+        })
+        self.assertEqual(r.status_code, 200)
+        for rec in r.json()["recommendations"]:
+            if rec["explicit"]:
+                continue
+            mid = rec["model_id"]
+            self.assertGreaterEqual(
+                self.ctx.get(f"/api/models/{mid}").json()["model"]["context_window"],
+                100000)
+
+    def test_models_recommend_provider_filter(self):
+        r = self.ctx.post("/api/models/recommend", json={
+            "prompt_profile": "software-engineer-expert",
+            "provider": "google",
+        })
+        self.assertEqual(r.status_code, 200)
+        recs = r.json()["recommendations"]
+        self.assertTrue(recs)
+        self.assertTrue(all(rec["model_id"].startswith("google/")
+                            for rec in recs))
+
+    def test_models_recommend_ranks(self):
+        r = self.ctx.post("/api/models/recommend", json={
+            "prompt_id": "software-engineer-expert",
+            "available_models": [
+                {"id": "fast", "name": "Fast", "reasoning": "low",
+                 "coding": "medium", "context_window": 32000, "tool_use": "low",
+                 "latency": "low", "cost": "low"},
+                {"id": "strong", "name": "Strong", "reasoning": "high",
+                 "coding": "high", "context_window": 200000, "tool_use": "high",
+                 "latency": "medium", "cost": "medium"},
+            ],
+        })
+        body = r.json()
+        self.assertTrue(body["recommendations"])
+        self.assertEqual(body["recommendations"][0]["model_id"], "strong")
+
+    def test_models_recommend_unknown_prompt(self):
+        r = self.ctx.post("/api/models/recommend", json={"prompt_id": "nope"})
+        self.assertEqual(r.status_code, 404)
+
+
+class ConnectionsApiTestCase(VaultTestCase):
+    """BYOK /api/connections endpoints, isolated via temp files (Phase 4)."""
+
+    SECRET = "test-secret-value-abc123"
+
+    def setUp(self):
+        super().setUp()
+        self._conn_env = os.environ.get("ZOVA_CONNECTIONS")
+        self._auth_env = os.environ.get("ZOVA_AUTH_STORE")
+        self.conn_file = Path(self.tmp.name) / "connections.json"
+        self.auth_file = Path(self.tmp.name) / "auth.json"
+        os.environ["ZOVA_CONNECTIONS"] = str(self.conn_file)
+        os.environ["ZOVA_AUTH_STORE"] = str(self.auth_file)
+        from scripts.web_ui.server import create_app
+        self.app = create_app(vault=self.vault, state=self.state)
+        self.ctx = TestClient(self.app)
+
+    def tearDown(self):
+        if self._conn_env is None:
+            os.environ.pop("ZOVA_CONNECTIONS", None)
+        else:
+            os.environ["ZOVA_CONNECTIONS"] = self._conn_env
+        if self._auth_env is None:
+            os.environ.pop("ZOVA_AUTH_STORE", None)
+        else:
+            os.environ["ZOVA_AUTH_STORE"] = self._auth_env
+        super().tearDown()
+
+    def test_create_connection_never_echoes_secret(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "display_name": "OpenAI Primary",
+            "api_key": self.SECRET})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()["connection"]
+        self.assertNotIn(self.SECRET, r.text)
+        self.assertEqual(body["status"], "configured")
+        self.assertEqual(body["provider"], "openai")
+        for banned in ("key", "secret", "token", "authorization"):
+            self.assertNotIn(banned, body)
+
+    def test_list_get_never_returns_secret(self):
+        self.ctx.post("/api/connections", json={
+            "provider": "anthropic", "api_key": self.SECRET})
+        listed = self.ctx.get("/api/connections")
+        self.assertEqual(listed.status_code, 200)
+        self.assertNotIn(self.SECRET, listed.text)
+        self.assertTrue(listed.json()["connections"])
+        self.assertTrue(listed.json()["providers"])
+        got = self.ctx.get(f"/api/connections/{listed.json()['connections'][0]['id']}")
+        self.assertEqual(got.status_code, 200)
+        self.assertNotIn(self.SECRET, got.text)
+
+    def test_update_and_replace_key(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        r2 = self.ctx.put(f"/api/connections/{cid}", json={
+            "display_name": "Renamed", "api_key": "replacement-secret"})
+        self.assertEqual(r2.status_code, 200)
+        self.assertNotIn(self.SECRET, r2.text)
+        self.assertNotIn("replacement-secret", r2.text)
+        self.assertEqual(r2.json()["connection"]["display_name"], "Renamed")
+
+    def test_delete_connection(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "google", "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        self.assertEqual(self.ctx.delete(f"/api/connections/{cid}").status_code, 200)
+        self.assertEqual(self.ctx.get(f"/api/connections/{cid}").status_code, 404)
+
+    def test_validate_endpoint(self):
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        v = self.ctx.post(f"/api/connections/{cid}/validate")
+        self.assertEqual(v.status_code, 200)
+        self.assertTrue(v.json()["ok"])
+        self.assertNotIn(self.SECRET, v.text)
+
+    def test_resolve_endpoint(self):
+        self.ctx.post("/api/connections", json={
+            "provider": "openai", "api_key": self.SECRET})
+        r = self.ctx.post("/api/connections/resolve", json={"model": "openai/gpt-5"})
+        self.assertEqual(r.status_code, 200)
+        res = r.json()["resolution"]
+        self.assertEqual(res["source"], "provider-default")
+        self.assertNotIn(self.SECRET, r.text)
+
+    def test_error_paths(self):
+        self.assertEqual(
+            self.ctx.post("/api/connections", json={"provider": "nope-corp", "api_key": "x"}).status_code,
+            422)
+        self.assertEqual(
+            self.ctx.get("/api/connections/conn_missing").status_code, 404)
+        # duplicate id
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": "conn_dup",
+            "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        dup = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": cid, "api_key": self.SECRET})
+        self.assertEqual(dup.status_code, 409)
+        # provider requiring a key without one
+        self.assertEqual(
+            self.ctx.post("/api/connections", json={"provider": "anthropic"}).status_code,
+            422)
+
+    def test_errors_never_contain_secret(self):
+        # even error bodies must not echo the submitted secret
+        r = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": "conn_x",
+            "api_key": self.SECRET})
+        cid = r.json()["connection"]["id"]
+        dup = self.ctx.post("/api/connections", json={
+            "provider": "openai", "connection_id": cid, "api_key": self.SECRET})
+        self.assertEqual(dup.status_code, 409)
+        self.assertNotIn(self.SECRET, dup.text)
+        # errors for unknown connections don't leak anything either
+        missing = self.ctx.get("/api/connections/conn_y")
+        self.assertNotIn(self.SECRET, missing.text)
+
+
 class WorkflowApiTestCase(VaultTestCase):
     """Workflow REST endpoints, isolated via $ZOVA_WORKFLOWS temp dir."""
 
@@ -449,6 +753,25 @@ class WorkflowApiTestCase(VaultTestCase):
         self.assertEqual(node["x"], 120.0)
         self.assertEqual(node["y"], 140.0)
 
+    def test_prompt_profile_persists_through_api(self):
+        # a node's prompt_profile survives the full PUT → GET round trip, and a
+        # workflow without it (backward compatible) still saves fine.
+        body = self._wf(nodes=[{
+            "id": "a", "agent": "matthew", "kind": "agent",
+            "prompt_profile": "software-engineer-expert",
+            "instructions": "My custom instruction",
+        }], edges=[])
+        r = self.ctx.put("/api/workflows/test-wf", json=body)
+        self.assertEqual(r.status_code, 200)
+        node = self.ctx.get("/api/workflows/test-wf").json()["workflow"]["nodes"][0]
+        self.assertEqual(node["prompt_profile"], "software-engineer-expert")
+        self.assertEqual(node["instructions"], "My custom instruction")
+
+        # a workflow with no prompt_profile still validates and saves
+        plain = self._wf(nodes=[{"id": "a", "agent": "matthew", "kind": "agent"}], edges=[])
+        self.assertEqual(self.ctx.put("/api/workflows/test-wf", json=plain).status_code, 200)
+        self.assertEqual(self.ctx.get("/api/workflows/test-wf/validate").json()["valid"], True)
+
     def test_workflow_crud(self):
         self.assertEqual(self.ctx.get("/api/workflows").json()["workflows"], [])
         r = self.ctx.put("/api/workflows/test-wf", json=self._wf())
@@ -482,13 +805,83 @@ class WorkflowApiTestCase(VaultTestCase):
     def test_workflow_templates_and_recommend(self):
         templates = self.ctx.get("/api/workflows/templates").json()["templates"]
         self.assertIn("sequential", templates)
+        self.assertIn("parallel", templates)
+        self.assertIn("reflection", templates)
+        # POST instantiates a template in memory, returning
+        # {workflow: ...} — the exact shape workspace.js loadTemplate() expects.
         seq = self.ctx.post("/api/workflows/from-template/sequential").json()["workflow"]
         self.assertEqual([n["id"] for n in seq["nodes"]],
                          ["architect", "developer", "tester", "reviewer"])
+        self.assertEqual(len(seq["edges"]), 3)
+        self.assertTrue(all(n["agent"] for n in seq["nodes"]),
+                        "every sequential node references an agent")
         rec = self.ctx.get("/api/workflows/recommend?agents=4").json()
         self.assertIn("workflow", rec)
         self.assertIn("reasons", rec)
         self.assertEqual(self.ctx.post("/api/workflows/from-template/nope").status_code, 404)
+
+    def test_workflow_templates_produce_real_graphs(self):
+        # parallel: architect → {backend, frontend, security} → reviewer
+        # (fan-out followed by a join) — a real multi-agent graph, not a list.
+        par = self.ctx.post("/api/workflows/from-template/parallel").json()["workflow"]
+        ids = {n["id"] for n in par["nodes"]}
+        self.assertEqual(ids, {"architect", "backend", "frontend", "security", "reviewer"})
+        self.assertEqual({e["source"] for e in par["edges"]},
+                         {"architect", "backend", "frontend", "security"})
+        self.assertEqual(sum(1 for e in par["edges"] if e["target"] == "reviewer"), 3,
+                         "reviewer is a join node with three incoming edges")
+
+        # reflection: conditional routing + a retry loop back to the developer.
+        refl = self.ctx.post("/api/workflows/from-template/reflection").json()["workflow"]
+        self.assertEqual(refl["entry"], ["developer"],
+                         "a cyclic retry loop must declare an explicit entry node")
+        conds = {(e["source"], e["target"], e["condition"]) for e in refl["edges"]}
+        self.assertIn(("reviewer", "done", "success"), conds)
+        self.assertIn(("reviewer", "developer", "failure"), conds)
+        agents = [n for n in refl["nodes"] if n["kind"] == "agent"]
+        self.assertTrue(all(n["agent"] for n in agents),
+                        "every reflection agent node references an agent")
+        self.assertEqual(sum(1 for n in refl["nodes"] if n["kind"] == "end"), 1)
+
+        # Every predefined template (except the explicit "empty") yields a
+        # non-empty graph with nodes, edges, and at least one agent reference.
+        templates = self.ctx.get("/api/workflows/templates").json()["templates"]
+        for slug in templates:
+            wf = self.ctx.post(f"/api/workflows/from-template/{slug}").json()["workflow"]
+            if slug == "empty":
+                self.assertEqual(wf["nodes"], [])
+                continue
+            self.assertTrue(wf["nodes"], f"{slug}: template must produce nodes")
+            self.assertTrue(wf["edges"], f"{slug}: template must produce edges")
+            self.assertTrue(any(n["agent"] for n in wf["nodes"]),
+                            f"{slug}: template must reference at least one agent")
+
+    def test_every_template_can_save_validate_and_dry_run(self):
+        """Bug 3 regression — no template may fail with a 404/validation error.
+
+        Template ids used to be derived from the display name with only spaces
+        replaced, so "Planner / Workers / Reviewer" produced an id containing
+        slashes (``template-planner-/-workers-/-reviewer``) that broke the
+        ``/api/workflows/{id}`` route (404 "Not Found" on Save/Run). The
+        reflection template's ``end`` node also carried an empty role that
+        failed validation. Every template must now be saveable, valid and
+        dry-runnable through the same API path the workspace uses.
+        """
+        from scripts.core import workflows as W
+        templates = self.ctx.get("/api/workflows/templates").json()["templates"]
+        for slug in templates:
+            if slug == "empty":
+                continue
+            wf = self.ctx.post(f"/api/workflows/from-template/{slug}").json()["workflow"]
+            # the generated id must be a valid, URL-safe workflow id
+            self.assertEqual(wf["id"], W.normalize_workflow_id(wf["id"]),
+                             f"{slug}: template id must be URL-safe and saveable")
+            r = self.ctx.put(f"/api/workflows/{wf['id']}", json=wf)
+            self.assertEqual(r.status_code, 200, f"{slug}: template must save (not 404)")
+            v = self.ctx.get(f"/api/workflows/{wf['id']}/validate").json()
+            self.assertTrue(v["valid"], f"{slug}: template must validate: {v['errors']}")
+            dr = self.ctx.post(f"/api/workflows/{wf['id']}/dry-run", json=wf)
+            self.assertEqual(dr.status_code, 200, f"{slug}: template must dry-run")
 
     def test_workflow_run_validation_and_start(self):
         self.ctx.put("/api/workflows/test-wf", json=self._wf())
@@ -526,6 +919,75 @@ class WorkflowApiTestCase(VaultTestCase):
         self.assertEqual(set(plan["waves"][1]), {"b", "c"})
         self.assertEqual(set(plan["statuses"].values()), {"completed"})
         start.assert_not_called()   # a dry-run never starts a real run
+
+    def test_workflow_dry_run_resolves_plan_rows(self):
+        # Phase 5: dry-run returns per-node plan metadata (model / connection /
+        # adapter) without executing anything.
+        body = self._wf(nodes=[
+            {"id": "a", "agent": "matthew", "kind": "agent",
+             "model": "opencode/big-pickle"},
+            {"id": "b", "agent": "alex", "kind": "agent"},
+        ], edges=[{"source": "a", "target": "b"}], entry=["a"])
+        with mock.patch.object(self.routes_mod.workflow_engine, "start_run") as start:
+            r = self.ctx.post("/api/workflows/test-wf/dry-run", json=body)
+        self.assertEqual(r.status_code, 200)
+        plan = r.json()
+        rows = {row["node_id"]: row for row in plan["plan"]}
+        self.assertEqual(rows["a"]["model"], "opencode/big-pickle")
+        self.assertEqual(rows["a"]["adapter"], "opencode")
+        self.assertIn("connection_id", rows["a"])
+        self.assertIn("provider", rows["a"])
+        self.assertIn("b", rows, "every enabled agent node gets a plan row")
+        start.assert_not_called()
+
+    def test_run_snapshot_includes_events_and_executions(self):
+        # Phase 5: GET /api/workflows/runs/{id} returns the extended snapshot
+        # (events + per-node execution records) while preserving every legacy
+        # field, and never exposes credentials.
+        from scripts.core.execution.schema import ModelResponse
+
+        class FakeAdapter:
+            provider_id = "fake"
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                return ModelResponse(text=f"out-{request.node_id}",
+                                     provider="fake", model=request.model)
+
+        self.ctx.put("/api/workflows/test-wf", json=self._wf())
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=FakeAdapter()):
+            r = self.ctx.post("/api/workflows/test-wf/run",
+                              json={"initial_state": {}})
+            self.assertEqual(r.status_code, 200)
+            run_id = r.json()["run_id"]
+            # runs execute on a background thread — poll until the snapshot says
+            # done (patch stays active for the whole run)
+            snap = {}
+            for _ in range(200):
+                snap = self.ctx.get(f"/api/workflows/runs/{run_id}").json()
+                if snap.get("finished"):
+                    break
+                time.sleep(0.02)
+        # legacy fields preserved
+        self.assertEqual(snap["workflow_id"], "test-wf")
+        self.assertTrue(snap["finished"])
+        self.assertIn("outputs", snap)
+        self.assertIn("statuses", snap)
+        # Phase 5 extensions
+        self.assertIn("events", snap)
+        self.assertIn("executions", snap)
+        for nid in ("a", "b"):
+            self.assertEqual(snap["executions"][nid]["status"], "completed")
+            self.assertEqual(snap["executions"][nid]["provider"], "fake")
+        types = [e["event_type"] for e in snap["events"]]
+        self.assertEqual(types[0], "workflow_started")
+        self.assertEqual(types[-1], "workflow_completed")
+        # credentials never appear in the API response
+        blob = repr(snap).lower()
+        for key in ("api_key", "secret", "credential", "authorization",
+                    "password"):
+            self.assertNotIn(key, blob)
 
     def test_workflow_dry_run_rejects_invalid_graph(self):
         body = self._wf(edges=[{"source": "a", "target": "b"},
@@ -1061,6 +1523,121 @@ class WorkspaceAssetsTestCase(unittest.TestCase):
         self.assertIn('btn.classList.toggle("active", isActive)', self.js)
         # the activate action is bound to the button
         self.assertIn('$("#ws-activate").addEventListener("click", activateWorkflow)', self.js)
+
+    # ── Prompt Library (Prompt Profile → Instruction) ───────────────
+    def test_workspace_prompt_profile_assets(self):
+        # the properties panel adds a Prompt Profile selector + preview + apply
+        for token in ("Prompt Profile", "ws-prompt-select", "ws-prompt-preview",
+                      "Apply Prompt", "suggestPromptsForNode", "suggestPromptRole",
+                      "onPromptSelected", "applyPromptToNode", "fetchPromptText",
+                      "prompt_profile", "/api/prompts"):
+            self.assertIn(token, self.js)
+        # the preview + apply styles are present
+        for cls in (".ws-prompt-select", ".ws-prompt-preview",
+                    ".ws-prompt-preview-name", ".ws-prompt-preview-desc",
+                    ".ws-prompt-preview-caps", ".ws-prompt-apply"):
+            self.assertIn(cls, self.css)
+
+    def test_workspace_prompt_safe_apply(self):
+        # safe application: only auto-fill the Instruction when it is empty — a
+        # custom instruction is never silently overwritten (Apply does that).
+        self.assertIn('!(n.instructions || "").trim()', self.js)
+        self.assertIn("n.prompt_profile = id", self.js)
+        self.assertIn("n.instructions = text", self.js)
+        # the prompt dropdown offers both a role-filtered group and all prompts
+        self.assertIn('sg.label = "Suggested"', self.js)
+        self.assertIn('all.label = "All Prompts"', self.js)
+
+    def test_prompt_api_wired(self):
+        routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(
+            encoding="utf-8")
+        for token in ('"/api/prompts"', '"/api/prompts/{prompt_id}"',
+                      "prompt_library.suggest_prompts_for_role",
+                      "prompt_library.list_prompts",
+                      "prompt_library.get_prompt"):
+            self.assertIn(token, routes)
+
+    # ── Phase 2: Task → Prompt recommendation + model capabilities ──
+    def test_workspace_prompt_recommendation_assets(self):
+        # Task / Purpose + Suggest Prompt + recommendation preview + model reqs
+        for token in ("Task / Purpose", "Suggest Prompt", "Recommended Prompt",
+                      "Model requirements", "suggestPrompt",
+                      "nodeTaskDescription", "nodePromptRole",
+                      "renderRecommendationPreview", "renderModelCapabilityPreview",
+                      "taskRecs", "/api/prompts/recommend"):
+            self.assertIn(token, self.js)
+        for cls in (".ws-task-input", ".ws-suggest-prompt", ".ws-recs",
+                    ".ws-rec-item", ".ws-rec-score", ".ws-recs-note",
+                    ".ws-model-prefs", ".ws-model-prefs-table"):
+            self.assertIn(cls, self.css)
+
+    def test_phase2_api_wired(self):
+        routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(
+            encoding="utf-8")
+        for token in ('"/api/prompts/recommend"', '"/api/models/capabilities"',
+                      '"/api/models/recommend"', "recommend_prompts",
+                      "recommend_model_capabilities", "model_archetypes"):
+            self.assertIn(token, routes)
+
+    # ── Phase 3: Model Registry + model selection UI ────────────────
+    def test_workspace_model_registry_assets(self):
+        for token in ("Recommended Models", "loadModelCatalog",
+                      "renderModelRecommendation", "renderModelDetails",
+                      "modelProviderOptions", "ws-model-provider",
+                      "ws-model-rec-item", "ws-model-rec-score",
+                      "ws-model-rec-apply", "explicit selection",
+                      "modelById", "/api/models"):
+            self.assertIn(token, self.js)
+        for cls in (".ws-model-recs", ".ws-model-recs-title",
+                    ".ws-model-provider", ".ws-model-rec-item",
+                    ".ws-model-rec-score", ".ws-model-rec-apply",
+                    ".ws-model-details", ".ws-model-details-row"):
+            self.assertIn(cls, self.css)
+
+    def test_phase3_api_wired(self):
+        routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(
+            encoding="utf-8")
+        for token in ('"/api/models"', '"/api/models/{model_id:path}"',
+                      "model_registry.select_models", "model_registry.list_models",
+                      "model_registry.get_model", "explicit_model",
+                      "hard_requirements", "prompt_profile"):
+            self.assertIn(token, routes)
+
+    # ── Phase 4: BYOK connections UI + API ─────────────────────────
+    def test_workspace_connections_assets(self):
+        # Connection control near the Model row + Manage Connections manager
+        for token in ("Connection", "Manage Connections", "loadConnections",
+                      "connectionCombo", "connectionById", "providerForNode",
+                      "openConnectionManager", "renderConnectionManager",
+                      "connectionCard", "connectionForm", "ws-conn-select",
+                      "ws-conn-mgr", "ws-conn-item", "ws-conn-masked",
+                      "Local / None", "AI Connections", "Replace",
+                      "connection_id", "/api/connections"):
+            self.assertIn(token, self.js)
+        self.assertIn('id="ws-conn-mgr"', self.html)
+        for cls in (".ws-conn-mgr", ".ws-conn-item", ".ws-conn-masked",
+                    ".ws-conn-form", ".conn-combo", ".ws-conn-manage"):
+            self.assertIn(cls, self.css)
+
+    def test_workspace_connections_never_handle_secrets_in_js(self):
+        # the workspace never stores or logs secret material
+        self.assertIn("never", self.js)
+        for banned in ("apiKey", "api_key"):
+            # the JS talks to the API but must not keep secrets in state
+            self.assertNotIn("S." + banned, self.js)
+
+    def test_phase4_api_wired(self):
+        routes = (Path(REPO_ROOT) / "scripts" / "web_ui" / "routes.py").read_text(
+            encoding="utf-8")
+        for token in ('"/api/connections"', '"/api/connections/{connection_id}"',
+                      '"/api/connections/{connection_id}/validate"',
+                      "model_connections.create_connection",
+                      "model_connections.get_connection",
+                      "model_connections.update_connection",
+                      "model_connections.delete_connection",
+                      "model_connections.validate_connection",
+                      "model_connections.resolve"):
+            self.assertIn(token, routes)
 
 
 if __name__ == "__main__":

@@ -18,22 +18,26 @@ scheduler is a **wave** scheduler:
       can never spin forever.
 
 Execution state is **isolated per run** and lives only in the in-memory run
-registry — never in ``AgentSpec``, ``roles.json``, or ``opencode.json``.
+registry (``scripts.core.execution.runtime``) — never in ``AgentSpec``,
+``roles.json``, or ``opencode.json``.
+
+Phase 5: the default node dispatch is adapter-backed
+(``scripts.core.execution.executor`` → ``ProviderAdapter`` → OpenCode CLI),
+and every run emits ordered execution events plus per-node records
+(``ExecutionResult``) that appear in the run snapshot. The wave scheduler
+itself is unchanged.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 import sys
 import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.core import opencode_cfg
-from scripts.core import roles
+from scripts.core.execution.planner import build_node_prompt  # canonical builder
+from scripts.core.execution.schema import utc_now_iso
 from scripts.core.workflows import Workflow, WorkflowNode, effective_entry
 
 @dataclass
@@ -42,34 +46,6 @@ class DispatchResult:
 
     outcome: str
     output: str = ""
-
-
-def build_node_prompt(node: WorkflowNode, state: dict, repo_root: Path | None = None) -> str:
-    """Compose a node's runtime prompt: roles + instructions + workflow state.
-
-    A node's own ``roles`` override the agent's persistent assignments for this
-    run only (never mutating ``roles.json``). Role context comes from the
-    existing role store; the agent identity and model stay untouched.
-    """
-    parts: list[str] = []
-    # A Home-dispatched command arrives as the run's ``user_prompt`` and is the
-    # primary task for every node (the workflow graph, not a single agent,
-    # is then the authoritative execution structure).
-    user_prompt = (state or {}).get("user_prompt")
-    if isinstance(user_prompt, str) and user_prompt.strip():
-        parts.append(user_prompt.strip())
-    if node.roles:
-        role_ctx = roles.render_role_context(
-            node.agent, role_ids=list(node.roles), repo_root=repo_root)
-    else:
-        role_ctx = roles.agent_context(node.agent, repo_root=repo_root)
-    if role_ctx:
-        parts.append(role_ctx.strip())
-    if node.instructions.strip():
-        parts.append(node.instructions.strip())
-    if state:
-        parts.append("## Workflow state\n```json\n" + json.dumps(state, indent=2) + "\n```")
-    return "\n\n".join(parts)
 
 
 def _dry_dispatch(node: WorkflowNode, prompt: str, state: dict,
@@ -83,61 +59,12 @@ def _dry_dispatch(node: WorkflowNode, prompt: str, state: dict,
     return DispatchResult("success", "")
 
 
-def _default_dispatch(node: WorkflowNode, prompt: str, state: dict,
-                      repo_root: Path | None = None) -> DispatchResult:
-    """Run one node through ``opencode run`` (the same plain dispatch as the hub)."""
-    from scripts.core.run_hub import (  # local import keeps engine import-light
-        _build_run_command, _insecure_tls_env, _opencode_command, _strip_ansi,
-    )
-
-    exe = _opencode_command()
-    if not exe:
-        return DispatchResult(
-            "failure",
-            "opencode executable not found on PATH. Install opencode or add it to PATH.",
-        )
-    model = node.model or opencode_cfg.resolve_model(node.agent, repo_root)
-    if not prompt.strip():
-        return DispatchResult("failure", "node produced an empty prompt")
-    cmd = _build_run_command(exe, node.agent, prompt, model)
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(Path(repo_root) if repo_root is not None else Path.cwd()),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            env=_insecure_tls_env(),
-        )
-    except OSError as exc:
-        return DispatchResult("failure", f"failed to launch opencode: {exc}")
-    lines: list[str] = []
-    try:
-        assert proc.stdout is not None
-        for raw in proc.stdout:
-            line = _strip_ansi(raw.rstrip("\r\n"))
-            if line:
-                lines.append(line)
-    except (OSError, ValueError):
-        pass
-    returncode = proc.wait()
-    return DispatchResult(
-        "success" if returncode == 0 else "failure",
-        "\n".join(lines),
-    )
-
-
 class WorkflowRunner:
     """Executes one workflow run with isolated state and wave scheduling."""
 
     def __init__(self, workflow: Workflow, dispatch_fn=None,
                  repo_root: Path | None = None) -> None:
         self.workflow = workflow
-        self.dispatch_fn = dispatch_fn or _default_dispatch
         self.repo_root = repo_root
         self.run_id = uuid.uuid4().hex[:12]
         self.lock = threading.Lock()
@@ -151,11 +78,54 @@ class WorkflowRunner:
         self.finished = False
         self.cancelled = threading.Event()
         self.nodes = {n.id: n for n in workflow.nodes}
+        # Phase 5: ordered execution events + per-node execution records.
+        self.events: list[dict] = []
+        self.executions: dict[str, dict] = {}
+        # The default dispatch is the adapter-backed execution pipeline
+        # (planner → ProviderAdapter → OpenCode). Custom dispatch fns (tests,
+        # dry-run) bypass it exactly as before.
+        if dispatch_fn is None:
+            from scripts.core.execution.executor import default_dispatch_for
+
+            dispatch_fn = default_dispatch_for(self)
+        self.dispatch_fn = dispatch_fn
+
+    # ------------------------------------------------- execution records
+
+    def record_event(self, event_type: str, *, node_id: str = "",
+                     status: str = "", model: str = "", provider: str = "",
+                     latency_ms: float | None = None, usage: dict | None = None,
+                     error_code: str = "") -> None:
+        """Append one ordered execution event (never contains secrets)."""
+        from scripts.core.execution.schema import ExecutionEvent
+
+        ev = ExecutionEvent(
+            execution_id=self.run_id,
+            workflow_id=self.workflow.id,
+            timestamp=utc_now_iso(),
+            event_type=event_type,
+            node_id=node_id,
+            status=status,
+            model=model,
+            provider=provider,
+            latency_ms=latency_ms,
+            usage=usage or {},
+            error_code=error_code,
+        )
+        with self.lock:
+            self.events.append(ev.to_dict())
+
+    def record_execution(self, node_id: str, result) -> None:
+        """Store the final ExecutionResult for a node (per run)."""
+        with self.lock:
+            self.executions[node_id] = result.to_dict()
 
     # ------------------------------------------------------------ public
 
     def start(self, initial_state: dict | None = None) -> str:
         """Begin execution on a background thread; return the run id."""
+        self.record_event("workflow_started", status="running",
+                          model="", provider="")
         thread = threading.Thread(
             target=self._run, args=(initial_state,), name=f"wf-{self.run_id}", daemon=True,
         )
@@ -176,6 +146,7 @@ class WorkflowRunner:
         """
         self.dispatch_fn = _dry_dispatch
         self._run_inner(initial_state)
+        plan_rows = self._plan_preview()
         return {
             "waves": self.waves,
             "start_nodes": list(effective_entry(self.workflow)),
@@ -186,7 +157,30 @@ class WorkflowRunner:
                 for e in self.workflow.edges if e.condition
             ],
             "max_iterations": int(self.workflow.settings.get("max_iterations", 3)),
+            # Phase 5: per-node resolved plan metadata (model/connection/
+            # adapter/prompt_profile/task) — resolved WITHOUT executing.
+            "plan": plan_rows,
         }
+
+    def _plan_preview(self) -> list[dict]:
+        """Resolve safe execution-plan metadata per enabled agent node.
+
+        Reuses the planner so a dry run answers "what would execute, with which
+        model / connection / adapter, in what order" — but never resolves
+        credentials and never executes anything.
+        """
+        from scripts.core.execution.errors import PlanError
+        from scripts.core.execution.planner import plan_node
+
+        rows: list[dict] = []
+        for n in self.workflow.nodes:
+            if n.kind != "agent" or not n.enabled:
+                continue
+            try:
+                rows.append(plan_node(n, dict(self.state), self.repo_root).to_dict())
+            except PlanError as exc:
+                rows.append({"node_id": n.id, "error": str(exc)})
+        return rows
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -200,6 +194,9 @@ class WorkflowRunner:
                 "state": dict(self.state),
                 "reason": dict(self.reason),
                 "labels": {n.id: n.label for n in self.workflow.nodes},
+                # Phase 5: ordered execution events + per-node execution records
+                "events": [dict(e) for e in self.events],
+                "executions": {k: dict(v) for k, v in self.executions.items()},
             }
 
     # ------------------------------------------------------------ scheduler
@@ -240,6 +237,14 @@ class WorkflowRunner:
         try:
             self._run_inner(initial_state)
         finally:
+            cancelled = self.cancelled.is_set()
+            failed = any(s == "failed" for s in self.statuses.values())
+            if cancelled or failed:
+                self.record_event(
+                    "workflow_failed", status="failed",
+                    error_code="cancelled" if cancelled else "node_failed")
+            else:
+                self.record_event("workflow_completed", status="completed")
             with self.lock:
                 self.finished = True
 
@@ -343,10 +348,7 @@ class WorkflowRunner:
         return results
 
 
-# ---------------------------------------------------------------- run registry
-
-_RUNS: dict[str, WorkflowRunner] = {}
-_RUNS_LOCK = threading.Lock()
+# ---------------------------------------------------------------- dry run
 
 
 def simulate_workflow(workflow: Workflow, initial_state: dict | None = None,
@@ -356,32 +358,36 @@ def simulate_workflow(workflow: Workflow, initial_state: dict | None = None,
     return runner.simulate(initial_state)
 
 
+# ---------------------------------------------------------------- run registry
+#
+# The in-memory run registry now lives in scripts.core.execution.runtime;
+# these thin delegators keep the previous public API (and any module-level
+# patching of ``workflow_engine.start_run`` in tests/routes) working unchanged.
+
+from scripts.core.execution import runtime as _execution_runtime  # noqa: E402
+
+
 def start_run(workflow: Workflow, initial_state: dict | None = None,
               dispatch_fn=None, repo_root: Path | None = None) -> str:
-    """Register and start a run; returns the run id."""
-    runner = WorkflowRunner(workflow, dispatch_fn=dispatch_fn, repo_root=repo_root)
-    with _RUNS_LOCK:
-        _RUNS[runner.run_id] = runner
-    runner.start(initial_state)
-    return runner.run_id
+    """Register and start a run via the execution runtime; returns the run id."""
+    return _execution_runtime.start_run(
+        workflow, initial_state=initial_state, dispatch_fn=dispatch_fn,
+        repo_root=repo_root)
 
 
-def get_run(run_id: str) -> WorkflowRunner | None:
-    with _RUNS_LOCK:
-        return _RUNS.get(run_id)
+def get_run(run_id: str):
+    """Return the runner for a run id (or None)."""
+    return _execution_runtime.get_run(run_id)
 
 
 def cancel_run(run_id: str) -> bool:
-    runner = get_run(run_id)
-    if runner is None:
-        return False
-    runner.cancel()
-    return True
+    """Cancel a run (also terminates in-flight adapter subprocesses)."""
+    return _execution_runtime.cancel_run(run_id)
 
 
 def list_runs() -> list[dict]:
-    with _RUNS_LOCK:
-        return [runner.snapshot() for runner in _RUNS.values()]
+    """Snapshots of every registered run."""
+    return _execution_runtime.list_runs()
 
 
 if __name__ == "__main__":  # pragma: no cover — manual smoke only
