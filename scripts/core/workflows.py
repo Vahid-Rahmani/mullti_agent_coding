@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from scripts.core import opencode_cfg
+from scripts.core import prompt_library
 from scripts.core import roles
 from scripts.core.agents import AGENT_SPEC_BY_AGENT, AGENTS, PROJECT_ROOT
 
@@ -63,6 +64,8 @@ class WorkflowNode:
     model: str = ""               # runtime override; "" = Auto / runtime default
     roles: tuple[str, ...] = ()
     instructions: str = ""
+    prompt_profile: str = ""      # optional prompt-library id (source of instruction)
+    task: dict = field(default_factory=dict)  # optional Task classification metadata
     tools: tuple[str, ...] = ()
     enabled: bool = True
     x: float = 0.0
@@ -82,6 +85,8 @@ class WorkflowNode:
             model=str(data.get("model") or ""),
             roles=_tup("roles"),
             instructions=str(data.get("instructions") or ""),
+            prompt_profile=str(data.get("prompt_profile") or ""),
+            task=dict(data.get("task") or {}),
             tools=_tup("tools"),
             enabled=bool(data.get("enabled", True)),
             x=float(data.get("x") or 0.0),
@@ -97,6 +102,8 @@ class WorkflowNode:
             "model": self.model,
             "roles": list(self.roles),
             "instructions": self.instructions,
+            "prompt_profile": self.prompt_profile,
+            "task": self.task,
             "tools": list(self.tools),
             "enabled": self.enabled,
             "x": self.x,
@@ -325,6 +332,12 @@ def validate_workflow(workflow: Workflow, repo_root: Path | None = None) -> list
         for rid in node.roles:
             if rid not in known_roles:
                 errors.append({"node": node.id, "message": f"Role {rid!r} does not exist"})
+        if node.prompt_profile:
+            try:
+                prompt_library.get_prompt(node.prompt_profile)
+            except prompt_library.PromptError:
+                errors.append({"node": node.id,
+                               "message": f"Prompt profile {node.prompt_profile!r} does not exist"})
         if node.model:
             try:
                 opencode_cfg.validate_model_id(node.model)

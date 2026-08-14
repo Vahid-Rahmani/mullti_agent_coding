@@ -25,6 +25,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from scripts.core import opencode_cfg, orchestrator as orch, roles
+from scripts.core import model_registry
+from scripts.core import prompt_library
 from scripts.core import workflow_engine, workflows
 from scripts.core.agents import (
     AGENTS, AGENT_SPEC_BY_AGENT, AGENT_SPEC_BY_TAG, PROJECT_ROOT,
@@ -149,6 +151,24 @@ class WorkflowIn(BaseModel):
 
 class WorkflowRunIn(BaseModel):
     initial_state: dict = {}
+
+
+class PromptRecommendIn(BaseModel):
+    task: Optional[str] = None
+    role: Optional[str] = None
+    capabilities: list[str] = []
+    complexity: Optional[str] = None
+    risk: Optional[str] = None
+
+
+class ModelRecommendIn(BaseModel):
+    task: Optional[str] = None
+    prompt_id: Optional[str] = None            # Phase 2 field (kept for compat)
+    prompt_profile: Optional[str] = None      # Phase 3 alias
+    provider: Optional[str] = None
+    explicit_model: Optional[str] = None
+    hard_requirements: Optional[dict] = None
+    available_models: Optional[list[dict]] = None
 
 
 # ---------------------------------------------------------------- helpers
@@ -679,6 +699,162 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         except roles.RoleError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {"ok": True, "agent": agent, "role_ids": role_ids}
+
+    # ---- prompt library (reusable, role-typed prompt profiles) -----------
+
+    def _prompt_meta(profile: prompt_library.PromptProfile) -> dict:
+        """UI metadata + resolved model requirements (no prompt text)."""
+        meta = profile.meta_dict()
+        meta["model_preferences"] = (
+            prompt_library.preferences_for_profile(profile).to_dict())
+        return meta
+
+    @router.get("/api/prompts")
+    async def api_prompts(role: Optional[str] = None) -> dict:
+        """List prompt profile metadata, optionally suggested for a role/agent.
+
+        ``?role=developer`` maps keywords/role-store ids to prompt roles via
+        :func:`prompt_library.suggest_prompts_for_role` (deterministic, no LLM).
+        The list returns UI metadata only (no prompt text); the full profile —
+        including its prompt — is available from ``GET /api/prompts/{id}``.
+        """
+        profiles = (prompt_library.suggest_prompts_for_role(role)
+                    if (role and role.strip())
+                    else prompt_library.list_prompts())
+        return {
+            "prompts": [_prompt_meta(p) for p in profiles],
+            "roles": list(prompt_library.list_prompt_roles()),
+        }
+
+    @router.get("/api/prompts/recommend")
+    async def api_prompts_recommend_meta() -> dict:
+        """Task-classification metadata: categories, roles, and the built-in
+        deterministic task → prompt example mappings (no LLM)."""
+        examples = [
+            {"task": "security audit", "role": "security_engineer",
+             "prompt_id": "security-auditor"},
+            {"task": "threat model", "role": "security_engineer",
+             "prompt_id": "security-threat-modeler"},
+            {"task": "implement feature", "role": "software_engineer",
+             "prompt_id": "software-engineer-expert"},
+            {"task": "write code", "role": "software_engineer",
+             "prompt_id": "software-engineer"},
+            {"task": "design architecture", "role": "software_architect",
+             "prompt_id": "system-architect"},
+            {"task": "debug error", "role": "debugger",
+             "prompt_id": "debugger-root-cause"},
+            {"task": "find bugs", "role": "code_reviewer",
+             "prompt_id": "code-reviewer"},
+            {"task": "CI/CD", "role": "devops_engineer",
+             "prompt_id": "devops-cicd"},
+            {"task": "multi-agent workflow", "role": "orchestrator",
+             "prompt_id": "orchestrator-multi-agent"},
+        ]
+        return {
+            "categories": list(prompt_library.TASK_CATEGORIES),
+            "roles": list(prompt_library.list_prompt_roles()),
+            "examples": examples,
+        }
+
+    @router.post("/api/prompts/recommend")
+    async def api_prompts_recommend(body: PromptRecommendIn) -> dict:
+        """Rank prompt profiles for a task (deterministic matching, no LLM).
+
+        Returns the task classification plus ``{prompt_id, score, reason}``
+        entries. ``score`` is a deterministic matching score (not ML confidence).
+        """
+        task = prompt_library.classify_task(body.task or "")
+        recs = prompt_library.recommend_prompts(
+            task, role=body.role, capabilities=body.capabilities,
+            complexity=body.complexity, risk=body.risk)
+        return {
+            "task": task.to_dict(),
+            "recommendations": [r.to_dict() for r in recs],
+        }
+
+    @router.get("/api/prompts/{prompt_id}")
+    async def api_prompt(prompt_id: str) -> dict:
+        try:
+            profile = prompt_library.get_prompt(prompt_id)
+        except prompt_library.PromptError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"prompt": profile.to_dict()}
+
+    # ---- model capabilities + recommendation (provider-neutral) ---------
+
+    @router.get("/api/models")
+    async def api_models(provider: str = "") -> dict:
+        """Model Registry catalog (Phase 3) — metadata only, no credentials."""
+        if provider:
+            models = model_registry.list_models_by_provider(provider)
+        else:
+            models = model_registry.list_models()
+        return {
+            "models": [m.to_dict() for m in models],
+            "providers": model_registry.model_providers(),
+        }
+
+    @router.get("/api/models/capabilities")
+    async def api_models_capabilities() -> dict:
+        """Provider-neutral model capability archetypes (Phase 2 metadata).
+
+        These are capability shapes, not providers; the Phase 3 registry maps
+        concrete models onto them.
+        """
+        return {"models": [m.to_dict() for m in prompt_library.model_archetypes()]}
+
+    # ``:path`` so provider/model ids (e.g. ``opencode/big-pickle``) resolve.
+    # Registered after /api/models and /api/models/capabilities so those exact
+    # routes always win (FastAPI matches in registration order).
+    @router.get("/api/models/{model_id:path}")
+    async def api_model(model_id: str) -> dict:
+        try:
+            spec = model_registry.get_model(model_id)
+        except model_registry.ModelError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"model": spec.to_dict()}
+
+    @router.post("/api/models/recommend")
+    async def api_models_recommend(body: ModelRecommendIn) -> dict:
+        """Rank models for a task/prompt (deterministic, never changes a
+        user's model).
+
+        Phase 2 compat: when ``available_models`` (capability dicts) is
+        supplied those are ranked as before. Otherwise the Phase 3 registry
+        catalog is ranked via :func:`select_models` — an ``explicit_model`` is
+        always preserved and flagged ``explicit``.
+        """
+        prompt_id = body.prompt_profile or body.prompt_id
+        profile = None
+        if prompt_id:
+            try:
+                profile = prompt_library.get_prompt(prompt_id)
+            except prompt_library.PromptError as exc:
+                raise HTTPException(404, str(exc)) from exc
+        requirements = prompt_library.recommend_model_capabilities(
+            task=body.task, prompt_profile=profile)
+
+        if body.available_models:
+            # Phase 2 path: rank the caller-supplied capability profiles.
+            recs = prompt_library.recommend_model_capabilities(
+                task=body.task, prompt_profile=profile,
+                available_models=body.available_models)
+            return {
+                "requirements": requirements.to_dict(),
+                "recommendations": [r.to_dict() for r in recs],
+            }
+
+        # Phase 3 path: rank the registry catalog.
+        recs = model_registry.select_models(
+            requirements=requirements,
+            provider=body.provider,
+            explicit_model=body.explicit_model,
+            hard_requirements=body.hard_requirements,
+        )
+        return {
+            "requirements": requirements.to_dict(),
+            "recommendations": [r.to_dict() for r in recs],
+        }
 
     # ---- project profile (repository analysis) ----------------------------
 

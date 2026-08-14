@@ -229,6 +229,32 @@ async function main() {
   await loadTemplate();
   eq(requests.length, 0, "G: empty template selection issues no request");
 
+  /* ── H: prompt_profile / task / model metadata survives template load ── */
+  const RICH = {
+    id: "template-rich", name: "Rich Template", project: "",
+    nodes: [{
+      id: "dev", label: "Dev", agent: "matthew", kind: "agent", x: 0, y: 0,
+      model: "opencode/big-pickle",
+      prompt_profile: "software-engineer-expert",
+      task: { category: "development", capabilities: ["coding"] },
+      roles: [],
+    }],
+    edges: [], entry: ["dev"], state: {}, settings: { max_iterations: 3 },
+  };
+  reset();
+  registry["ws-template-select"].value = "rich";
+  fetchImpl = async (p) => {
+    if (p === "/api/workflows/from-template/rich") {
+      return jsonRes(200, { workflow: JSON.parse(JSON.stringify(RICH)) });
+    }
+    throw new Error("unexpected fetch: " + p);
+  };
+  await loadTemplate();
+  const richNode = S.workflow.nodes[0];
+  eq(richNode.model, "opencode/big-pickle", "H: node model preserved through template load");
+  eq(richNode.prompt_profile, "software-engineer-expert", "H: prompt_profile preserved");
+  eq(richNode.task.category, "development", "H: task metadata preserved");
+
   console.log("workspace template tests passed:", count);
 }
 

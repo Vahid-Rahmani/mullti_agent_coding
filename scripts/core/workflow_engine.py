@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scripts.core import opencode_cfg
+from scripts.core import prompt_library
 from scripts.core import roles
 from scripts.core.workflows import Workflow, WorkflowNode, effective_entry
 
@@ -44,12 +45,30 @@ class DispatchResult:
     output: str = ""
 
 
+def _effective_instruction(node: WorkflowNode) -> str:
+    """The node's final instruction: its own ``instructions`` when present,
+    otherwise the selected Prompt Profile's text (the profile is the *source*;
+    the instruction is the *editable* result). Returns ``""`` when neither is set
+    or the profile id is unknown."""
+    text = node.instructions.strip()
+    if text:
+        return text
+    if node.prompt_profile:
+        try:
+            return prompt_library.get_prompt(node.prompt_profile).prompt.strip()
+        except prompt_library.PromptError:
+            return ""
+    return ""
+
+
 def build_node_prompt(node: WorkflowNode, state: dict, repo_root: Path | None = None) -> str:
     """Compose a node's runtime prompt: roles + instructions + workflow state.
 
     A node's own ``roles`` override the agent's persistent assignments for this
     run only (never mutating ``roles.json``). Role context comes from the
-    existing role store; the agent identity and model stay untouched.
+    existing role store; the agent identity and model stay untouched. The
+    instruction is the node's final instruction (its own ``instructions``, or
+    the selected Prompt Profile's text when ``instructions`` is empty).
     """
     parts: list[str] = []
     # A Home-dispatched command arrives as the run's ``user_prompt`` and is the
@@ -65,8 +84,9 @@ def build_node_prompt(node: WorkflowNode, state: dict, repo_root: Path | None = 
         role_ctx = roles.agent_context(node.agent, repo_root=repo_root)
     if role_ctx:
         parts.append(role_ctx.strip())
-    if node.instructions.strip():
-        parts.append(node.instructions.strip())
+    instruction = _effective_instruction(node)
+    if instruction:
+        parts.append(instruction)
     if state:
         parts.append("## Workflow state\n```json\n" + json.dumps(state, indent=2) + "\n```")
     return "\n\n".join(parts)

@@ -902,6 +902,52 @@ body.ws-body {
 .ws-role-chip { display: flex; align-items: center; gap: 4px; font-size: 11px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 12px; padding: 3px 8px; cursor: pointer; }
 .ws-role-chip input { margin: 0; }
 
+/* prompt profile selector + preview (Prompt Library) */
+.ws-prompt-select { width: 100%; }
+.ws-prompt-preview { display: flex; flex-direction: column; gap: 3px; padding: 8px; margin-top: 2px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; line-height: 1.45; }
+.ws-prompt-preview-name { color: var(--text); font-weight: 600; }
+.ws-prompt-preview-desc { color: var(--text-muted); }
+.ws-prompt-preview-caps { color: var(--accent); }
+.ws-prompt-apply { align-self: flex-start; margin-top: 4px; text-transform: none; letter-spacing: 0; padding: 3px 10px; }
+
+/* Task → Prompt recommendation + model requirements (Phase 2) */
+.ws-task-input { min-height: 52px; }
+.ws-suggest-prompt { align-self: flex-start; margin-top: 2px; text-transform: none; letter-spacing: 0; padding: 3px 10px; }
+.ws-recs { display: flex; flex-direction: column; gap: 4px; margin: 4px 0; }
+.ws-recs-title, .ws-model-prefs-title { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.ws-rec-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; cursor: pointer; text-align: left; }
+.ws-rec-item:hover { border-color: var(--accent); }
+.ws-rec-item.selected { border-color: var(--ok); }
+.ws-rec-name { font-weight: 600; }
+.ws-rec-score { color: var(--accent); font-size: 11px; white-space: nowrap; }
+.ws-recs-note { color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+.ws-model-prefs { display: flex; flex-direction: column; gap: 4px; margin: 4px 0; }
+.ws-model-prefs-table { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; }
+.ws-model-pref-row { display: flex; justify-content: space-between; font-size: 11px; }
+.ws-model-pref-label { color: var(--text-muted); }
+.ws-model-pref-value { color: var(--text); }
+
+/* Phase 3 — model registry: recommended models + model details */
+.ws-model-recs { display: flex; flex-direction: column; gap: 4px; margin: 4px 0; }
+.ws-model-recs-title, .ws-model-details-title { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.ws-model-provider { font-size: 11px; padding: 3px 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; color: var(--text); max-width: 180px; }
+.ws-model-recs-list { display: flex; flex-direction: column; gap: 3px; }
+.ws-model-rec-item { display: flex; flex-direction: column; gap: 2px; padding: 5px 8px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
+.ws-model-rec-item:hover { border-color: var(--accent); }
+.ws-model-rec-item.selected { border-color: var(--ok); }
+.ws-model-rec-item.explicit { border-color: var(--accent); }
+.ws-model-rec-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ws-model-rec-name { font-weight: 600; color: var(--text); }
+.ws-model-rec-score { color: var(--accent); font-size: 10px; white-space: nowrap; }
+.ws-model-rec-reason { color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.ws-model-rec-note { color: var(--text-faint); font-size: 10px; }
+.ws-model-rec-apply { align-self: flex-start; padding: 2px 10px; font-size: 11px; }
+.ws-model-recs-hint { color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+.ws-model-details { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; padding: 6px 8px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; }
+.ws-model-details-row { display: flex; justify-content: space-between; font-size: 11px; }
+.ws-model-details-label { color: var(--text-muted); }
+.ws-model-details-value { color: var(--text); }
+
 /* library search + add-agent action */
 .ws-library .panel-title { justify-content: space-between; }
 .ws-library .panel-title .btn { text-transform: none; letter-spacing: 0; padding: 3px 8px; }

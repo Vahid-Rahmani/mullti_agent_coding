@@ -53,6 +53,12 @@
     roles: [],             // [{id,name,...}]
     roleAssignments: {},   // {agentKey: [roleIds]}
     models: [],            // [{id,name}] available models
+    modelCatalog: [],      // Phase 3 model-registry catalog [{id,provider,...}]
+    modelById: {},         // {id: ModelSpec} quick lookup
+    prompts: [],           // prompt-profile metadata from /api/prompts
+    promptById: {},        // {id: meta} quick lookup
+    promptTexts: {},       // {id: full prompt text} cache (fetched on demand)
+    taskRecs: {},          // {nodeId: [recommendation]} transient (not persisted)
     dirty: false,
     selected: { type: null, id: null },   // 'node' | 'edge'
     runId: null,
@@ -110,6 +116,322 @@
   function agentByKey(key) { return S.agents.find((a) => a.agent === key); }
   function roleName(id) { const r = S.roles.find((x) => x.id === id); return r ? (r.name || r.id) : id; }
 
+  /* ── prompt library (role-typed prompt profiles) ─────────────────
+     A node may reference a Prompt Profile (``prompt_profile`` id) as the
+     *source* of its editable Instruction. The mapping below mirrors
+     ``scripts.core.prompt_library.registry`` (deterministic keyword match,
+     no LLM) so the dropdown can suggest profiles for the node's role/agent. */
+  function promptRoleKey(value) {
+    return (value || "").toLowerCase().replace(/_/g, " ").replace(/-/g, " ")
+      .replace(/\s+/g, " ").trim();
+  }
+
+  const PROMPT_ROLES = ["software_engineer", "software_architect", "code_reviewer",
+    "debugger", "qa_engineer", "security_engineer", "devops_engineer",
+    "cloud_engineer", "data_engineer", "ai_engineer", "researcher",
+    "technical_writer", "project_manager", "orchestrator"];
+  const PROMPT_ROLE_IDS = {};
+  PROMPT_ROLES.forEach((r) => { PROMPT_ROLE_IDS[promptRoleKey(r)] = r; });
+
+  // keyword → prompt role, most-specific first (mirrors registry.py _KEYWORDS)
+  const PROMPT_ROLE_ALIASES = [
+    ["software_architect", ["architect", "architecture"]],
+    ["code_reviewer", ["review", "reviewer"]],
+    ["debugger", ["debug"]],
+    ["qa_engineer", ["qa", "test", "testing", "quality", "e2e"]],
+    ["security_engineer", ["security", "secure", "threat", "audit"]],
+    ["devops_engineer", ["devops", "cicd", "ci/cd", "ci cd", "deploy", "infrastructure", "release"]],
+    ["cloud_engineer", ["cloud", "azure", "aws", "gcp", "networking", "network"]],
+    ["data_engineer", ["data", "etl", "pipeline", "warehouse"]],
+    ["ai_engineer", ["ai", "llm", "agent", "rag", "machine learning", "ml"]],
+    ["researcher", ["research", "researcher", "analyst", "literature"]],
+    ["technical_writer", ["writer", "documentation", "docs", "write"]],
+    ["project_manager", ["manager", "project", "pm", "planning", "delivery", "risk"]],
+    ["orchestrator", ["orchestrat", "coordinator", "workflow", "delegat"]],
+    ["software_engineer", ["developer", "engineer", "software", "coding", "code", "python", "fastapi"]],
+  ];
+
+  function suggestPromptRole(key) {
+    const k = promptRoleKey(key);
+    if (!k) return null;
+    if (PROMPT_ROLE_IDS[k]) return PROMPT_ROLE_IDS[k];
+    for (const [role, words] of PROMPT_ROLE_ALIASES) {
+      if (words.some((w) => k.indexOf(w) !== -1)) return role;
+    }
+    return null;
+  }
+
+  function nodePromptRoleKeys(n) {
+    const keys = [];
+    (n.roles || []).forEach((r) => keys.push(r));
+    if (!keys.length && S.roleAssignments && S.roleAssignments[n.agent]) {
+      (S.roleAssignments[n.agent] || []).forEach((r) => keys.push(r));
+    }
+    if (!keys.length) keys.push(n.agent);
+    return keys;
+  }
+
+  function suggestPromptsForNode(n) {
+    const roles = new Set();
+    nodePromptRoleKeys(n).forEach((k) => {
+      const r = suggestPromptRole(k);
+      if (r) roles.add(r);
+    });
+    if (!roles.size) return [];
+    return S.prompts.filter((p) => roles.has(p.role));
+  }
+
+  async function fetchPromptText(id) {
+    if (!id) return "";
+    if (S.promptTexts[id]) return S.promptTexts[id];
+    try {
+      const r = await api(`/api/prompts/${encodeURIComponent(id)}`);
+      S.promptTexts[id] = (r.prompt && r.prompt.prompt) || "";
+      return S.promptTexts[id];
+    } catch (_) { return ""; }
+  }
+
+  async function applyPromptToNode(n, id) {
+    const text = await fetchPromptText(id);
+    if (text) { n.instructions = text; markDirty(); }
+    return text;
+  }
+
+  async function onPromptSelected(n, id) {
+    n.prompt_profile = id;
+    markDirty();
+    // Safe application: only auto-fill the Instruction when it is empty — a
+    // custom instruction is never silently overwritten (the Apply button does that).
+    if (id && !(n.instructions || "").trim()) {
+      await applyPromptToNode(n, id);
+    }
+    return n;
+  }
+
+  /* ── Task → Prompt recommendation (Phase 2, deterministic) ────────
+     "Suggest Prompt" inspects the node's Task/Purpose text + role and asks the
+     backend to rank prompt profiles (keyword/capability matching — no LLM). The
+     classification is persisted on the node (``n.task``); the ranked list is
+     transient (``S.taskRecs``). Applying a recommendation never changes the
+     user's model. */
+  function nodeTaskDescription(n) {
+    return ((n.task && (n.task.description || n.task.context)) || "").trim();
+  }
+
+  function nodePromptRole(n) {
+    for (const k of nodePromptRoleKeys(n)) {
+      const r = suggestPromptRole(k);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  async function suggestPrompt(n) {
+    const desc = nodeTaskDescription(n);
+    if (!desc) { setError("enter a Task / Purpose description first"); return null; }
+    try {
+      const r = await post("/api/prompts/recommend", {
+        task: desc,
+        role: nodePromptRole(n),
+      });
+      // Persist the classification on the node (optional metadata); keep the
+      // ranked list transient for display.
+      n.task = Object.assign({}, n.task || {}, r.task || {}, { description: desc });
+      S.taskRecs[n.id] = r.recommendations || [];
+      markDirty();
+      renderProps();
+      return S.taskRecs[n.id];
+    } catch (err) { setError(err.message); return null; }
+  }
+
+  function renderRecommendationPreview(body, n) {
+    const recs = S.taskRecs[n.id] || [];
+    if (!recs.length) return;
+    const wrap = el("div", "ws-recs");
+    wrap.appendChild(el("div", "ws-recs-title", "Recommended Prompt"));
+    recs.forEach((r) => {
+      const p = S.promptById[r.prompt_id];
+      const item = el("button", "ws-rec-item"
+        + (n.prompt_profile === r.prompt_id ? " selected" : ""));
+      item.type = "button";
+      item.appendChild(el("span", "ws-rec-name", p ? p.name : r.prompt_id));
+      item.appendChild(el("span", "ws-rec-score", Math.round(r.score * 100) + "% match"));
+      item.title = (r.reason || "") + " — deterministic matching score (not AI confidence)";
+      item.addEventListener("click", async () => {
+        await onPromptSelected(n, r.prompt_id);
+        renderProps();
+      });
+      wrap.appendChild(item);
+    });
+    wrap.appendChild(el("div", "ws-recs-note",
+      "Percentages are deterministic matching scores, not AI confidence."));
+    body.appendChild(wrap);
+  }
+
+  function renderModelCapabilityPreview(body, n) {
+    const p = S.promptById[n.prompt_profile];
+    if (!p || !p.model_preferences) return;
+    const wrap = el("div", "ws-model-prefs");
+    wrap.appendChild(el("div", "ws-model-prefs-title", "Model requirements"));
+    const labels = { reasoning: "Reasoning", coding: "Coding", tool_use: "Tool use",
+                     context: "Context", latency: "Latency", cost: "Cost" };
+    const table = el("div", "ws-model-prefs-table");
+    Object.keys(labels).forEach((k) => {
+      const row = el("div", "ws-model-pref-row");
+      row.appendChild(el("span", "ws-model-pref-label", labels[k]));
+      const val = String(p.model_preferences[k] || "");
+      row.appendChild(el("span", "ws-model-pref-value",
+        val ? val.charAt(0).toUpperCase() + val.slice(1) : "—"));
+      table.appendChild(row);
+    });
+    wrap.appendChild(table);
+    body.appendChild(wrap);
+  }
+
+  /* ── Phase 3: Model Registry catalog + selection preview ─────────
+     The registry is metadata-only (no provider SDKs, no keys, no calls).
+     Recommendations come from POST /api/models/recommend (deterministic
+     matching). An explicitly chosen model is always preserved: it is listed
+     first and flagged, never overwritten by a recommendation. */
+  async function loadModelCatalog() {
+    try {
+      const r = await api("/api/models");
+      S.modelCatalog = r.models || [];
+      S.modelById = {};
+      S.modelCatalog.forEach((m) => { S.modelById[m.id] = m; });
+    } catch (_) {
+      S.modelCatalog = [];
+      S.modelById = {};
+    }
+  }
+
+  function modelProviderOptions() {
+    const set = new Set();
+    (S.modelCatalog || []).forEach((m) => { if (m.provider) set.add(m.provider); });
+    return Array.from(set).sort();
+  }
+
+  function modelCapability(m, key) {
+    const c = (m && m.capabilities) || {};
+    const v = c[key];
+    return v ? String(v).charAt(0).toUpperCase() + String(v).slice(1) : "—";
+  }
+
+  function modelDisplayName(id) {
+    const m = S.modelById[id];
+    return m ? (m.display_name || id) : id;
+  }
+
+  function renderModelRecommendation(body, n) {
+    const wrap = el("div", "ws-model-recs");
+    wrap.appendChild(el("div", "ws-model-recs-title", "Recommended Models"));
+    const provSel = el("select", "ws-model-provider");
+    const all = el("option", null, "All providers");
+    all.value = "";
+    provSel.appendChild(all);
+    modelProviderOptions().forEach((p) => {
+      const o = el("option", null, p);
+      o.value = p;
+      provSel.appendChild(o);
+    });
+    const listEl = el("div", "ws-model-recs-list");
+    wrap.appendChild(provSel);
+    wrap.appendChild(listEl);
+    body.appendChild(wrap);
+
+    async function refresh() {
+      empty(listEl);
+      const hint = el("div", "ws-model-recs-hint", "…");
+      listEl.appendChild(hint);
+      let bodyJson;
+      try {
+        bodyJson = await post("/api/models/recommend", {
+          task: nodeTaskDescription(n) || undefined,
+          prompt_profile: n.prompt_profile || undefined,
+          provider: provSel.value || undefined,
+          explicit_model: n.model || undefined,
+        });
+      } catch (_) {
+        empty(listEl);
+        listEl.appendChild(el("div", "ws-model-recs-hint",
+          "model recommendation unavailable"));
+        return;
+      }
+      const recs = bodyJson.recommendations || [];
+      empty(listEl);
+      if (!recs.length) {
+        listEl.appendChild(el("div", "ws-model-recs-hint",
+          "no catalog match — set a task/prompt profile for recommendations"));
+        return;
+      }
+      recs.forEach((rec) => {
+        const item = el("div", "ws-model-rec-item"
+          + (rec.explicit ? " explicit" : "")
+          + (n.model === rec.model_id ? " selected" : ""));
+        const top = el("div", "ws-model-rec-top");
+        top.appendChild(el("span", "ws-model-rec-name", modelDisplayName(rec.model_id)));
+        top.appendChild(el("span", "ws-model-rec-score",
+          Math.round(rec.score * 100) + "% match"));
+        item.appendChild(top);
+        if (rec.reason) {
+          item.appendChild(el("div", "ws-model-rec-reason", rec.reason));
+        }
+        if (rec.explicit) {
+          item.appendChild(el("div", "ws-model-rec-note",
+            "explicit selection — always preserved"));
+        } else if (n.model !== rec.model_id) {
+          const apply = el("button", "btn ws-model-rec-apply", "Apply");
+          apply.type = "button";
+          apply.addEventListener("click", () => {
+            n.model = rec.model_id;      // user-initiated: the workflow carries it
+            markDirty();
+            renderNodes();
+            renderProps();
+          });
+          item.appendChild(apply);
+        } else {
+          item.appendChild(el("div", "ws-model-rec-note", "selected"));
+        }
+        listEl.appendChild(item);
+      });
+      if (!n.model) {
+        listEl.appendChild(el("div", "ws-model-recs-hint",
+          "Auto will use: " + modelDisplayName(recs[0].model_id) +
+          " (" + Math.round(recs[0].score * 100) + "%)"));
+      }
+    }
+    provSel.addEventListener("change", refresh);
+    refresh();
+  }
+
+  function renderModelDetails(body, n) {
+    if (!n.model) return;
+    const m = S.modelById[n.model];
+    if (!m) return;
+    const wrap = el("div", "ws-model-details");
+    wrap.appendChild(el("div", "ws-model-details-title", "Model details"));
+    const rows = [
+      ["Provider", m.provider],
+      ["Family", m.family],
+      ["Context", m.context_window ? m.context_window.toLocaleString() + " tokens" : ""],
+      ["Reasoning", modelCapability(m, "reasoning")],
+      ["Coding", modelCapability(m, "coding")],
+      ["Tool use", modelCapability(m, "tool_use")],
+      ["Vision", modelCapability(m, "vision")],
+      ["Structured output", modelCapability(m, "structured_output")],
+      ["Latency", modelCapability(m, "latency")],
+      ["Cost tier", modelCapability(m, "cost")],
+    ];
+    rows.forEach(([k, v]) => {
+      if (!v) return;
+      const row = el("div", "ws-model-details-row");
+      row.appendChild(el("span", "ws-model-details-label", k));
+      row.appendChild(el("span", "ws-model-details-value", String(v)));
+      wrap.appendChild(row);
+    });
+    body.appendChild(wrap);
+  }
+
   /* ── meta loading ─────────────────────────────────────────────── */
   async function loadMeta() {
     try {
@@ -125,6 +447,13 @@
       const m = await api("/api/settings/models");
       S.models = m.available || [];
     } catch (_) { /* keep empty */ }
+    try {
+      const pr = await api("/api/prompts");
+      S.prompts = pr.prompts || [];
+      S.promptById = {};
+      S.prompts.forEach((p) => { S.promptById[p.id] = p; });
+    } catch (_) { /* keep empty */ }
+    await loadModelCatalog();
     renderLibrary();
   }
 
@@ -728,11 +1057,98 @@
     });
     body.appendChild(setRow("Roles", rolesBox));
 
+    if (n.kind === "agent") {
+      // Prompt Profile — the optional *source* of the node's Instruction. The
+      // Instruction textarea stays the editable final value (never auto-wiped).
+      const promptSel = el("select", "ws-prompt-select");
+      const none = el("option", null, "None");
+      none.value = "";
+      promptSel.appendChild(none);
+      const suggested = suggestPromptsForNode(n);
+      if (suggested.length) {
+        const sg = el("optgroup");
+        sg.label = "Suggested";
+        suggested.forEach((p) => {
+          const o = el("option", null, p.name);
+          o.value = p.id;
+          sg.appendChild(o);
+        });
+        promptSel.appendChild(sg);
+      }
+      const all = el("optgroup");
+      all.label = "All Prompts";
+      S.prompts.forEach((p) => {
+        const o = el("option", null, p.name);
+        o.value = p.id;
+        all.appendChild(o);
+      });
+      promptSel.appendChild(all);
+      promptSel.value = n.prompt_profile || "";
+
+      const preview = el("div", "ws-prompt-preview hidden");
+      const apply = el("button", "btn ws-prompt-apply hidden");
+      apply.type = "button";
+      apply.textContent = "Apply Prompt";
+
+      function refreshPreview() {
+        const p = S.promptById[n.prompt_profile];
+        empty(preview);
+        if (!p) {
+          preview.classList.add("hidden");
+          apply.classList.add("hidden");
+          return;
+        }
+        preview.classList.remove("hidden");
+        apply.classList.remove("hidden");
+        preview.appendChild(el("div", "ws-prompt-preview-name", p.name));
+        if (p.description) preview.appendChild(el("div", "ws-prompt-preview-desc", p.description));
+        const caps = (p.capabilities || []).join(" · ");
+        if (caps) preview.appendChild(el("div", "ws-prompt-preview-caps", "Capabilities: " + caps));
+      }
+
+      promptSel.addEventListener("change", async () => {
+        await onPromptSelected(n, promptSel.value);
+        renderProps();   // refresh the Instruction textarea (and preview)
+      });
+      apply.addEventListener("click", async () => {
+        await applyPromptToNode(n, n.prompt_profile);
+        renderProps();
+      });
+
+      body.appendChild(setRow("Prompt Profile", promptSel));
+      body.appendChild(preview);
+      body.appendChild(apply);
+      refreshPreview();
+    }
+
     const instructions = el("textarea");
     instructions.placeholder = "per-node instructions (override the agent's default behavior)";
     instructions.value = n.instructions || "";
     instructions.addEventListener("input", () => { n.instructions = instructions.value; markDirty(); });
     body.appendChild(setRow("Instructions", instructions));
+
+    if (n.kind === "agent") {
+      // Task / Purpose + deterministic recommendation (Phase 2).
+      const taskInput = el("textarea", "ws-task-input");
+      taskInput.placeholder = "Optional task description (e.g. \"find authentication vulnerabilities\")";
+      taskInput.value = nodeTaskDescription(n);
+      taskInput.addEventListener("input", () => {
+        n.task = Object.assign({}, n.task || {}, { description: taskInput.value });
+        markDirty();
+      });
+      body.appendChild(setRow("Task / Purpose", taskInput));
+
+      const suggestBtn = el("button", "btn ws-suggest-prompt");
+      suggestBtn.type = "button";
+      suggestBtn.textContent = "Suggest Prompt";
+      suggestBtn.addEventListener("click", () => suggestPrompt(n));
+      body.appendChild(suggestBtn);
+
+      renderRecommendationPreview(body, n);
+      renderModelCapabilityPreview(body, n);
+      renderModelRecommendation(body, n);
+      renderModelDetails(body, n);
+    }
 
     const tools = el("input");
     tools.placeholder = "comma-separated tools";
@@ -827,7 +1243,7 @@
       const data = await api(`/api/workflows/${encodeURIComponent(id)}`);
       S.workflow = data.workflow;
       S.nid = Math.max(S.nid, S.workflow.nodes.length);
-      S.runStatuses = {}; S.waves = {};
+      S.runStatuses = {}; S.waves = {}; S.taskRecs = {};
       rememberWorkflow(id);
       markClean();
       render();
@@ -842,7 +1258,7 @@
     if (!name) return;
     S.workflow = { id: name.trim().toLowerCase().replace(/\s+/g, "-"), name: "", project: "",
                    nodes: [], edges: [], entry: [], state: {}, settings: { max_iterations: 3 } };
-    S.runStatuses = {}; S.waves = {};
+    S.runStatuses = {}; S.waves = {}; S.taskRecs = {};
     markClean(); render(); renderProps(); loadWorkflowList();
   }
 
@@ -1076,7 +1492,7 @@
       // so a previous workflow on disk can't be overwritten by accident).
       S.workflow = r.workflow;
       recalcNid();
-      S.runStatuses = {}; S.waves = {};
+      S.runStatuses = {}; S.waves = {}; S.taskRecs = {};
       S.selected = { type: null, id: null };   // clear the previous selection
       markDirty();
       render();
@@ -1095,7 +1511,7 @@
       const r = await api(`/api/workflows/recommend?agents=${encodeURIComponent(n)}`);
       S.workflow = r.workflow;
       S.nid = Math.max(S.nid, S.workflow.nodes.length);
-      S.runStatuses = {}; S.waves = {};
+      S.runStatuses = {}; S.waves = {}; S.taskRecs = {};
       markDirty(); render(); renderProps();
       const reasons = Object.entries(r.reasons || {}).map(([id, why]) => `${id} → ${why}`).join("\n");
       setOk("Suggested workflow loaded.\n" + (reasons || ""));
@@ -1189,7 +1605,14 @@
                           validateWorkflow, runWorkflow, dryRunWorkflow, fitToScreen,
                           loadMeta, matchingAgents, bindDragDrop, ORIGIN,
                           activateWorkflow, refreshActiveIndicator, updateActivateButton,
-                          loadTemplate, recalcNid };
+                          loadTemplate, recalcNid,
+                          promptRoleKey, suggestPromptRole, nodePromptRoleKeys,
+                          suggestPromptsForNode, fetchPromptText,
+                          applyPromptToNode, onPromptSelected,
+                          nodeTaskDescription, nodePromptRole, suggestPrompt,
+                          renderRecommendationPreview, renderModelCapabilityPreview,
+                          loadModelCatalog, modelProviderOptions, modelDisplayName,
+                          renderModelRecommendation, renderModelDetails };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();
