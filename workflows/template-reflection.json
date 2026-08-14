@@ -1,0 +1,86 @@
+{
+  "id": "template-reflection",
+  "name": "Reflection",
+  "project": "",
+  "nodes": [
+    {
+      "id": "developer",
+      "label": "Developer",
+      "label_auto": true,
+      "agent": "matthew",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "python-developer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": -147.20001220703125,
+      "y": -116.80002848307299
+    },
+    {
+      "id": "reviewer",
+      "label": "Reviewer",
+      "label_auto": true,
+      "agent": "alex",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "code-reviewer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": 137.86665852864576,
+      "y": 77.33337402343727
+    },
+    {
+      "id": "done",
+      "label": "done",
+      "label_auto": true,
+      "agent": "",
+      "kind": "end",
+      "model": "",
+      "connection_id": "",
+      "roles": [],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": 405.33341471354197,
+      "y": -95.46663411458326
+    }
+  ],
+  "edges": [
+    {
+      "source": "developer",
+      "target": "reviewer",
+      "condition": ""
+    },
+    {
+      "source": "reviewer",
+      "target": "done",
+      "condition": "success"
+    },
+    {
+      "source": "reviewer",
+      "target": "developer",
+      "condition": "failure"
+    }
+  ],
+  "entry": [
+    "developer"
+  ],
+  "state": {},
+  "settings": {
+    "max_iterations": 3
+  }
+}

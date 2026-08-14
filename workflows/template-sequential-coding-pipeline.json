@@ -1,0 +1,105 @@
+{
+  "id": "template-sequential-coding-pipeline",
+  "name": "Sequential Coding Pipeline",
+  "project": "",
+  "nodes": [
+    {
+      "id": "architect",
+      "label": "Architect",
+      "label_auto": true,
+      "agent": "matthew",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "software-architect"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": -172.80000813802098,
+      "y": 8.0
+    },
+    {
+      "id": "developer",
+      "label": "Developer",
+      "label_auto": true,
+      "agent": "alex",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "python-developer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": 105.06665039062523,
+      "y": 116.26670328776027
+    },
+    {
+      "id": "tester",
+      "label": "Tester",
+      "label_auto": true,
+      "agent": "sarah",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "qa-engineer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": -222.39998372395848,
+      "y": 228.26664225260402
+    },
+    {
+      "id": "reviewer",
+      "label": "Reviewer",
+      "label_auto": true,
+      "agent": "david",
+      "kind": "agent",
+      "model": "",
+      "connection_id": "",
+      "roles": [
+        "code-reviewer"
+      ],
+      "instructions": "",
+      "prompt_profile": "",
+      "task": {},
+      "tools": [],
+      "enabled": true,
+      "x": 127.46663411458348,
+      "y": 385.066691080729
+    }
+  ],
+  "edges": [
+    {
+      "source": "architect",
+      "target": "developer",
+      "condition": ""
+    },
+    {
+      "source": "developer",
+      "target": "tester",
+      "condition": ""
+    },
+    {
+      "source": "tester",
+      "target": "reviewer",
+      "condition": ""
+    }
+  ],
+  "entry": [],
+  "state": {},
+  "settings": {
+    "max_iterations": 3
+  }
+}
