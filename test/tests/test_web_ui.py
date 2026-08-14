@@ -482,13 +482,56 @@ class WorkflowApiTestCase(VaultTestCase):
     def test_workflow_templates_and_recommend(self):
         templates = self.ctx.get("/api/workflows/templates").json()["templates"]
         self.assertIn("sequential", templates)
+        self.assertIn("parallel", templates)
+        self.assertIn("reflection", templates)
+        # POST instantiates a template in memory, returning
+        # {workflow: ...} — the exact shape workspace.js loadTemplate() expects.
         seq = self.ctx.post("/api/workflows/from-template/sequential").json()["workflow"]
         self.assertEqual([n["id"] for n in seq["nodes"]],
                          ["architect", "developer", "tester", "reviewer"])
+        self.assertEqual(len(seq["edges"]), 3)
+        self.assertTrue(all(n["agent"] for n in seq["nodes"]),
+                        "every sequential node references an agent")
         rec = self.ctx.get("/api/workflows/recommend?agents=4").json()
         self.assertIn("workflow", rec)
         self.assertIn("reasons", rec)
         self.assertEqual(self.ctx.post("/api/workflows/from-template/nope").status_code, 404)
+
+    def test_workflow_templates_produce_real_graphs(self):
+        # parallel: architect → {backend, frontend, security} → reviewer
+        # (fan-out followed by a join) — a real multi-agent graph, not a list.
+        par = self.ctx.post("/api/workflows/from-template/parallel").json()["workflow"]
+        ids = {n["id"] for n in par["nodes"]}
+        self.assertEqual(ids, {"architect", "backend", "frontend", "security", "reviewer"})
+        self.assertEqual({e["source"] for e in par["edges"]},
+                         {"architect", "backend", "frontend", "security"})
+        self.assertEqual(sum(1 for e in par["edges"] if e["target"] == "reviewer"), 3,
+                         "reviewer is a join node with three incoming edges")
+
+        # reflection: conditional routing + a retry loop back to the developer.
+        refl = self.ctx.post("/api/workflows/from-template/reflection").json()["workflow"]
+        self.assertEqual(refl["entry"], ["developer"],
+                         "a cyclic retry loop must declare an explicit entry node")
+        conds = {(e["source"], e["target"], e["condition"]) for e in refl["edges"]}
+        self.assertIn(("reviewer", "done", "success"), conds)
+        self.assertIn(("reviewer", "developer", "failure"), conds)
+        agents = [n for n in refl["nodes"] if n["kind"] == "agent"]
+        self.assertTrue(all(n["agent"] for n in agents),
+                        "every reflection agent node references an agent")
+        self.assertEqual(sum(1 for n in refl["nodes"] if n["kind"] == "end"), 1)
+
+        # Every predefined template (except the explicit "empty") yields a
+        # non-empty graph with nodes, edges, and at least one agent reference.
+        templates = self.ctx.get("/api/workflows/templates").json()["templates"]
+        for slug in templates:
+            wf = self.ctx.post(f"/api/workflows/from-template/{slug}").json()["workflow"]
+            if slug == "empty":
+                self.assertEqual(wf["nodes"], [])
+                continue
+            self.assertTrue(wf["nodes"], f"{slug}: template must produce nodes")
+            self.assertTrue(wf["edges"], f"{slug}: template must produce edges")
+            self.assertTrue(any(n["agent"] for n in wf["nodes"]),
+                            f"{slug}: template must reference at least one agent")
 
     def test_workflow_run_validation_and_start(self):
         self.ctx.put("/api/workflows/test-wf", json=self._wf())

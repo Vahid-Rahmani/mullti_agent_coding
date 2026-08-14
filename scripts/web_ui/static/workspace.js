@@ -91,6 +91,19 @@
   }
 
   function nextId() { S.nid += 1; return "n" + S.nid; }
+
+  function recalcNid() {
+    // Recompute the node-id counter from the current graph so a freshly added
+    // node never collides with an existing id. Templates use semantic slugs
+    // ("architect", "developer", …) while user nodes use n1..nN; scan every
+    // id for the largest numeric suffix and keep at least the node count.
+    let max = S.workflow.nodes.length;
+    (S.workflow.nodes || []).forEach((n) => {
+      const m = /^n(\d+)$/.exec(n.id || "");
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    S.nid = max;
+  }
   function nodeById(id) { return S.workflow.nodes.find((n) => n.id === id); }
   function edgeKey(e) { return e.source + "|" + e.target; }
   function edgeByKey(key) { return S.workflow.edges.find((e) => edgeKey(e) === key); }
@@ -1054,12 +1067,24 @@
   async function loadTemplate() {
     const name = $("#ws-template-select").value;
     if (!name) return;
+    setError("");
     try {
-      const r = await api(`/api/workflows/from-template/${encodeURIComponent(name)}`);
+      // The backend contract is POST /api/workflows/from-template/{name}.
+      const r = await post(`/api/workflows/from-template/${encodeURIComponent(name)}`);
+      // Fully replace the graph — never merge with the previous workflow and
+      // never auto-persist (the template keeps its own id until the user saves,
+      // so a previous workflow on disk can't be overwritten by accident).
       S.workflow = r.workflow;
-      S.nid = Math.max(S.nid, S.workflow.nodes.length);
+      recalcNid();
       S.runStatuses = {}; S.waves = {};
-      markDirty(); render(); renderProps();
+      S.selected = { type: null, id: null };   // clear the previous selection
+      markDirty();
+      render();
+      renderProps();
+      // Fit the camera (zoom/tx/ty) to the loaded graph on the next frame —
+      // never touching the template's node coordinates.
+      requestAnimationFrame(() => fitToScreen());
+      setOk(`Template "${TEMPLATE_LABELS[name] || name}" loaded — ${S.workflow.nodes.length} nodes · ${S.workflow.edges.length} edges`);
     } catch (err) { setError(err.message); }
   }
 
@@ -1163,7 +1188,8 @@
   window.MACWorkspace = { S, select, render, addNode, saveWorkflow, loadWorkflow,
                           validateWorkflow, runWorkflow, dryRunWorkflow, fitToScreen,
                           loadMeta, matchingAgents, bindDragDrop, ORIGIN,
-                          activateWorkflow, refreshActiveIndicator, updateActivateButton };
+                          activateWorkflow, refreshActiveIndicator, updateActivateButton,
+                          loadTemplate, recalcNid };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();
