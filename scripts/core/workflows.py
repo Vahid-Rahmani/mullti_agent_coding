@@ -59,6 +59,7 @@ class WorkflowNode:
 
     id: str
     label: str = ""
+    label_auto: bool = True   # True = label auto-derived (follows the prompt profile); False = user-customized
     agent: str = ""               # opencode agent key; "" = no agent (end/pass)
     kind: str = "agent"           # "agent" | "end"
     model: str = ""               # runtime override; "" = Auto / runtime default
@@ -75,12 +76,16 @@ class WorkflowNode:
     @classmethod
     def from_dict(cls, data: dict) -> "WorkflowNode":
         def _tup(key: str) -> tuple[str, ...]:
+            # Normalize legacy/stale lists: drop empty entries (e.g. an "end"
+            # node persisted with roles: [""]) so validation never trips on
+            # placeholder strings.
             value = data.get(key) or []
-            return tuple(str(x) for x in value)
+            return tuple(str(x) for x in value if str(x).strip())
 
         return cls(
             id=str(data.get("id") or ""),
             label=str(data.get("label") or ""),
+            label_auto=bool(data.get("label_auto", True)),
             agent=str(data.get("agent") or ""),
             kind=str(data.get("kind") or "agent"),
             model=str(data.get("model") or ""),
@@ -99,6 +104,7 @@ class WorkflowNode:
         return {
             "id": self.id,
             "label": self.label,
+            "label_auto": self.label_auto,
             "agent": self.agent,
             "kind": self.kind,
             "model": self.model,
@@ -333,6 +339,8 @@ def validate_workflow(workflow: Workflow, repo_root: Path | None = None) -> list
             elif node.agent not in known_agents:
                 errors.append({"node": node.id, "message": f"Agent {node.agent!r} does not exist"})
         for rid in node.roles:
+            if not rid.strip():
+                continue  # placeholder/empty entries are normalized away
             if rid not in known_roles:
                 errors.append({"node": node.id, "message": f"Role {rid!r} does not exist"})
         if node.prompt_profile:
@@ -453,8 +461,11 @@ _TEMPLATE_AGENTS = [agent for _tag, _name, agent in AGENTS if agent]
 
 def _node(nid: str, role: str, agent: str, label: str, kind: str = "agent",
           x: float = 0.0, y: float = 0.0) -> WorkflowNode:
+    # A terminal "end" node has no role — never persist an empty role string
+    # (an empty role would fail validation with "Role '' does not exist").
     return WorkflowNode(
-        id=nid, label=label, agent=agent, kind=kind, roles=(role,),
+        id=nid, label=label, agent=agent, kind=kind,
+        roles=(role,) if role else (),
         x=x, y=y,
     )
 
@@ -473,8 +484,13 @@ def _chain(steps: list[tuple[str, str, str]]) -> tuple[list[WorkflowNode], list[
 
 def _template(name: str, nodes: list[WorkflowNode], edges: list[WorkflowEdge],
               project: str = "") -> Workflow:
+    # The generated id must be a valid, URL-safe workflow id ("Planner / Workers
+    # / Reviewer" → "template-planner-workers-reviewer") — an unsanitized slash
+    # breaks the /api/workflows/{id} route (404 "Not Found") so such templates
+    # could never be saved or run.
+    slug = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-")
     return Workflow(
-        id=f"template-{name.lower().replace(' ', '-')}", name=name, project=project,
+        id=f"template-{slug}", name=name, project=project,
         nodes=nodes, edges=edges, settings={"max_iterations": 3},
     )
 

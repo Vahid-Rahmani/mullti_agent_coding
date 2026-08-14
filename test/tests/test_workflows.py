@@ -310,6 +310,72 @@ class TestNewPresets(unittest.TestCase):
         self.assertEqual(wf.edges, [])
 
 
+class TestTemplateNormalization(unittest.TestCase):
+    """Bug 3 regression — every built-in template must validate + dry-run.
+
+    The ``reflection`` template's terminal ``end`` node used to carry an empty
+    role string (``roles=[""]``), which made ``validate_workflow`` fail with
+    ``Role '' does not exist`` — so Dry Run / Run returned an error for that
+    template while others worked. Templates must never persist placeholder
+    roles, and legacy data with empty roles must normalize on load.
+    """
+
+    def test_reflection_end_node_has_no_roles(self):
+        wf = W.get_template("reflection")
+        done = next(n for n in wf.nodes if n.id == "done")
+        self.assertEqual(done.kind, "end")
+        self.assertEqual(done.roles, (), "an end node must never carry an empty role")
+
+    def test_reflection_validates_and_dry_runs(self):
+        wf = W.get_template("reflection")
+        self.assertEqual(W.validate_workflow(wf), [], "reflection must be valid")
+        from scripts.core import workflow_engine
+        plan = workflow_engine.simulate_workflow(wf)
+        self.assertIn(["done"], plan["waves"], "the end node is reached on success")
+
+    def test_every_builtin_template_validates(self):
+        for name in W.list_templates():
+            wf = W.get_template(name)
+            if name == "empty":
+                continue  # the blank preset intentionally has no nodes
+            self.assertEqual(W.validate_workflow(wf), [], f"template {name} must validate")
+
+    def test_legacy_empty_roles_are_normalized_on_load(self):
+        data = {"id": "wf", "nodes": [
+            {"id": "n1", "agent": "matthew", "roles": ["", "python-developer", " "]},
+        ], "edges": []}
+        wf = W.Workflow.from_dict(data)
+        self.assertEqual(wf.nodes[0].roles, ("python-developer",),
+                         "empty/whitespace role entries are dropped by from_dict")
+        self.assertEqual(W.validate_workflow(wf), [],
+                         "the normalized workflow validates cleanly (no 'Role \'\' does not exist')")
+
+
+class TestNodeTitleSync(unittest.TestCase):
+    """Bug 1 regression — label provenance must round-trip.
+
+    ``label_auto`` marks whether the node title is auto-derived (follows the
+    selected Prompt Profile) or user-customized (never overwritten). It must
+    survive save/load so a customized name is not clobbered after a reload.
+    """
+
+    def test_label_auto_defaults_true(self):
+        n = W.WorkflowNode(id="n1", agent="matthew")
+        self.assertTrue(n.label_auto)
+
+    def test_label_auto_round_trips(self):
+        n = W.WorkflowNode.from_dict({"id": "n1", "agent": "matthew",
+                                      "label": "Keep me", "label_auto": False})
+        self.assertFalse(n.label_auto)
+        back = W.WorkflowNode.from_dict(n.to_dict())
+        self.assertFalse(back.label_auto, "customized flag survives to_dict/from_dict")
+        self.assertEqual(back.label, "Keep me")
+
+    def test_label_auto_missing_means_auto(self):
+        n = W.WorkflowNode.from_dict({"id": "n1", "agent": "matthew"})
+        self.assertTrue(n.label_auto, "old data without label_auto is treated as auto-derived")
+
+
 class TestTemplates(unittest.TestCase):
     def test_all_templates_exist(self):
         templates = W.list_templates()

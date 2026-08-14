@@ -277,6 +277,38 @@ async function main() {
   eq(S.workflow.nodes[0].prompt_profile, undefined,
      "J: template without prompt_profile loads with no profile (backward compatible)");
 
+  /* ── K: selecting a profile renames an auto-derived node label ──
+     Bug fix: the Prompt Profile is the canonical title source — when the
+     label is auto-derived (label_auto not false) the canvas node title
+     follows the selected profile so sidebar and canvas can't diverge. */
+  reset();
+  fetchImpl = fetchPromptsHandler();
+  const autoNode = { id: "n1", label: "Matthew", label_auto: true,
+                     agent: "matthew", kind: "agent", roles: [], instructions: "" };
+  await onPromptSelected(autoNode, "software-engineer-expert");
+  eq(autoNode.label, "Expert Software Engineer",
+     "K: auto label follows the selected prompt profile");
+  eq(autoNode.prompt_profile, "software-engineer-expert", "K: prompt_profile stored");
+
+  /* ── L: a user-customized label is never overwritten by a profile change ── */
+  reset();
+  fetchImpl = fetchPromptsHandler();
+  const customNode = { id: "n1", label: "My Custom Node", label_auto: false,
+                       agent: "matthew", kind: "agent", roles: [], instructions: "" };
+  await onPromptSelected(customNode, "software-engineer-expert");
+  eq(customNode.label, "My Custom Node",
+     "L: custom label is preserved when the profile changes");
+
+  /* ── M: label_auto persists on the node (survives save/reload) ── */
+  reset();
+  fetchImpl = fetchPromptsHandler();
+  const persistNode = { id: "n1", label: "Matthew", label_auto: false,
+                        agent: "matthew", kind: "agent", roles: [], instructions: "" };
+  await onPromptSelected(persistNode, "software-engineer-expert");
+  ok(persistNode.label_auto === false && "label_auto" in persistNode,
+     "M: label_auto is part of the node payload (custom flag survives round-trips)");
+  eq(persistNode.label, "Matthew", "M: persisted custom flag keeps the name stable");
+
   console.log("workspace prompt tests passed:", count);
 }
 

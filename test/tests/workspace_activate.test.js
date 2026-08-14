@@ -111,6 +111,11 @@ function reset() {
   registry["ws-status"].className = "";
   registry["ws-activate"].textContent = "Activate Workflow";
   registry["ws-activate"].classList._s.clear();
+  // reset the workspace's view of the active workflow so each section starts
+  // from "nothing active" (saveWorkflow() now activates what it saves).
+  if (global.window.MACWorkspace && global.window.MACWorkspace.S) {
+    global.window.MACWorkspace.S.activeWorkflowId = null;
+  }
 }
 
 eval(src); // IIFE runs; init() is NOT called (readyState === "loading")
@@ -251,7 +256,9 @@ async function main() {
   eq(JSON.parse(hAct.opts.body).workflow_id, "my-pipeline", "H: activation uses the real persisted id");
   eq(registry["ws-activate"].textContent, "✓ Active", "H: activation succeeds after saving the untitled workflow");
 
-  /* ── I: saveWorkflow() requires + adopts a real id (never persists "untitled") ── */
+  /* ── I: saveWorkflow() requires + adopts a real id, then ACTIVATES ──
+     Bug fix: a freshly saved workflow becomes the active one so Home projects
+     it immediately (Save must never leave Home on the empty state). */
   reset();
   S.workflow = JSON.parse(JSON.stringify(WF_UNTITLED));
   global.window.prompt = () => "real-name";
@@ -261,17 +268,41 @@ async function main() {
       wf.id = "real-name";
       return jsonRes(200, { ok: true, workflow: wf });
     }
+    if (p === "/api/active-workflow" && opts && opts.method === "PUT") {
+      return jsonRes(200, { ok: true, active_workflow_id: "real-name" });
+    }
     throw new Error("unexpected fetch: " + p);
   };
   const saved = await saveWorkflow();
   const putReqs = requests.filter((r) => r.opts && r.opts.method === "PUT");
-  eq(putReqs.length, 1, "I: exactly one save (PUT) request issued");
+  eq(putReqs.length, 2, "I: save issues exactly two PUTs (persist + activate)");
   eq(putReqs[0].path, "/api/workflows/real-name", "I: save targets the prompted real id, never \"untitled\"");
+  eq(putReqs[1].path, "/api/active-workflow", "I: save then activates the saved workflow");
+  eq(JSON.parse(putReqs[1].opts.body).workflow_id, "real-name",
+     "I: activation uses the persisted real id");
   ok(!requests.some((r) => r.path === "/api/workflows/untitled"),
      "I: the placeholder id is never sent to the backend");
   ok(saved && saved.id === "real-name", "I: saveWorkflow returns the persisted workflow");
   eq(S.workflow.id, "real-name", "I: S.workflow.id is the real persisted id after save");
+  eq(S.activeWorkflowId, "real-name", "I: S.activeWorkflowId tracks the saved workflow (no divergence)");
+  eq(registry["ws-activate"].textContent, "✓ Active", "I: activate button reflects the saved workflow");
   global.window.prompt = () => null;
+
+  /* ── J: saving an ALREADY-active workflow does not double-activate ── */
+  reset();
+  S.workflow = JSON.parse(JSON.stringify(WF_A));
+  S.activeWorkflowId = "wf-a";
+  S.dirty = true;
+  fetchImpl = async (p, opts) => {
+    if (p === "/api/workflows/wf-a" && opts && opts.method === "PUT") {
+      return jsonRes(200, { ok: true, workflow: JSON.parse(JSON.stringify(S.workflow)) });
+    }
+    throw new Error("unexpected fetch: " + p);
+  };
+  await saveWorkflow();
+  const jPuts = requests.filter((r) => r.opts && r.opts.method === "PUT");
+  eq(jPuts.length, 1, "J: re-saving the active workflow issues one PUT (no redundant activate)");
+  eq(jPuts[0].path, "/api/workflows/wf-a", "J: only the persist PUT is issued");
 
   /* ── refreshActiveIndicator reads the active id from GET ── */
   reset();

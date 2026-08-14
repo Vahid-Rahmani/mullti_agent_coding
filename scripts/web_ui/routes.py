@@ -313,9 +313,10 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
     async def api_active_workflow() -> dict:
         """The workflow Home renders and the Home runtime executes.
 
-        Returns ``workflow: null`` when no workflow is active (Home then falls
-        back to the classic registry/prefs panel set). Node ``model`` keeps the
-        per-node override; ``resolved_model`` is what would actually run.
+        Returns ``workflow: null`` when no workflow is active (Home then shows
+        its empty state — it never falls back to a registry layout). Node
+        ``model`` keeps the per-node override; ``resolved_model`` is what would
+        actually run.
         """
         active_id = state.prefs.get("active_workflow_id")
         wf = workflows.load_workflow(active_id) if active_id else None

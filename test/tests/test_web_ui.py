@@ -856,6 +856,33 @@ class WorkflowApiTestCase(VaultTestCase):
             self.assertTrue(any(n["agent"] for n in wf["nodes"]),
                             f"{slug}: template must reference at least one agent")
 
+    def test_every_template_can_save_validate_and_dry_run(self):
+        """Bug 3 regression — no template may fail with a 404/validation error.
+
+        Template ids used to be derived from the display name with only spaces
+        replaced, so "Planner / Workers / Reviewer" produced an id containing
+        slashes (``template-planner-/-workers-/-reviewer``) that broke the
+        ``/api/workflows/{id}`` route (404 "Not Found" on Save/Run). The
+        reflection template's ``end`` node also carried an empty role that
+        failed validation. Every template must now be saveable, valid and
+        dry-runnable through the same API path the workspace uses.
+        """
+        from scripts.core import workflows as W
+        templates = self.ctx.get("/api/workflows/templates").json()["templates"]
+        for slug in templates:
+            if slug == "empty":
+                continue
+            wf = self.ctx.post(f"/api/workflows/from-template/{slug}").json()["workflow"]
+            # the generated id must be a valid, URL-safe workflow id
+            self.assertEqual(wf["id"], W.normalize_workflow_id(wf["id"]),
+                             f"{slug}: template id must be URL-safe and saveable")
+            r = self.ctx.put(f"/api/workflows/{wf['id']}", json=wf)
+            self.assertEqual(r.status_code, 200, f"{slug}: template must save (not 404)")
+            v = self.ctx.get(f"/api/workflows/{wf['id']}/validate").json()
+            self.assertTrue(v["valid"], f"{slug}: template must validate: {v['errors']}")
+            dr = self.ctx.post(f"/api/workflows/{wf['id']}/dry-run", json=wf)
+            self.assertEqual(dr.status_code, 200, f"{slug}: template must dry-run")
+
     def test_workflow_run_validation_and_start(self):
         self.ctx.put("/api/workflows/test-wf", json=self._wf())
         # invalid graph -> 409 before any run

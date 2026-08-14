@@ -201,12 +201,23 @@
 
   async function onPromptSelected(n, id) {
     n.prompt_profile = id;
+    // The selected Prompt Profile is the canonical source for the node's title:
+    // when the label is auto-derived (not user-customized) rename the node so
+    // the canvas title can never diverge from the sidebar selection. A custom
+    // label (label_auto === false, set by editing the Label field) is preserved.
+    if (id) {
+      const p = S.promptById[id];
+      if (p && p.name && n.label_auto !== false) {
+        n.label = p.name;
+      }
+    }
     markDirty();
     // Safe application: only auto-fill the Instruction when it is empty — a
     // custom instruction is never silently overwritten (the Apply button does that).
     if (id && !(n.instructions || "").trim()) {
       await applyPromptToNode(n, id);
     }
+    render();   // reflect the (possibly renamed) title on the canvas immediately
     return n;
   }
 
@@ -926,6 +937,7 @@
     const count = S.workflow.nodes.filter((n) => n.agent === agent.agent).length;
     const n = {
       id: nextId(), label: `${agent.name}${count ? " #" + (count + 1) : ""}`,
+      label_auto: true,   // agent-derived label — follows the prompt profile until customized
       agent: agent.agent, kind: "agent", model: "",
       roles: [], instructions: "", tools: [], enabled: true,
       x: (pos && Number.isFinite(pos.x)) ? pos.x : 120 + (S.workflow.nodes.length % 4) * 160,
@@ -1247,7 +1259,11 @@
 
     const label = el("input");
     label.value = n.label || "";
-    label.addEventListener("input", () => { n.label = label.value; markDirty(); renderNodes(); });
+    label.addEventListener("input", () => {
+      n.label = label.value;
+      n.label_auto = false;   // an explicit label edit makes the name user-customized
+      markDirty(); renderNodes();
+    });
     body.appendChild(setRow("Label", label));
 
     const kind = el("select");
@@ -1535,7 +1551,24 @@
       S.workflow = r.workflow;
       rememberWorkflow(S.workflow.id);
       markClean();
-      setOk("saved ✓");
+      // Home projects ONLY the active workflow, so a freshly saved workflow
+      // must become the active one — otherwise Save would succeed while Home
+      // still shows the empty state ("No active workflow"). The explicit
+      // Activate button stays for switching between existing workflows.
+      if (S.activeWorkflowId !== S.workflow.id) {
+        try {
+          await put("/api/active-workflow", { workflow_id: S.workflow.id });
+          S.activeWorkflowId = S.workflow.id;
+        } catch (_) {
+          // The save itself succeeded; surface the activation failure so the
+          // user knows Home won't project it yet.
+          setError("saved ✓ but activation failed — Home will not project this workflow");
+          loadWorkflowList();
+          return S.workflow;
+        }
+      }
+      updateActivateButton();
+      setOk("saved ✓ · active on Home");
       loadWorkflowList();
       return S.workflow;
     } catch (err) { setError(err.message); return null; }
@@ -1559,7 +1592,11 @@
     const id = S.workflow.id;
     try {
       // Existing API contract: PUT /api/active-workflow { workflow_id }.
-      await put("/api/active-workflow", { workflow_id: id });
+      // saveWorkflow() already activates when it ran above (dirty/untitled
+      // path), so only PUT again when this workflow isn't active yet.
+      if (S.activeWorkflowId !== id) {
+        await put("/api/active-workflow", { workflow_id: id });
+      }
       // Verify the result (requirement: active_workflow_id === current id).
       const active = await api("/api/active-workflow");
       S.activeWorkflowId = active.active_workflow_id || null;
