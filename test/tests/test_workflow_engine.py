@@ -288,5 +288,124 @@ class TestPromptComposition(unittest.TestCase):
         self.assertNotIn("Python Developer", prompt)
 
 
+class TestAdapterBackedDispatch(unittest.TestCase):
+    """Phase 5: the default (adapter-backed) dispatch produces per-node
+    execution records + ordered events without changing graph semantics."""
+
+    def _fake_adapter(self):
+        from scripts.core.execution.schema import ModelResponse
+
+        class FakeAdapter:
+            provider_id = "fake"
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                return ModelResponse(text=f"out-{request.node_id}",
+                                     provider="fake", model=request.model)
+
+        return FakeAdapter()
+
+    def test_default_dispatch_emits_events_and_execution_records(self):
+        from unittest import mock
+
+        wf = W.get_template("sequential")
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=self._fake_adapter()):
+            r = run_sync(wf, None)   # default dispatch (adapter-backed)
+        snap = r.snapshot()
+        # per-node execution records for every agent node
+        for nid in ("architect", "developer", "tester", "reviewer"):
+            self.assertEqual(snap["executions"][nid]["status"], "completed")
+            self.assertEqual(snap["executions"][nid]["provider"], "fake")
+            self.assertIn("latency_ms", snap["executions"][nid])
+        # ordered events bookend the run
+        types = [e["event_type"] for e in snap["events"]]
+        self.assertEqual(types[0], "workflow_started")
+        self.assertEqual(types[-1], "workflow_completed")
+        self.assertIn("node_started", types)
+        self.assertIn("node_completed", types)
+        # waves / statuses unchanged
+        self.assertEqual(set(snap["statuses"].values()), {"completed"})
+        self.assertEqual(snap["outputs"]["architect"], "out-architect")
+
+    def test_timeout_produces_typed_failure(self):
+        from unittest import mock
+
+        class SlowAdapter:
+            provider_id = "fake"
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                # A real adapter (e.g. OpenCodeAdapter) enforces its own
+                # timeout and raises the typed error; this fake mirrors that.
+                from scripts.core.execution.errors import AdapterTimeoutError
+
+                deadline = time.monotonic() + (timeout or 300)
+                while time.monotonic() < deadline:
+                    time.sleep(0.05)
+                raise AdapterTimeoutError("fake timed out")
+
+        wf = W.get_template("sequential")
+        wf.settings = {"node_timeout": 1}   # opt-in short timeout
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=SlowAdapter()):
+            r = run_sync(wf, None)
+        snap = r.snapshot()
+        self.assertEqual(snap["statuses"]["architect"], "failed")
+        self.assertEqual(snap["executions"]["architect"]["error_code"], "timeout")
+        self.assertEqual(snap["events"][-1]["event_type"], "workflow_failed")
+
+    def test_bounded_retry_opt_in(self):
+        from unittest import mock
+
+        class FlakyAdapter:
+            provider_id = "fake"
+            attempts = 0
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                type(self).attempts += 1
+                if type(self).attempts < 3:
+                    raise RuntimeError("transient boom")
+                from scripts.core.execution.schema import ModelResponse
+
+                return ModelResponse(text="ok-after-retry", provider="fake",
+                                     model=request.model)
+
+        wf = W.get_template("sequential")
+        wf.settings = {"node_max_retries": 2}   # opt-in bounded retry
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=FlakyAdapter()):
+            r = run_sync(wf, None)
+        snap = r.snapshot()
+        self.assertEqual(snap["statuses"]["architect"], "completed")
+        self.assertEqual(snap["outputs"]["architect"], "ok-after-retry")
+        # three attempts for the first node (fail, fail, success)
+        started = [e for e in snap["events"]
+                   if e["event_type"] == "node_started"
+                   and e["node_id"] == "architect"]
+        self.assertEqual(len(started), 3)
+
+    def test_default_dispatch_never_runs_without_retry_config(self):
+        # max_retries defaults to 0: a failure fails the node immediately.
+        from unittest import mock
+
+        class BoomAdapter:
+            provider_id = "fake"
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                raise RuntimeError("boom")
+
+        wf = W.get_template("sequential")
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=BoomAdapter()):
+            r = run_sync(wf, None)
+        snap = r.snapshot()
+        self.assertEqual(snap["statuses"]["architect"], "failed")
+        self.assertEqual(snap["executions"]["architect"]["error_code"],
+                         "execution_error")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -920,6 +920,75 @@ class WorkflowApiTestCase(VaultTestCase):
         self.assertEqual(set(plan["statuses"].values()), {"completed"})
         start.assert_not_called()   # a dry-run never starts a real run
 
+    def test_workflow_dry_run_resolves_plan_rows(self):
+        # Phase 5: dry-run returns per-node plan metadata (model / connection /
+        # adapter) without executing anything.
+        body = self._wf(nodes=[
+            {"id": "a", "agent": "matthew", "kind": "agent",
+             "model": "opencode/big-pickle"},
+            {"id": "b", "agent": "alex", "kind": "agent"},
+        ], edges=[{"source": "a", "target": "b"}], entry=["a"])
+        with mock.patch.object(self.routes_mod.workflow_engine, "start_run") as start:
+            r = self.ctx.post("/api/workflows/test-wf/dry-run", json=body)
+        self.assertEqual(r.status_code, 200)
+        plan = r.json()
+        rows = {row["node_id"]: row for row in plan["plan"]}
+        self.assertEqual(rows["a"]["model"], "opencode/big-pickle")
+        self.assertEqual(rows["a"]["adapter"], "opencode")
+        self.assertIn("connection_id", rows["a"])
+        self.assertIn("provider", rows["a"])
+        self.assertIn("b", rows, "every enabled agent node gets a plan row")
+        start.assert_not_called()
+
+    def test_run_snapshot_includes_events_and_executions(self):
+        # Phase 5: GET /api/workflows/runs/{id} returns the extended snapshot
+        # (events + per-node execution records) while preserving every legacy
+        # field, and never exposes credentials.
+        from scripts.core.execution.schema import ModelResponse
+
+        class FakeAdapter:
+            provider_id = "fake"
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                return ModelResponse(text=f"out-{request.node_id}",
+                                     provider="fake", model=request.model)
+
+        self.ctx.put("/api/workflows/test-wf", json=self._wf())
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=FakeAdapter()):
+            r = self.ctx.post("/api/workflows/test-wf/run",
+                              json={"initial_state": {}})
+            self.assertEqual(r.status_code, 200)
+            run_id = r.json()["run_id"]
+            # runs execute on a background thread — poll until the snapshot says
+            # done (patch stays active for the whole run)
+            snap = {}
+            for _ in range(200):
+                snap = self.ctx.get(f"/api/workflows/runs/{run_id}").json()
+                if snap.get("finished"):
+                    break
+                time.sleep(0.02)
+        # legacy fields preserved
+        self.assertEqual(snap["workflow_id"], "test-wf")
+        self.assertTrue(snap["finished"])
+        self.assertIn("outputs", snap)
+        self.assertIn("statuses", snap)
+        # Phase 5 extensions
+        self.assertIn("events", snap)
+        self.assertIn("executions", snap)
+        for nid in ("a", "b"):
+            self.assertEqual(snap["executions"][nid]["status"], "completed")
+            self.assertEqual(snap["executions"][nid]["provider"], "fake")
+        types = [e["event_type"] for e in snap["events"]]
+        self.assertEqual(types[0], "workflow_started")
+        self.assertEqual(types[-1], "workflow_completed")
+        # credentials never appear in the API response
+        blob = repr(snap).lower()
+        for key in ("api_key", "secret", "credential", "authorization",
+                    "password"):
+            self.assertNotIn(key, blob)
+
     def test_workflow_dry_run_rejects_invalid_graph(self):
         body = self._wf(edges=[{"source": "a", "target": "b"},
                                {"source": "b", "target": "a"}])

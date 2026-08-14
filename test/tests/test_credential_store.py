@@ -102,6 +102,57 @@ class CredentialStoreTestCase(unittest.TestCase):
         self.assertEqual(entry["type"], "api")
         self.assertEqual(entry["key"], SECRET)
 
+    # Phase 5 — the execution boundary: the adapter may resolve the credential
+    # only at execution time, and nothing it produces may carry it.
+    def test_resolve_credential_available_only_at_execution_boundary(self):
+        c = create_connection("openai", api_key=SECRET)
+        # the internal resolver returns the value (backend use only)
+        self.assertEqual(credential_store._resolve_credential(c.connection_id),
+                         SECRET)
+        # but a full workflow run pipeline never surfaces it: run a fake
+        # adapter-backed workflow and inspect events/records/snapshots
+        from unittest import mock
+
+        from scripts.core import workflow_engine as E
+        from scripts.core import workflows as W
+        from scripts.core.execution.schema import ModelResponse
+
+        class FakeAdapter:
+            provider_id = "fake"
+
+            def execute(self, request, connection, *, timeout=None,
+                        cancel_event=None, execution_id=""):
+                # the adapter is the one place allowed to see the credential
+                self.seen = credential_store._resolve_credential(c.connection_id)
+                return ModelResponse(text="ok", provider="fake",
+                                     model=request.model)
+
+        wf = W.Workflow.from_dict({
+            "id": "wf-sec2", "name": "sec",
+            "nodes": [{"id": "n1", "agent": "matthew", "kind": "agent",
+                        "model": "openai/gpt-5", "connection_id": c.connection_id}],
+            "edges": [], "entry": ["n1"], "state": {}, "settings": {},
+        })
+        adapter = FakeAdapter()
+        with mock.patch("scripts.core.execution.executor.adapter_for",
+                        return_value=adapter):
+            runner = E.WorkflowRunner(wf)
+            runner.start({})
+            while not runner.finished:
+                import time as _t
+
+                _t.sleep(0.01)
+        self.assertEqual(adapter.seen, SECRET, "adapter resolved the secret")
+        snap = runner.snapshot()
+        blob = repr(snap)
+        self.assertNotIn(SECRET, blob)
+        for key in ("api_key", "secret", "token", "credential",
+                    "authorization", "password"):
+            self.assertNotIn(key, blob.lower())
+        # the record/event payloads specifically
+        self.assertNotIn(SECRET, repr(snap["executions"]))
+        self.assertNotIn(SECRET, repr(snap["events"]))
+
 
 if __name__ == "__main__":
     unittest.main()

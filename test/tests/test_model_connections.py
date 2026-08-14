@@ -138,6 +138,39 @@ class ConnectionRegistryTestCase(ConnectionEnvTestCase):
         self.assertIn("API key", res["detail"])
         self.assertNotIn(SECRET, json.dumps(res))
 
+    # Phase 5 — the execution planner consumes the resolved connection as safe
+    # metadata and never pulls the credential across the boundary.
+    def test_planner_uses_resolution_without_credential(self):
+        from scripts.core.execution.planner import plan_node
+        from scripts.core.workflows import WorkflowNode
+
+        create_connection("openai", api_key=SECRET,
+                          connection_id="conn_plan_1")
+        node = WorkflowNode(id="n1", agent="matthew", kind="agent",
+                            model="openai/gpt-5", connection_id="conn_plan_1")
+        plan = plan_node(node, {})
+        self.assertEqual(plan.connection.connection_id, "conn_plan_1")
+        self.assertEqual(plan.connection.provider, "openai")
+        self.assertEqual(plan.adapter_id, "opencode",
+                         "default adapter remains OpenCode")
+        # the planner's safe metadata never carries the credential
+        self.assertFalse(plan.connection.has_credential())
+        self.assertNotIn(SECRET, repr(plan.to_dict()))
+        self.assertNotIn("credential", plan.to_dict())
+
+    def test_planner_explicit_connection_wins_over_model_provider(self):
+        from scripts.core.execution.planner import plan_node
+        from scripts.core.workflows import WorkflowNode
+
+        create_connection("anthropic", api_key=SECRET,
+                          connection_id="conn_plan_2")
+        node = WorkflowNode(id="n1", agent="matthew", kind="agent",
+                            model="openai/gpt-5",   # provider mismatch on purpose
+                            connection_id="conn_plan_2")
+        plan = plan_node(node, {})
+        self.assertEqual(plan.connection.connection_id, "conn_plan_2",
+                         "explicit connection is authoritative, never replaced")
+
 
 if __name__ == "__main__":
     unittest.main()
