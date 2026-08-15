@@ -1,345 +1,612 @@
-# MultiAgentCoding — Control Plane
+# MultiAgentCoding
 
-A multi-agent coding system. This repository is the **control plane** that
-defines the agents, configuration, and memory used to drive software projects.
-It ships an Obsidian-inspired **Agent Dashboard** (primary interface), a
-retro-CRT **ZOVA terminal** (fallback), and a 7-window inbox launcher.
+**An AI-powered multi-agent coding control plane and visual execution environment.**
 
-> **Agent contract:** the seven roster agents are deliberately plain —
-> **identity only** (tag/name/key), with model, role, and provider as *runtime*
-> concerns — and dispatch is plain (`opencode run --agent <a> -m <model>
-> "<prompt>"`). On top of that contract the repo ships an **Obsidian vault
-> stack** (orchestrator, vault-bridge, context-resolver, knowledge-sync, health
-> checks), the Agent Dashboard, Settings / BYOK provider connections, and a
-> reusable **Role** system + **Project Profile** analyzer. See
-> [`AGENTS.md`](AGENTS.md) for the full control-plane documentation.
+MultiAgentCoding is not simply a collection of AI agents. It is a **control plane
+for designing, configuring, executing, observing, and managing AI coding
+workflows** — a place where multiple AI agents, centralized orchestration,
+reusable roles, a prompt library, visual workflow construction, model/provider
+abstraction, BYOK connections, controlled execution, and persistent project
+knowledge come together behind graphical and terminal interfaces.
 
 ---
 
-## Overview
+## What is MultiAgentCoding?
 
-The control plane defines seven agents — Matthew, Alex, Sarah, David, Elena,
-Max, and Chloe — configured in [`opencode.json`](opencode.json). Each agent is
-an **identity** (tag/name/key) with a runtime model assignment and an explicit
-fallback chain; the model is not part of the identity and can be changed at
-runtime via the Settings / BYOK layer without editing any agent module.
+The system combines:
 
-| Agent | Default model |
-|---|---|
-| `matthew` | opencode/deepseek-v4-flash-free |
-| `alex` | opencode/deepseek-v4-flash-free |
-| `sarah` | opencode/deepseek-v4-flash-free |
-| `david` | opencode/big-pickle |
-| `elena` | opencode/ling-3.0-tiny-free |
-| `max` | opencode/deepseek-v4-flash-free |
-| `chloe` | opencode/ling-3.0-tiny-free |
+- **Multiple AI agents** — seven identity-only agents (Matthew, Alex, Sarah,
+  David, Elena, Max, Chloe) that are decoupled from any specific model.
+- **Centralized orchestration** — a wave scheduler that runs workflow graphs
+  with fan-in, fan-out, conditional routing, and bounded retry loops.
+- **Reusable roles** — many-to-many role definitions (responsibilities, tools,
+  permissions, rules, expected outputs) that are independent of models.
+- **A Prompt Library** — reusable, role-typed prompt profiles that separate
+  *what the AI should do* from *which model executes it*.
+- **Visual workflow construction** — an executable graph designer where nodes
+  are agent instances and edges carry success/failure conditions.
+- **Model / provider abstraction** — a provider-neutral request/response layer
+  with a planner, an executor, and provider adapters.
+- **BYOK connections** — bring-your-own-key provider connections whose
+  credentials never live inside workflow definitions.
+- **Controlled execution** — planning before execution, explicit connection
+  resolution, execution IDs, a runtime registry, timeouts, bounded retries,
+  and dry-run previews.
+- **Persistent project knowledge** — an Obsidian vault of architecture, tasks,
+  agent context, decisions, and documentation.
+- **Graphical monitoring and management** — an Obsidian-inspired Agent
+  Dashboard, a workflow graph designer, and a retro terminal.
 
-> Defaults above; the live model is resolved from `opencode.json` at dispatch.
-
-All default models are **free** (no paid credits required). Roles are defined
-in [`roles.json`](roles.json) (many-to-many, model-independent); a repository
-is analyzed into a `ProjectProfile` via `scripts/core/project_profile.py`. See
-[`AGENTS.md`](AGENTS.md) for workflow and fallback-policy details.
-
----
-
-## Prerequisites
-
-- **Python 3.10+** (the code uses PEP 604 `X | Y` union type hints).
-- **OpenCode CLI** — the control plane dispatches agents via
-  `opencode run --agent <a> -m <model> "<prompt>"`.
-
-Install the Python dependencies (the dashboard and retro terminal each need
-them; the vault/orchestrator code is standard-library only):
-
-```bash
-python -m pip install -r requirements.txt          # runtime
-python -m pip install -r requirements-dev.txt      # runtime + test (httpx)
-```
-
-Run the test suite:
-
-```bash
-python -m unittest discover -s test/tests
-```
-
-Two JavaScript tests (graph math + agent-session rendering) run separately
-with Node and are **not** part of the Python suite:
-
-```bash
-node test/tests/graph_math.test.js
-node test/tests/app_sessions.test.js
-```
+In short: it is a **control plane for designing, configuring, executing,
+observing, and managing AI coding workflows**.
 
 ---
 
-## Quick Start
+## Visual Experience
 
-### 1. Agent Dashboard (primary, Obsidian-inspired)
+### Agent Dashboard (Web Dashboard)
 
-A local web dashboard that replaces the retro terminal as the default view.
-It reuses the existing backend unchanged — the in-process `RunHub` for agent
-dispatch, `VaultBridge`/`ContextResolver` for vault reads and safe writes, and
-the real Orchestrator CLI for task execution — and adds a read-only graph view
-of the managed vault plus an Obsidian-style panel layout.
+The primary interface is a local, Obsidian-inspired **web dashboard** built on
+FastAPI and served at `http://127.0.0.1:8790` (`launch_dashboard.bat`, or
+`python -m scripts.web_ui.server`). It is a self-contained vanilla-JavaScript
+frontend over the same backend used everywhere else.
 
-```bash
-launch_dashboard.bat                 # start server + open browser
-python -m scripts.web_ui.server --no-browser   # start only (http://127.0.0.1:8790)
-python -m scripts.web_ui.server --smoke        # headless build check
-```
+- **Multi-agent panels** — the main area shows up to **six agent panels**,
+  each displaying agent identity (tag + name), the **active model**, live
+  **status**, current execution state, and a stop control. Panels are arranged
+  in a 1/2/3/4/6 grid and are resizable via drag handles.
+- **Master / agent views** — a **master** view coordinates all agents, while
+  individual panels isolate a single agent's conversation and state.
+- **Agent selection & visibility** — a visibility menu chooses which of the
+  seven agents appear (max six); layout and selection persist across reloads.
+- **Vault knowledge graph** — a read-only graph of the vault's wiki-links,
+  colored by folder, with **section filter chips**, **zoom**,
+  **pan**, a **minimap**, fullscreen/detach modes, and **level-of-detail (LOD)
+  zoom bands** (zoomed out, only root/section/hub nodes keep their labels;
+  leaf labels appear as you zoom in). A related-files list shows links and
+  backlinks for the selected node, which can be sent as context to an agent.
+- **Bottom bar** — four tabs: **Status** (live table of all agents), **Tasks**
+  (inspect vault task nodes; assign an agent, set status, or run the real
+  orchestrator dispatch), **Execution** (live task-run output), and **Logs**
+  (agent / orchestrator log tails).
 
-**Settings tab** — the Dashboard's Settings UI (Phase 25) manages **AI
-connections** in two modes:
+The dashboard reuses the backend unchanged: the in-process `RunHub` for agent
+dispatch, `VaultBridge` / `ContextResolver` for vault reads and safe writes,
+and the real Orchestrator CLI for task execution.
 
-- **Simple** — known providers (Gemini, OpenAI, Anthropic): pick the provider
-  and enter an API key; the endpoint/auth shape is auto-determined.
-- **Advanced** — custom / OpenCode-style providers: name, Base URL, API key,
-  auth method, and default models.
+### Workflow Graph
 
-Keys are stored **only** in OpenCode's auth store
-(`~/.local/share/opencode/auth.json`) via the `opencode auth login` CLI; the
-frontend only ever sees `configured: true|false` — no endpoint returns a key.
-The tab also edits per-agent models, modes, and fallback chains (with a
-spec ↔ `opencode.json` drift check).
+Workflows are **executable graphs, not text instructions**. The **Agent
+Workspace** (`/workspace`) is a visual workflow designer over the same
+`Workflow` model and `workflow_engine` runtime:
 
-**Layout** — main area shows up to **6 agent panels** (name, model, status,
-current task, live conversation, Stop), arranged in a 1/2/3/4/6 grid via the
-toolbar selector. A **visibility menu** picks which ≤6 of the 7 agents appear.
-The **left sidebar** holds a *small graph panel* — a force-laid-out view of the
-vault's wiki-link graph, colored by folder — with a *related files / nodes*
-list (links + backlinks) around it. Click a node to see related nodes, then
-**Send context → active agent** to dispatch the node's resolved context to the
-selected agent panel. The **bottom bar** has four tabs: **Status** (live table
-of all agents), **Tasks** (inspect vault task nodes; assign an agent, set
-status, or run the real orchestrator dispatch), **Execution** (live output of
-task runs), and **Logs** (agents' / orchestrator log tails). Panels, sidebar,
-and bottom bar are resizable via drag handles; layout and selection persist.
+- **Nodes** — each node is an *instance* of an agent (the same agent can
+  appear many times, e.g. Developer #1 / #2 / #3), with its own model, roles,
+  prompt profile, instructions, and BYOK connection. Drag an agent from the
+  library onto the canvas to add a node.
+- **Edges / dependencies** — draw edges between nodes; an edge is
+  unconditional, `success`, or `failure`, which is what gives the graph its
+  routing semantics (fan-in waits for all branches; conditional edges activate
+  only the matching branch).
+- **Graph navigation** — zoom in / out / fit-to-screen, plus a run legend that
+  colors nodes by execution state (completed / running / waiting / failed /
+  skipped / disabled).
+- **Node properties** — a side panel configures model, connection, roles,
+  prompt profile, and instructions, with deterministic prompt and model
+  recommendations.
+- **Execution relationships** — **Validate** checks the graph before running;
+  **Dry Run** previews the ordered execution plan without dispatching any
+  agent; **Run** starts a real run and reports per-node state live.
+- **Templates & suggestions** — load a predefined template (sequential,
+  parallel, reflection, planner-workers-reviewer, router, supervisor, and
+  more) or generate a suggested workflow from repository analysis.
 
-> The dashboard and the ZOVA terminal each own their own `RunHub`, so run one
-> interface at a time — a prompt typed in one is not visible to the other.
+### ZOVA Terminal
 
-### 2. ZOVA Retro Terminal (fallback)
+A **retro / CRT-style terminal interface** (`python scripts/terminal_app.py`,
+or `launch_terminal.bat`) provides a keyboard-oriented control surface as a
+fallback when the graphical dashboard is not used. It features a pixel-art
+**ZOVA** banner, a strict four-color phosphor scheme, a **tab bar** (MASTER +
+one tab per agent, `F1`–`F7`), a model status bar, per-tab scrollable
+consoles, and slash commands (`/tab`, `/cd`, `/status`, `/clear`, `/stop`,
+`/help`, `/quit`) for agent dispatch, project operations, execution, and
+status.
 
-Kept as the secondary interface. The interactive full-screen terminal UI:
-retro-CRT styling with a bold pixel-art **ZOVA** banner, a live directory
-status indicator, a **tab bar** (MASTER + one tab per agent), a model status
-bar, a per-tab scrollable console, and a rounded prompt box at the bottom for
-typing coding tasks or slash commands.
+### Settings / Connections
 
-**Tabbed agent workspace** — the seven agents each get their own dedicated
-tab (M1 Matthew … M7 Chloe) inside the single unified window. `F1`–`F7` select
-an agent tab, `F8` selects MASTER (all agents), `Ctrl+T` cycles tabs, or use
-`/tab <tag>`. A task typed on an agent tab dispatches to that agent only; on
-the MASTER tab it goes to all agents. Each tab has its own console showing
-only that agent's output.
+The dashboard's **Settings** area manages the AI connection and runtime-model
+surface:
 
-**Strict color scheme** — the UI uses exactly four colors and nothing else:
-white for regular text, orange for important details & keywords, grey for
-selected text & background highlights, and neon-green (phosphor green) for
-special highlights (banner, status notifications) on the solid black background.
+- **AI Connections** in two modes — **Simple** (known providers such as
+  Gemini, OpenAI, Anthropic: pick a provider and enter a key) and **Advanced**
+  (custom / OpenCode-style providers: name, Base URL, key, auth method).
+- **Per-agent configuration** — runtime models, modes, and fallback chains,
+  with a spec ↔ `opencode.json` drift check.
+- **Models & roles** — the model catalog, role creation, and many-to-many
+  agent ↔ role assignment.
 
-```bash
-python scripts/terminal_app.py     # full-screen retro terminal
-launch_terminal.bat                # same, in a new window
-python scripts/terminal_app.py --smoke   # headless build check
-```
-
-**Features:**
-- **Pixel-art ZOVA banner** — block-glyph banner in bold neon green.
-- **Directory indicator** — `▶ DIR: <path>` under the banner; change it with
-  `/cd <path>` so agents work in any folder.
-- **Agent tabs** — live M1–M7 status per tab (● idle / ◐ thinking / ● active /
-  ✕ error); the active tab is bracket-highlighted in neon, inactive tabs
-  render grey, busy/error states orange.
-- **Model status bar** — active tab / model / dispatch target / running count,
-  embedded in the rounded prompt box's top border.
-- **Rounded prompt box** — Enter submits, Ctrl+J inserts a newline,
-  Ctrl+C clears the input (press again to quit), PageUp/PageDown scrolls the
-  active tab's console, `/` starts a command with tab completion.
-- **Workspace-aware** — agents run `opencode run --agent <agent> --auto
-  -m <model> "<prompt>"` with the current workspace as their working
-  directory. `--auto` auto-approves tool permissions (`opencode run` has no
-  `--yes`/`-y`).
-
-**Slash commands:** `/tab [tag]`, `/help`, `/cd <path>`, `/status`, `/clear`,
-`/stop`, `/theme [name]`, `/quit`.
-
-### 3. 7-Window Inbox Launcher
-
-Runs the seven agents side by side, each listening for tasks in its own inbox.
-
-```bat
-launch_agents.bat            # launch all 7 agent windows
-launch_agents.bat --smoke    # seed SMOKE tasks and run once
-launch_agents.bat --dry      # print the launch commands only
-```
-
-Drop a single-line task into `_inbox/<agent>.task` (e.g. `_inbox/alex.task`).
-The agent's window polls the inbox, runs the task, appends output to
-`_logs/<agent>.log`, and moves the consumed task to `_inbox/done/`.
-
-### 4. Obsidian Vault + Orchestrator
-
-`obsidian_vault/` is a live, schema-validated Markdown vault (36 nodes). The
-Orchestrator drives the same plain dispatch through **task nodes**: it reads a
-`ready` task from `obsidian_vault/03-Tasks/`, resolves its assigned agent and
-linked context, builds a bounded prompt, and dispatches through the same
-`opencode run` command — always a dry run unless `--yes` is given.
-
-```bash
-python -m scripts.core.orchestrator list                          # task nodes
-python -m scripts.core.orchestrator set-status Task_Demo ready     # transition
-python -m scripts.core.orchestrator dispatch Task_Demo --yes       # authorized run
-python scripts/vault_validate.py                                   # vault schema check
-python scripts/generate_dashboard.py --check                       # dashboard freshness
-python -m scripts.core.health_check                                # 11 read-only checks
-```
+API keys are stored **only** in OpenCode's auth store
+(`~/.local/share/opencode/auth.json`); the frontend only ever sees
+`configured: true|false`.
 
 ---
 
-## Plugins & Providers
+## Core Architecture
 
-Plugins are loaded from npm via the `plugin` array in
-[`.opencode/opencode.json`](.opencode/opencode.json) (OpenCode resolves and
-caches them automatically):
+The system is layered so that each concern is decoupled from the others:
 
-- **`@razroo/opencode-model-fallback`** — automatic model failover. Every agent
-  carries a de-duplicated `fallback_models` chain in `opencode.json` (an
-  agent's own primary model is never in its own chain); plugin behaviour is
-  tuned in [`.opencode/opencode-model-fallback.jsonc`](.opencode/opencode-model-fallback.jsonc)
-  (`cooldown_seconds: 0` = zero-wait failover, `max_fallback_attempts: 4`).
-- **`opencode-hive`** — Agent Hive workflow layer (plan → approve → execute in
-  git worktrees). Project config lives in `.hive/agent-hive.json` (gitignored
-  runtime state).
+```text
+Agent Identity   (tag / name / key — no model, no role)
+Role             (reusable behavior — many-to-many with agents)
+Prompt Profile   (reusable "what to do" instructions)
+Workflow         (nodes = agent instances; edges = success/failure routing)
+Model / Provider (runtime selection + BYOK connections)
+Credential       (auth store only — never in a workflow)
+Execution        (planner → executor → provider adapter → runtime)
+```
 
-Providers are defined in `opencode.json`: `ollama` (local
-`qwen2.5-coder:7b`), `mulerouter` (aggregator — unused by default, kept for the
-Settings UI), and the built-in `opencode` provider models
-(`opencode/big-pickle`, `opencode/deepseek-v4-flash-free`,
-`opencode/ling-3.0-tiny-free` — all free-tier models). Keys live only in
-`~/.local/share/opencode/auth.json`, never in the repo.
+The runtime control plane lives in `opencode.json` (agents, models, fallback);
+the specs under `scripts/core/agents/` carry identity only. Any agent can run
+on any user-selected model, and any role can be assigned to many agents
+without editing an agent's module.
 
 ---
 
-## Troubleshooting: "self signed certificate in certificate chain"
+## Workflow Execution
 
-If agent runs fail with this opencode/Node error, a self-signed or
-**intercepting certificate** (antivirus/EDR web filter, corporate proxy, or
-network gateway) is in the chain of the LLM endpoint opencode talks to. Node
-uses its own bundled CA store, so it rejects the injected root even though
-browsers and `curl` succeed on the same machine.
+A workflow moves through a single, well-defined execution pipeline:
 
-Quick unblock (strictly opt-in; disables certificate verification **for the
-opencode process only** — do not enable on untrusted networks):
-
-```bat
-set ZOVA_ALLOW_INSECURE_TLS=1
-launch_agents.bat        :: or launch_terminal.bat
+```text
+User
+ │
+ ▼
+Visual / Terminal Interface
+ │
+ ▼
+Workflow
+ │
+ ▼
+Workflow Nodes
+ │
+ ▼
+Execution Planner
+ │
+ ├── Model Resolution
+ │
+ ├── Connection Resolution
+ │
+ ├── Prompt Construction
+ │
+ └── Provider Adapter Selection
+ │
+ ▼
+Executor
+ │
+ ▼
+Provider Adapter
+ │
+ ▼
+AI Model
+ │
+ ▼
+Execution Runtime
+ │
+ ▼
+Result / Logs / State
 ```
 
-The toggle is honored by the 7-window inbox workers
-(`scripts/run_agent_worker.ps1` / `.sh`) and by the ZOVA terminal's dispatch
-engine (`scripts/core/run_hub.py`), which set
-`NODE_TLS_REJECT_UNAUTHORIZED=0` for every `opencode run` they spawn. It is
-**off by default** — leave it unset or `0` for normal TLS verification.
+The **planner** (`scripts/core/execution/planner.py`) resolves each node before
+it runs: the node's explicit model (else the agent's runtime model), the BYOK
+connection (explicit wins; implicit degrades to the local OpenCode runtime),
+the canonical prompt (roles + instruction/profile + workflow state), and the
+provider adapter. The **executor** runs the planned node through the adapter
+with a per-node **timeout** (default 300s), **cancellation**, and opt-in
+bounded **retries**. The **runtime** (`scripts/core/execution/runtime.py`) owns
+the in-memory run registry (start / get / cancel / snapshot). The **wave
+scheduler** (`scripts/core/workflow_engine.py`) executes ready nodes
+concurrently per wave, honors fan-in / conditional routing, and bounds retry
+loops with `settings.max_iterations`.
 
-Preferred fix (keeps verification on): export the intercepting root CA from
-the Windows certificate store (`certmgr.msc` → Trusted Root / your AV's cert →
-Base-64 PEM) and point Node at it:
-
-```bat
-set NODE_EXTRA_CA_CERTS=C:\path\to\intercept-root.pem
-```
+Every run emits ordered execution events and per-node execution records that
+appear in the run snapshot — no credentials are ever serialized into them.
 
 ---
 
-## Installing the `myagent` Command (Windows)
+## Prompt Library
 
-Make the ZOVA terminal globally runnable from any folder:
+Prompts are not scattered through agent and workflow code. They are reusable
+**prompt profiles** — role-typed, versioned definitions of *what the AI should
+do* (role, category, capabilities, prompt text). The library ships 42 built-in
+profiles across 14 roles (software engineer, architect, code reviewer,
+debugger, QA, security, DevOps, cloud, data, AI engineer, researcher,
+technical writer, project manager, orchestrator).
 
-1. Find the Python Scripts directory:
-   ```bat
-   python -c "import sys; print(sys.prefix + '\\Scripts')"
-   ```
-2. Create `myagent.bat` in that directory with:
-   ```bat
-   @echo off
-   python "C:\absolute\path\to\scripts\terminal_app.py" %*
-   ```
-3. Verify it is recognized:
-   ```bat
-   where myagent
-   ```
+A workflow node keeps its own editable `instructions` and may reference a
+profile by id; the profile is the *source*, the instruction the *editable
+result*. This is the separation between **what the AI should do** and **which
+model executes it**:
 
-Now `myagent` launches the retro terminal targeting the folder you run it from.
+```text
+Prompt Library
+      ↓
+Prompt Profile
+      ↓
+Workflow Node
+      ↓
+Workflow Graph
+      ↓
+Execution Plan
+      ↓
+Model / Connection
+      ↓
+Provider Adapter
+      ↓
+Execution
+```
+
+The value: prompts become **reusable**, workflows become **composable**,
+models become **replaceable**, providers become **interchangeable**, execution
+becomes **observable**, and agents remain **model-independent**.
 
 ---
 
-## Project Layout
+## Multi-Agent Architecture
 
+Seven roster agents — `matthew`, `alex`, `sarah`, `david`, `elena`, `max`,
+`chloe` (tags `m1`…`m7`) — are deliberately **identity-only** (`tag`/`name`/
+`key`). Model, role, and provider are *runtime* concerns resolved at dispatch
+time, never pinned into the agent's spec. Dispatch is plain
+(`opencode run --agent <a> -m <model> "<prompt>"`), and every agent carries a
+de-duplicated fallback chain so a failed model fails over automatically.
+
+Roles live in `roles.json` and are assigned many-to-many; changing an agent's
+model never changes its roles, and vice versa. A `ProjectProfile` analyzer
+derives technologies, manifests, instructions, and suggested roles from a
+repository read-only — suggestions are never auto-applied.
+
+---
+
+## Model & Provider Architecture
+
+The execution layer speaks a **provider-neutral** protocol:
+
+- `ModelRequest` / `ModelResponse` — the request/response schemas (model id,
+  prompt, optional sampling knobs, opaque metadata) with **no credential
+  fields**.
+- `ExecutionResult` / `ExecutionEvent` — per-node records and ordered events.
+- The **planner** resolves model + connection + prompt + adapter.
+- The **executor** enforces timeout, cancellation, and bounded retries.
+- **Provider adapters** (`ProviderAdapter` protocol) consume the request and
+  the resolved connection. The **OpenCode adapter** is the default runtime;
+  future direct-provider adapters register themselves per provider.
+
+Workflow logic never needs to know the internal API details of any provider.
+
+A **Model Registry** catalogs models by provider and capability and ranks them
+deterministically for a task/prompt. Runtime model resolution is separated
+from the static definition of an agent: an agent's identity stays fixed while
+its model is a configurable runtime value.
+
+---
+
+## BYOK
+
+Bring-your-own-key connections are first-class, but **credentials are
+separated from agents, prompts, roles, and workflow definitions**:
+
+- A workflow node references a `connection_id` (or a model) — never a key.
+- Connection **metadata** and the **credential** live in different stores;
+  the public surface never returns a secret, and redaction scrubs secrets from
+  error messages and logs.
+- Explicit connection resolution is authoritative: a missing/invalid explicit
+  connection fails loudly rather than silently substituting another one;
+  implicit resolution degrades to the local OpenCode runtime.
+
+The security model guarantees that **API keys are never embedded in workflow
+definitions** and never serialized into events, snapshots, or responses.
+
+---
+
+## Ad-Supported Free AI Model Architecture
+
+> **ساختار ارائه مدل‌های رایگان هوش مصنوعی مبتنی بر تبلیغات هوشمند**
+> *(Architectural direction / future capability — not yet implemented.)*
+
+A planned direction for funding free model access while keeping the
+architecture clean:
+
+```text
+User
+  ↓
+AI Coding Environment
+  ↓
+Free AI Model Access
+  ↓
+Intelligent Advertising Layer
+  ↓
+Advertisement / Sponsor Revenue
+  ↓
+Model Usage Funding
 ```
+
+The idea: users can access selected AI capabilities without directly paying
+for every model request, while an **intelligent advertising layer** helps fund
+model usage. The key architectural properties remain the ones already
+established — the model/provider architecture stays separated from the
+agent/workflow layer, paid BYOK providers coexist with free AI services, and
+work can be routed according to availability, capability, and configuration:
+
+```text
+                    ┌──────────────────┐
+                    │   AI Workflow    │
+                    └────────┬─────────┘
+                             │
+                     Model Selection
+                             │
+             ┌───────────────┴───────────────┐
+             │                               │
+       Free AI Services                 BYOK Providers
+             │                               │
+   Ad-supported access             User-provided API key
+             │                               │
+             └───────────────┬───────────────┘
+                             │
+                     Provider Adapter
+                             │
+                         Execution
+```
+
+The free-service leg is labeled **future**; the BYOK leg and the provider
+adapter boundary are **implemented today**.
+
+---
+
+## Key Innovations
+
+### 1. Model-independent Agent Identity
+
+Agents are not permanently tied to a model. The system separates:
+
+```text
+Agent Identity · Role · Prompt · Model · Provider · Connection · Credential · Execution
+```
+
+Because of this, agents can change models without changing their identity,
+workflows remain portable, provider changes do not require rewriting agent
+definitions, and runtime model selection becomes configurable.
+
+### 2. Prompt Library as a reusable execution layer
+
+Prompts are reusable execution instructions that can be combined with agent
+identity, role, workflow state, node instructions, model selection, and
+execution context — a separation between *what the AI should do* and *which
+model executes it*.
+
+### 3. Visual Workflow → Executable Workflow
+
+```text
+Visual Workflow
+        ↓
+Workflow Nodes
+        ↓
+Execution Planning
+        ↓
+Provider Resolution
+        ↓
+Provider Adapter
+        ↓
+Execution
+        ↓
+Runtime State
+        ↓
+Result / Observability
+```
+
+A workflow is drawn once and executed directly — the visual graph *is* the
+execution structure, not a sketch beside it.
+
+### 4. Provider-neutral execution architecture
+
+`ModelRequest` / `ModelResponse` schemas, the planner, the executor, and the
+adapter protocol give workflow logic a single neutral boundary; only the
+adapter (currently OpenCode) knows provider specifics.
+
+### 5. BYOK without coupling credentials to workflows
+
+Credentials are separated from agents, prompts, roles, and workflow
+definitions; API keys are never embedded in a workflow.
+
+### 6. Intelligent model selection / runtime model resolution
+
+The model registry and selection layer rank models deterministically for a
+task/prompt, and runtime model resolution is separated from the static
+definition of an agent.
+
+### 7. Controlled execution
+
+Planning before execution, explicit connection resolution, execution IDs, a
+runtime registry, timeout handling, bounded retries, execution state, typed
+errors, safe (secret-free) metadata, and dry-run previews. The guarantees are
+deliberately modest — this is an execution control layer, not a sandbox.
+
+### 8. Persistent AI project knowledge
+
+The Obsidian vault keeps project knowledge — architecture, tasks, agent
+context, and execution information — alongside the code rather than scattered
+through prompts and logs.
+
+### 9. Human + AI control plane
+
+The system is designed so a human can configure agents, select models, define
+workflows, inspect execution, approve/trigger work, inspect logs, manage
+connections, and observe system state. It is a **visible and controllable AI
+engineering environment**, not an opaque autonomous system.
+
+---
+
+## Persistent Project Knowledge
+
+An Obsidian vault (`obsidian_vault/`) holds the project's persistent knowledge
+as a linked, schema-validated graph (36 core nodes):
+
+```text
+Code
++
+Project Knowledge
++
+Architecture
++
+Tasks
++
+Agent Context
++
+Execution Information
+```
+
+The vault is organized into numbered knowledge domains (`00-System` through
+`06-Testing`) plus a large reusable prompt library and per-agent logs.
+`VaultBridge` provides scoped, atomic, backed-up vault I/O; `ContextResolver`
+performs bounded linked-context resolution from a node; `change_detector`
+maps file changes to affected vault nodes; `knowledge_sync` checks docs ↔ code
+drift; and `health_check` / `vault_validate` keep the vault schema-valid and
+drift-free.
+
+---
+
+## Human + AI Control Plane
+
+MultiAgentCoding keeps the human in the loop. The operator can:
+
+1. **configure agents** (identity, runtime model, fallback),
+2. **select models** per agent or per workflow node,
+3. **define workflows** visually,
+4. **inspect execution** through events, snapshots, and dry-run previews,
+5. **approve / trigger work** (dispatch is explicit; orchestrator runs need
+   `--yes`),
+6. **inspect logs** for agents and the orchestrator,
+7. **manage connections** (BYOK, validated but never echoing secrets),
+8. **observe system state** through live panels, status, and the vault graph.
+
+---
+
+## Vision
+
+The long-term goal is a **visual AI coding environment** where a developer can:
+
+1. define agents
+2. define reusable roles
+3. select or create prompts
+4. visually construct workflows
+5. select execution models
+6. connect external providers when desired
+7. execute workflows
+8. observe execution in real time
+9. inspect results and logs
+10. maintain persistent project knowledge
+
+The system is progressing from **AI chat** toward an **AI engineering
+workspace**, and from **single prompt → single model** toward **visual
+workflow → multiple agents → multiple models/providers → controlled
+execution**.
+
+---
+
+## Current Status
+
+Implemented today: identity-only agent roster with runtime models and fallback;
+reusable roles; the prompt library (42 profiles) with task classification and
+recommendations; the model registry and selection; BYOK connections with a
+secure credential store; the execution planner, executor, and runtime with
+timeouts, cancellation, and bounded retries; the workflow model, validation,
+templates, and dry-run; the Obsidian vault stack; and three interfaces — the
+Agent Dashboard, the workflow graph designer, and the ZOVA terminal.
+
+Not yet implemented: direct (non-OpenCode) provider adapters, a persistent
+run store, and the ad-supported free-model funding layer (an architectural
+direction only).
+
+---
+
+## Roadmap
+
+The history of what has been implemented — and what remains — is tracked in
+[`obsidian_vault/Roadmap.md`](obsidian_vault/Roadmap.md) (phases from the
+baseline reset, through the vault integration stack, the dashboard and
+terminal, BYOK settings, and the agent/role/model decoupling).
+
+---
+
+## Repository Structure
+
+```text
 .
 ├── AGENTS.md              # Agent roster, workflow, fallback policy, conventions
 ├── opencode.json          # Runtime config: agents, models, providers, fallback
 ├── roles.json             # Reusable roles + many-to-many agent assignments
 ├── launch_agents.bat      # 7-window inbox launcher
-├── launch_terminal.bat    # ZOVA retro terminal launcher (fallback)
+├── launch_terminal.bat    # ZOVA retro terminal launcher
 ├── launch_dashboard.bat   # Agent Dashboard launcher (primary)
 ├── scripts/
-│   ├── terminal_app.py    # ZOVA retro terminal entry point (thin shim → core/ + ui/)
-│   ├── vault_validate.py  # Vault node schema validator (36 nodes OK)
+│   ├── terminal_app.py    # ZOVA retro terminal entry point (thin shim)
+│   ├── vault_validate.py  # Vault node schema validator
 │   ├── generate_dashboard.py  # Regenerates the Dashboard's GENERATED block
-│   ├── web_ui/            # Agent Dashboard — primary Obsidian-inspired UI
-│   │   ├── server.py      # FastAPI app factory + uvicorn entry (--smoke)
+│   ├── web_ui/            # Agent Dashboard + Workflow designer (FastAPI + vanilla JS)
+│   │   ├── server.py      # App factory + uvicorn entry (--smoke)
 │   │   ├── routes.py      # REST/SSE endpoints (thin layer over core)
 │   │   ├── state.py       # WebState: drains HUB events into per-agent sessions
 │   │   ├── graph.py       # VaultGraph: read-only node/edge model of the vault
-│   │   ├── settings.py    # Settings facade: connections, keys (auth store only), models
-│   │   └── static/        # index.html · app.css · app.js (vanilla, no build)
-│   ├── core/              # Decoupled engine: agents, run hub, state, vault stack
-│   │   ├── agents/        # Per-agent identity — one AgentSpec module per agent
-│   │   │   ├── base.py        # AgentSpec dataclass (identity only: tag/name/key)
-│   │   │   ├── registry.py    # Roster + tab order derived from the specs
-│   │   │   ├── matthew.py … chloe.py  # M1–M7 agents (identity only)
-│   │   │   ├── master.py      # Master coordinator spec
-│   │   │   └── __main__.py    # CLI: resolve per-agent runtime models from opencode.json
-│   │   ├── roles.py       # Reusable roles + many-to-many assignment (roles.json)
+│   │   ├── settings.py    # Settings facade: connections, keys, models
+│   │   └── static/        # index.html · workspace.html · app.js · workspace.js …
+│   ├── core/              # Decoupled engine
+│   │   ├── agents/        # Per-agent identity (one AgentSpec module per agent)
+│   │   ├── roles.py       # Reusable roles + many-to-many assignment
 │   │   ├── project_profile.py  # Repository analysis → ProjectProfile + suggested roles
-│   │   ├── run_hub.py     # Thread-safe multi-agent execution engine (plain dispatch)
+│   │   ├── run_hub.py     # Thread-safe multi-agent execution engine
 │   │   ├── orchestrator.py    # Vault task dispatch (ready-gate, --yes, locks)
-│   │   ├── vault_bridge.py    # Scoped vault I/O (atomic writes, backups, frontmatter)
-│   │   ├── context_resolver.py  # Bounded linked-context resolution from a node
+│   │   ├── vault_bridge.py    # Scoped vault I/O (atomic writes, backups)
+│   │   ├── context_resolver.py  # Bounded linked-context resolution
 │   │   ├── change_detector.py   # Snapshot diff → vault-node impact mapping
-│   │   ├── knowledge_sync.py    # Docs ↔ code drift sync (dry-run by default)
-│   │   ├── health_check.py      # 11 read-only vault/workspace checks
-│   │   ├── state_tracker.py     # Session state (state.md)
-│   │   ├── command_parser.py    # Slash-command parsing + help text
-│   │   └── opencode_cfg.py      # Single source of truth for runtime models (atomic, rollback)
-│   ├── ui/                # Decoupled terminal UI (palette, rendering, theme)
-│   ├── run_agent_worker.ps1  # Inbox-polling worker (Windows, 7-window launcher)
-│   ├── run_agent_worker.sh   # Inbox-polling worker (Git Bash)
+│   │   ├── knowledge_sync.py    # Docs ↔ code drift sync
+│   │   ├── health_check.py      # Read-only vault/workspace checks
+│   │   ├── opencode_cfg.py      # Runtime models single source of truth
+│   │   ├── workflows.py         # Workflow model + persistence + validation + templates
+│   │   ├── workflow_engine.py   # Wave scheduler + run lifecycle
+│   │   ├── prompt_library/      # Prompt profiles + recommendations
+│   │   ├── model_registry/      # Model catalog + selection
+│   │   ├── model_connections/   # BYOK registry + resolver + credential store
+│   │   ├── providers/           # ProviderAdapter protocol + OpenCode adapter
+│   │   └── execution/           # schema · planner · executor · runtime · errors
+│   └── ui/                # Terminal UI (palette, rendering, theme)
+├── workflows/             # Persisted workflow JSON (one file per workflow)
 ├── knowledge/             # Project memory (ADRs, lessons, metrics)
-├── obsidian_vault/        # Live vault: 00-System … 06-Testing + Dashboard.md
-├── .opencode/             # opencode plugins/config (model fallback, opencode-hive)
-└── .vscode/               # VS Code tasks (Launch All Agents / Dashboard / ZOVA)
+└── obsidian_vault/        # Live vault: 00-System … 06-Testing + prompts + logs
 ```
 
 ---
 
-## Conventions
+## Development
 
-- Never commit secrets. Keys live only in `~/.local/share/opencode/auth.json`.
-- Never commit `knowledge/index.jsonl` or anything under `_logs/`.
-- Consult `knowledge/` before planning or reviewing.
-- Commits are small and single-purpose; branch pattern `feature/{agent}-{task}`.
+- **Python 3.10+** (PEP 604 union hints) and the **OpenCode CLI**.
+- Install: `python -m pip install -r requirements.txt` (runtime) and
+  `-r requirements-dev.txt` (tests).
+- Test suite: `pytest -q` (Python) — the Node graph/rendering tests run
+  separately and are not part of the Python suite.
+- Lint: `ruff check scripts/ test/`.
+
+```bash
+launch_dashboard.bat                   # Agent Dashboard (primary)
+python scripts/terminal_app.py         # ZOVA retro terminal (fallback)
+launch_agents.bat                      # 7-window inbox launcher
+python -m scripts.core.orchestrator list          # vault task nodes
+python scripts/vault_validate.py                  # vault schema check
+python -m scripts.core.health_check               # read-only checks
+```
 
 ---
 
-## Memory
+## Architecture Documentation
 
-Architecture decisions and lessons learned are appended to `knowledge/adr/` and
-`knowledge/lessons/`. After a milestone, run the retro to summarize the session,
-prune stale memory, and update these conventions.
-
-See [`AGENTS.md`](AGENTS.md) for the complete control-plane documentation.
+See [`AGENTS.md`](AGENTS.md) for the complete control-plane documentation
+(agent roster, fallback policy, workflow, and conventions), and
+[`obsidian_vault/01-Architecture/`](obsidian_vault/01-Architecture/) for the
+architecture map maintained in the vault.
