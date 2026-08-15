@@ -35,6 +35,16 @@ PROMPT_ROLES: tuple[str, ...] = (
     "orchestrator",
 )
 
+# Where a profile came from. "original" = written for MultiAgentCoding;
+# "adapted" = rewritten into our own words from an external source; "source-
+# derived" = closely derived from an external source's text. Non-original
+# profiles must carry a ``source`` reference (enforced by validate_profile).
+ORIGINS: tuple[str, ...] = (
+    "original",
+    "adapted",
+    "source-derived",
+)
+
 # The categories a profile may declare. A profile's category is a coarser
 # grouping than its role (e.g. every security_engineer profile is "security").
 CATEGORIES: tuple[str, ...] = (
@@ -109,6 +119,12 @@ class PromptProfile:
     recommended_models: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
     version: str = "1.0.0"
+    # Provenance: which external source (if any) this profile was adapted from.
+    source: str = ""           # upstream reference (e.g. "NirDiamant/GenAI_Agents")
+    source_url: str = ""       # upstream URL
+    license: str = ""          # upstream license (e.g. "MIT", "Apache-2.0")
+    origin: str = "original"   # "original" | "adapted" | "source-derived"
+    adaptation_note: str = ""  # how this profile relates to the source
     model_preferences: ModelPreferences | None = None  # optional override
 
     @classmethod
@@ -129,6 +145,11 @@ class PromptProfile:
             recommended_models=_list("recommended_models"),
             tags=_list("tags"),
             version=str(data.get("version") or "1.0.0"),
+            source=str(data.get("source") or ""),
+            source_url=str(data.get("source_url") or ""),
+            license=str(data.get("license") or ""),
+            origin=str(data.get("origin") or "original"),
+            adaptation_note=str(data.get("adaptation_note") or ""),
             model_preferences=(ModelPreferences.from_dict(prefs)
                                if isinstance(prefs, dict) else None),
         )
@@ -146,6 +167,11 @@ class PromptProfile:
             "recommended_models": list(self.recommended_models),
             "tags": list(self.tags),
             "version": self.version,
+            "source": self.source,
+            "source_url": self.source_url,
+            "license": self.license,
+            "origin": self.origin,
+            "adaptation_note": self.adaptation_note,
             "model_preferences": (self.model_preferences.to_dict()
                                   if self.model_preferences else None),
         }
@@ -163,6 +189,11 @@ class PromptProfile:
             "recommended_models": list(self.recommended_models),
             "tags": list(self.tags),
             "version": self.version,
+            "source": self.source,
+            "source_url": self.source_url,
+            "license": self.license,
+            "origin": self.origin,
+            "adaptation_note": self.adaptation_note,
             "model_preferences": (self.model_preferences.to_dict()
                                   if self.model_preferences else None),
         }
@@ -192,6 +223,12 @@ def validate_profile(profile: PromptProfile) -> list[str]:
     if not profile.version or not _VERSION_RE.match(profile.version):
         problems.append(f"{profile.id or '?'}: invalid version {profile.version!r} "
                         "(use semver like 1.0.0)")
+    if profile.origin not in ORIGINS:
+        problems.append(f"{profile.id or '?'}: unknown origin {profile.origin!r} "
+                        "(use original/adapted/source-derived)")
+    if profile.origin != "original" and not profile.source.strip():
+        problems.append(f"{profile.id or '?'}: origin {profile.origin!r} "
+                        "requires a source reference")
     return problems
 
 
@@ -204,5 +241,6 @@ __all__ = [
     "ModelPreferences",
     "PROMPT_ROLES",
     "CATEGORIES",
+    "ORIGINS",
     "validate_profile",
 ]

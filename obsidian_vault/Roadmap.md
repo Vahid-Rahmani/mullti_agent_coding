@@ -62,6 +62,28 @@
 
 ---
 
+## Phase 28 — External Agent Knowledge & Prompt Intelligence
+
+Integrate useful knowledge, prompt patterns, skills, workflow patterns,
+evaluation techniques, and architectural ideas from external repositories into
+MultiAgentCoding — as research/reference sources, not runtime dependencies.
+
+- [x] External source registry (`knowledge/sources/` + license matrix)
+- [x] Source/license metadata (per-source records; exact licenses recorded)
+- [x] Knowledge extraction (one research record per source)
+- [x] Prompt extraction/adaptation (7 native profiles with provenance)
+- [ ] Skill extraction (conventions folded into prompt profiles; no separate
+  skill system yet)
+- [x] Workflow pattern extraction (`seo-research`, `security-audit` templates)
+- [ ] Evaluation pattern extraction (not yet implemented)
+- [x] Security workflow research (Strix find→validate→fix→re-scan→report loop)
+- [x] Research/knowledge workflow research (open-notebook source/citation model)
+- [x] Source attribution (`PromptProfile` provenance fields: source/license/origin)
+- [x] Native MultiAgentCoding implementations (no copied external code)
+- [x] Tests and validation (prompt provenance + template validation tests)
+
+---
+
 ## Backlog / Future
 
 - [ ] Seed real task nodes in `03-Tasks/` and drive them through the Orchestrator end-to-end

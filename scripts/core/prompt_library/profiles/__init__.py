@@ -12,6 +12,7 @@ from . import code_reviewer
 from . import data_engineer
 from . import debugger
 from . import devops_engineer
+from . import external
 from . import orchestrator
 from . import project_manager
 from . import qa_engineer
@@ -37,6 +38,7 @@ MODULES = (
     technical_writer,
     project_manager,
     orchestrator,
+    external,  # cross-role: adapted from external research sources (provenance-tracked)
 )
 
 

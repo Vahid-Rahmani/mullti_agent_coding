@@ -203,5 +203,7 @@ Drop a single-line task into `_inbox/<agent>.task`
 ## Memory
 
 Architecture decisions and lessons learned are appended to `knowledge/adr/` and
-`knowledge/lessons/`. After a milestone, summarize the session, prune stale
-memory, and update these conventions.
+`knowledge/lessons/`. External research sources are registered in
+`knowledge/sources/` (one record per upstream repository, with license and
+provenance). After a milestone, summarize the session, prune stale memory, and
+update these conventions.

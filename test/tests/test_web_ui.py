@@ -385,7 +385,7 @@ class ApiTestCase(VaultTestCase):
     def test_prompts_endpoint_lists_all(self):
         data = self.ctx.get("/api/prompts").json()
         self.assertIn("prompts", data)
-        self.assertEqual(len(data["prompts"]), 42)
+        self.assertEqual(len(data["prompts"]), 49)
         self.assertIn("roles", data)
         # list returns metadata only — never the prompt text
         first = data["prompts"][0]

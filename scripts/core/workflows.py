@@ -651,6 +651,53 @@ def get_template(name: str) -> Workflow | None:
             WorkflowEdge("analyst", "writer"),
         ]
         return _template("Research / Analysis / Writer", nodes, edges)
+    if name == "seo-research":
+        keywords = _node("keyword_research", "ai-agent-engineer", _TEMPLATE_AGENTS[0],
+                         "Keyword Research", x=0.0, y=0.0)
+        clustering = _node("clustering", "python-developer", _TEMPLATE_AGENTS[1],
+                           "Keyword Clustering", x=150.0, y=0.0)
+        competitive = _node("competitive_analysis", "ai-agent-engineer", _TEMPLATE_AGENTS[2],
+                            "Competitive Analysis", x=300.0, y=0.0)
+        content = _node("content_analysis", "code-reviewer", _TEMPLATE_AGENTS[3],
+                        "Content Analysis", x=450.0, y=0.0)
+        audit = _node("seo_audit", "qa-engineer", _TEMPLATE_AGENTS[4], "SEO Audit",
+                      x=600.0, y=0.0)
+        nodes = [keywords, clustering, competitive, content, audit]
+        edges = [
+            WorkflowEdge("keyword_research", "clustering"),
+            WorkflowEdge("clustering", "competitive_analysis"),
+            WorkflowEdge("competitive_analysis", "content_analysis"),
+            WorkflowEdge("content_analysis", "seo_audit"),
+        ]
+        return _template("SEO Research", nodes, edges)
+    if name == "security-audit":
+        analyze = _node("analyze", "security-engineer", _TEMPLATE_AGENTS[0], "Analyze",
+                        x=0.0, y=0.0)
+        scan = _node("scan", "security-engineer", _TEMPLATE_AGENTS[1], "Security Scan",
+                     x=150.0, y=0.0)
+        findings = _node("findings", "security-engineer", _TEMPLATE_AGENTS[2], "Findings",
+                         x=300.0, y=0.0)
+        validate = _node("validate", "security-engineer", _TEMPLATE_AGENTS[3], "Validate",
+                         x=450.0, y=0.0)
+        fix = _node("fix", "python-developer", _TEMPLATE_AGENTS[4], "Fix", x=600.0, y=0.0)
+        rescan = _node("rescan", "security-engineer", _TEMPLATE_AGENTS[5], "Re-scan",
+                       x=750.0, y=0.0)
+        report = _node("report", "code-reviewer", _TEMPLATE_AGENTS[6], "Report",
+                       x=900.0, y=0.0)
+        nodes = [analyze, scan, findings, validate, fix, rescan, report]
+        edges = [
+            WorkflowEdge("analyze", "scan"),
+            WorkflowEdge("scan", "findings"),
+            WorkflowEdge("findings", "validate"),
+            WorkflowEdge("validate", "fix"),
+            WorkflowEdge("fix", "rescan"),
+            WorkflowEdge("rescan", "report", condition="success"),
+            WorkflowEdge("rescan", "fix", condition="failure"),
+        ]
+        wf = _template("Security Audit / Fix / Verify", nodes, edges)
+        wf.entry = ["analyze"]
+        wf.settings["max_iterations"] = 3
+        return wf
     if name == "empty":
         return Workflow(
             id="template-empty", name="Empty Workflow", project="",
@@ -662,7 +709,7 @@ def get_template(name: str) -> Workflow | None:
 def list_templates() -> list[str]:
     return ["sequential", "parallel", "planner-workers-reviewer", "reflection",
             "parallel-specialists", "research-analysis-writer", "supervisor",
-            "router", "hierarchical", "empty"]
+            "router", "hierarchical", "seo-research", "security-audit", "empty"]
 
 
 # ---------------------------------------------------------------- recommendations

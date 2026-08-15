@@ -32,7 +32,7 @@ class TestRegistry(unittest.TestCase):
 
     def test_all_ids_unique(self):
         profiles = P.list_prompts()
-        self.assertEqual(len(profiles), 42, "42 built-in profiles expected")
+        self.assertEqual(len(profiles), 49, "49 built-in profiles expected")
         self.assertEqual(len({p.id for p in profiles}), len(profiles))
 
     def test_every_profile_is_well_formed(self):

@@ -216,10 +216,12 @@ appear in the run snapshot — no credentials are ever serialized into them.
 
 Prompts are not scattered through agent and workflow code. They are reusable
 **prompt profiles** — role-typed, versioned definitions of *what the AI should
-do* (role, category, capabilities, prompt text). The library ships 42 built-in
+do* (role, category, capabilities, prompt text). The library ships 49 built-in
 profiles across 14 roles (software engineer, architect, code reviewer,
 debugger, QA, security, DevOps, cloud, data, AI engineer, researcher,
-technical writer, project manager, orchestrator).
+technical writer, project manager, orchestrator). Profiles adapted from
+external research carry provenance fields (`source`, `license`, `origin`) so
+original and adapted profiles stay distinguishable.
 
 A workflow node keeps its own editable `instructions` and may reference a
 profile by id; the profile is the *source*, the instruction the *editable
@@ -471,6 +473,12 @@ maps file changes to affected vault nodes; `knowledge_sync` checks docs ↔ code
 drift; and `health_check` / `vault_validate` keep the vault schema-valid and
 drift-free.
 
+A separate **external knowledge / reference layer** (`knowledge/sources/`)
+records the upstream repositories researched for MultiAgentCoding — their
+license, purpose, useful patterns, and the integration decision — so adapted
+prompts and workflow templates stay traceable to their source without making
+the runtime depend on any external repository.
+
 ---
 
 ## Human + AI Control Plane
@@ -514,7 +522,7 @@ execution**.
 ## Current Status
 
 Implemented today: identity-only agent roster with runtime models and fallback;
-reusable roles; the prompt library (42 profiles) with task classification and
+reusable roles; the prompt library (49 profiles) with task classification and
 recommendations; the model registry and selection; BYOK connections with a
 secure credential store; the execution planner, executor, and runtime with
 timeouts, cancellation, and bounded retries; the workflow model, validation,
@@ -578,7 +586,7 @@ terminal, BYOK settings, and the agent/role/model decoupling).
 │   │   └── execution/           # schema · planner · executor · runtime · errors
 │   └── ui/                # Terminal UI (palette, rendering, theme)
 ├── workflows/             # Persisted workflow JSON (one file per workflow)
-├── knowledge/             # Project memory (ADRs, lessons, metrics)
+├── knowledge/             # Project memory (ADRs, lessons, metrics, sources/)
 └── obsidian_vault/        # Live vault: 00-System … 06-Testing + prompts + logs
 ```
 
