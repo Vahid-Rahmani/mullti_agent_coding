@@ -15,6 +15,7 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 from urllib.error import HTTPError
 
@@ -279,7 +280,7 @@ class ConnectionTestCase(SettingsBaseTestCase):
         self.assertFalse(res2["ok"])
 
     def test_connection_status_derivation(self):
-        base = dict(repo_root=self.root, auth_store=self.auth_store)
+        base = {"repo_root": self.root, "auth_store": self.auth_store}
         by_id = {c["id"]: c for c in ui_settings.connections(**base)}
         self.assertEqual(by_id["google"]["status"], "not_configured")
         # validation_failed override shows even without a stored key
@@ -574,7 +575,7 @@ class SimpleProviderBlockTestCase(SettingsBaseTestCase):
     baseURL from an old Advanced save) must never survive, Advanced providers
     keep their validation, and no API key ever leaks."""
 
-    POLLUTED = {
+    POLLUTED: ClassVar[dict] = {
         "npm": "@ai-sdk/openai-compatible",
         "name": "google",
         "options": {"baseURL": "ascsdacas"},

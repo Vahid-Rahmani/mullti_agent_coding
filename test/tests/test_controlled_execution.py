@@ -136,7 +136,7 @@ class TestPromptBuild(ControlledExecutionTestCase):
         self.assertIn("Component_RunHub", prompt)  # scope guard
 
     def test_extract_acceptance_criteria(self):
-        fields, body, _raw = orch.read_task(self.task_path)
+        _fields, body, _raw = orch.read_task(self.task_path)
         criteria = orch._extract_acceptance_criteria(body)
         self.assertEqual(len(criteria), 2)
 
@@ -219,7 +219,7 @@ class TestDispatchStatusWriteback(ControlledExecutionTestCase):
 
     def test_mock_flag_end_to_end(self):
         # Real CLI path with the built-in mock agent (no opencode involved).
-        code, out = self.run_dispatch(yes=True, mock=True)
+        code, _out = self.run_dispatch(yes=True, mock=True)
         self.assertEqual(code, 0)
         fields, _b, _r = orch.read_task(self.task_path)
         self.assertEqual(fields["status"], "completed")
@@ -262,10 +262,11 @@ class TestNoDeleteGuarantee(ControlledExecutionTestCase):
             self.assertNotIn(forbidden, src.replace("_release_lock", ""))
 
     def test_scope_drift_detected_and_logged(self):
-        with mock.patch.object(orch, "_git_changed_files", return_value=["scripts/core/real.py"]):
-            with mock.patch.object(orch, "_run_command_capture",
-                                   return_value=PASSING_REPORT):
-                self.run_dispatch(yes=True)
+        with (mock.patch.object(orch, "_git_changed_files",
+                                return_value=["scripts/core/real.py"]),
+              mock.patch.object(orch, "_run_command_capture",
+                                return_value=PASSING_REPORT)):
+            self.run_dispatch(yes=True)
         # Task completed; drift recorded in the execution-log detail.
         fields, body, _raw = orch.read_task(self.task_path)
         self.assertEqual(fields["status"], "completed")

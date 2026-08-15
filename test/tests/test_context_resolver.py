@@ -203,7 +203,6 @@ class TestDeterminism(ResolverTestCase):
 
 class TestCli(ResolverTestCase):
     def test_context_command(self):
-        out = []
         from contextlib import redirect_stdout
         from io import StringIO
         buf = StringIO()

@@ -77,7 +77,7 @@ class TestExecutionRuntime(unittest.TestCase):
         return run_id, runner
 
     def test_start_get_snapshot(self):
-        run_id, runner = self._run_to_finish(make_wf())
+        run_id, _runner = self._run_to_finish(make_wf())
         self.assertTrue(run_id)
         snap = runtime.snapshot(run_id)
         self.assertEqual(snap["workflow_id"], "rt-wf")
@@ -115,21 +115,6 @@ class TestExecutionRuntime(unittest.TestCase):
             self.assertIn("node_execution_id", rec)
             self.assertIn("started_at", rec)
             self.assertIn("finished_at", rec)
-
-    def test_cancel_run(self):
-        wf = make_wf()
-
-        def slow_adapter_factory(resolution=None):  # adapter_for(resolution)
-            class SlowAdapter(FakeAdapter):
-                def execute(self, request, connection, *, timeout=None,
-                            cancel_event=None, execution_id=""):
-                    while not cancel_event.is_set():
-                        time.sleep(0.05)
-                    from scripts.core.execution.errors import AdapterCancelledError
-
-                    raise AdapterCancelledError()
-
-            return SlowAdapter()
 
     def test_cancel_run(self):
         wf = make_wf()

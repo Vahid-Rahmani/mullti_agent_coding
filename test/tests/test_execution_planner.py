@@ -76,7 +76,7 @@ class PlannerTestCase(unittest.TestCase):
         return root
 
     def _node(self, **kw):
-        base = dict(id="n1", label="Dev", agent="matthew", kind="agent")
+        base = {"id": "n1", "label": "Dev", "agent": "matthew", "kind": "agent"}
         base.update(kw)
         return WorkflowNode.from_dict(base)
 

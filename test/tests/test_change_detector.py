@@ -75,7 +75,6 @@ class TestSnapshot(ChangeDetectorTestCase):
             "obsidian_vault/~$Task_A.md": "office lock",
         })
         data = cd.snapshot(vault=self.vault, project_root=self.root)
-        keys = list(data["vault"]) + list(data["project"])
         self.assertIn("01-Architecture/System_Architecture.md", data["vault"])
         self.assertIn("03-Tasks/Task_A.md", data["vault"])
         self.assertIn("scripts/core/run_hub.py", data["project"])
@@ -139,7 +138,6 @@ class TestClassify(ChangeDetectorTestCase):
             "opencode.json": "configuration",
             "launch_agents.bat": "configuration",
             "scripts/run_agent_worker.ps1": "configuration",
-            "scripts/core/run_hub.py": "source code",
         }
         for path, expected in cases.items():
             self.assertEqual(cd.classify(path), expected, path)

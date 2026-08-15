@@ -88,7 +88,7 @@ class ConnectionRegistryTestCase(ConnectionEnvTestCase):
         self.assertFalse(credential_store.has_credential(c.connection_id))
 
     def test_duplicate_connection_id(self):
-        c = create_connection("openai", connection_id="conn_dup", api_key=SECRET)
+        create_connection("openai", connection_id="conn_dup", api_key=SECRET)
         with self.assertRaises(DuplicateConnectionError):
             create_connection("openai", connection_id="conn_dup", api_key=SECRET)
 

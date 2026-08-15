@@ -5,7 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 
 # The module under test lives one directory up (test/), not in test/tests/.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -55,7 +55,7 @@ class TestAddExpense(ExpenseManagerTestCase):
 
     def test_add_expense_default_date_is_today(self):
         record = self.manager.add_expense(500, "آبمیوه")
-        self.assertTrue(record["date"].startswith(datetime.now().strftime("%Y-%m-%d")))
+        self.assertTrue(record["date"].startswith(datetime.now(timezone.utc).strftime("%Y-%m-%d")))
 
     def test_add_expense_invalid_amount_zero(self):
         with self.assertRaises(ValueError):

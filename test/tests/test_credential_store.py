@@ -79,7 +79,7 @@ class CredentialStoreTestCase(unittest.TestCase):
         self.assertNotIn("?key=", out)
 
     def test_safe_error_never_leaks_secret(self):
-        c = create_connection("openai", api_key=SECRET)
+        create_connection("openai", api_key=SECRET)
         try:
             raise RuntimeError(f"boom with {SECRET}")
         except RuntimeError as exc:

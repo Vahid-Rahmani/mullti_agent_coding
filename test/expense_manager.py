@@ -12,7 +12,7 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -75,7 +75,7 @@ class ExpenseManager:
             "amount": amount,
             "description": description.strip(),
             "category": category.strip() if category else "",
-            "date": date if date else datetime.now().isoformat(timespec="seconds"),
+            "date": date if date else datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
         self.expenses.append(record)
         self.save()

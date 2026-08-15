@@ -51,7 +51,7 @@ class WorkflowModelPersistenceTestCase(unittest.TestCase):
         self.assertEqual(n["task"]["category"], "development")
         self.assertEqual(n["model"], "opencode/deepseek-v4-flash-free")
 
-        saved = workflows.save_workflow(wf, self.root)
+        workflows.save_workflow(wf, self.root)
         loaded = workflows.load_workflow("wf", self.root)
         self.assertIsNotNone(loaded)
         ln = loaded.nodes[0]
@@ -61,7 +61,7 @@ class WorkflowModelPersistenceTestCase(unittest.TestCase):
 
     def test_old_workflow_without_model_remains_valid(self):
         wf = self._workflow([node_data()])
-        saved = workflows.save_workflow(wf, self.root)
+        workflows.save_workflow(wf, self.root)
         loaded = workflows.load_workflow("wf", self.root)
         n = loaded.nodes[0]
         self.assertEqual(n.model, "")

@@ -89,7 +89,7 @@ class TestFanIn(unittest.TestCase):
             "entry": ["a"],
         })
         d = FakeDispatch()
-        r = run_sync(wf, d)
+        run_sync(wf, d)
         order = [c[0] for c in d.calls]
         self.assertEqual(order[0], "a")
         self.assertIn("b", order)
@@ -138,7 +138,6 @@ class TestRetryLoop(unittest.TestCase):
 
     def test_loop_exits_on_success(self):
         wf = W.get_template("reflection")
-        d = FakeDispatch({"reviewer": "failure"})
         # first review fails, second passes -> developer re-runs once, then done
         calls = {"n": 0}
 
@@ -191,7 +190,7 @@ class TestModelResolution(unittest.TestCase):
             "entry": ["d1", "d2", "d3"],
         })
         d = FakeDispatch()
-        r = run_sync(wf, d)
+        run_sync(wf, d)
         by_node = {c[0]: c for c in d.calls}
         self.assertEqual(by_node["d1"][2], "google/gemini-2.5-flash")
         self.assertEqual(by_node["d2"][2], "opencode/deepseek-v4-flash-free")

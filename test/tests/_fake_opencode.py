@@ -32,7 +32,8 @@ def main() -> int:
         n = 0
         if os.path.exists(counter):
             try:
-                n = int(open(counter, "r", encoding="utf-8").read().strip() or "0")
+                with open(counter, "r", encoding="utf-8") as f:
+                    n = int(f.read().strip() or "0")
             except (OSError, ValueError):
                 n = 0
         n += 1
