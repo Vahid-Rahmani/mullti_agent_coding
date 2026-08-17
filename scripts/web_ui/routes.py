@@ -1259,10 +1259,10 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
 
     @router.get("/api/workflows/runs/{run_id}")
     async def api_workflow_run_status(run_id: str) -> dict:
-        runner = workflow_engine.get_run(run_id)
-        if runner is None:
+        snap = workflow_engine.snapshot(run_id)
+        if snap is None:
             raise HTTPException(404, f"run not found: {run_id}")
-        return runner.snapshot()
+        return snap
 
     @router.post("/api/workflows/runs/{run_id}/cancel")
     async def api_workflow_run_cancel(run_id: str) -> dict:

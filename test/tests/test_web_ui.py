@@ -175,6 +175,25 @@ class WebStateTestCase(VaultTestCase):
         self.assertEqual(len(sess), 5)
         self.assertEqual(sess[0]["text"], "line 3")
 
+    def test_new_dispatch_batch_preserves_existing_session_history(self):
+        self.hub.events.append({"seq": 1, "tag": "m1", "kind": "line", "text": "before"})
+        self.state.drain()
+        self.hub.running = 1
+        self.hub.events.append({"seq": 2, "tag": "m1", "kind": "line", "text": "during"})
+        self.state.drain()
+        self.assertEqual(
+            [event["text"] for event in self.state.sessions()["m1"]],
+            ["before", "during"],
+        )
+
+    def test_sessions_survive_a_server_state_reconstruction(self):
+        journal = Path(self.tmp.name) / "sessions.json"
+        first = WebState(hub=self.hub, session_tail=5, sessions_path=journal)
+        self.hub.events.append({"seq": 1, "tag": "m1", "kind": "line", "text": "durable"})
+        first.drain()
+        restored = WebState(hub=self.hub, session_tail=5, sessions_path=journal)
+        self.assertEqual(restored.sessions()["m1"][0]["text"], "durable")
+
     def test_prefs_max_six_and_valid_layout(self):
         prefs = self.state.update_prefs({
             "layout": "9",
@@ -1363,7 +1382,8 @@ class UiAssetsTestCase(unittest.TestCase):
 
     def test_agent_event_dedupe_and_tail(self):
         """Live events are de-duplicated by backend seq and capped by tail."""
-        self.assertIn("e.n !== undefined && e.n === ev.n", self.js)
+        self.assertIn("function eventKey(event)", self.js)
+        self.assertIn("eventKey(event) === eventKey(stored)", self.js)
         self.assertIn("const SESSION_TAIL = 800;", self.js)
 
     def test_load_sessions_merges_never_replaces(self):
@@ -1378,13 +1398,11 @@ class UiAssetsTestCase(unittest.TestCase):
         self.assertIn("window.MACApp", self.js)
 
     def test_backend_restart_detection(self):
-        """A backend restart resets WebState's "n" sequence; the frontend must
-        detect the regression and clear the stale session mirror so the n-dedup
-        never swallows the new process's output."""
+        """A backend restart opens a sequence epoch without clearing history."""
         js = self.js
         self.assertIn("let lastBackendN = 0;", js)
         self.assertIn("function checkBackendRestart(snapN)", js)
-        self.assertIn("Ag.sessions = {};", js)
+        self.assertIn("Ag.backendEpoch += 1;", js)
         # pollState drives the detection on every /api/state poll
         self.assertIn("checkBackendRestart(snap.n)", js)
 

@@ -96,6 +96,8 @@
   const HOME_ZOOM_MIN = 0.5, HOME_ZOOM_MAX = 1.5;
   const HOME_LAYOUT_KEY = "zova-home-layouts";
   const HOME_MODE_KEY = "zova-home-mode";
+  const HOME_NODE_SESSIONS_KEY = "zova-home-node-sessions";
+  const HOME_AGENT_SESSIONS_KEY = "zova-home-agent-sessions";
 
   // Panel-sizing policy, centralized in CSS variables (--home-panel-*) so the
   // whole dashboard shares one readable size spec. cssSize reads them at render
@@ -125,6 +127,7 @@
   const Ag = {
     agents: [],                 // roster from /api/agents
     sessions: {},               // tag -> [{kind,text,n}]
+    backendEpoch: 0,            // increments when backend event sequence restarts
     prefs: { layout: "4", agents_visible: [], active_tag: null, selected_node: null },
     graph: { nodes: [], edges: [] },
     view: { nodes: [], edges: [] },   // current filtered/laid-out graph
@@ -143,6 +146,7 @@
     homeEdges: [],             // [{source,target,condition}]
     homeSignature: "",         // signature of the projected graph (reconcile on change)
     nodeSessions: {},          // workflowNodeId -> [{kind,text,n}] (per-node, independent)
+    nodeSessionsWorkflowId: null,
     runStatuses: {},           // workflowNodeId -> run status (empty when idle)
     runEmitted: {},            // runId -> {nodeId: true} (already-replayed outputs)
     activeRunId: null,         // workflow run currently streaming into Home
@@ -288,6 +292,7 @@
       const ev = { kind: "usermsg", text: text, tag: tag };
       const sess = (Ag.sessions[tag] = Ag.sessions[tag] || []);
       sess.push(ev);
+      saveStoredAgentSessions();
       const card = panelEl(tag);
       if (card) appendEv(card.querySelector(".p-console"), ev);
     }
@@ -534,16 +539,20 @@
   function workflowLayout(nodes, avail, S) {
     const positions = new Map(), sizes = new Map();
     if (!nodes.length) return { positions, sizes };
-    const xs = nodes.map((n) => n.x || 0), ys = nodes.map((n) => n.y || 0);
-    const minX = Math.min(...xs), maxX = Math.max(...xs);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const spanX = Math.max(1, maxX - minX), spanY = Math.max(1, maxY - minY);
-    const scale = Math.min(1, avail.w / spanX, avail.h / spanY);
-    const ox = HOME_PAD + (avail.w - spanX * scale) / 2;
-    const oy = HOME_PAD + (avail.h - spanY * scale) / 2;
+    // Canvas coordinates are designed for compact nodes.  Home panels are
+    // deliberately larger, so preserving raw distances made panels overlap
+    // and partially start outside the scrollable workspace.  Coordinate lanes
+    // retain the graph's relative ordering while guaranteeing panel spacing.
+    const lanes = (values, size) => {
+      const unique = Array.from(new Set(values.map((value) => Number(value) || 0))).sort((a, b) => a - b);
+      return new Map(unique.map((value, index) =>
+        [value, HOME_PAD + size / 2 + index * (size + HOME_GAP)]));
+    };
+    const xLanes = lanes(nodes.map((n) => n.x), S.minW);
+    const yLanes = lanes(nodes.map((n) => n.y), S.minH);
     nodes.forEach((n) => {
-      positions.set(n.id, { x: ox + ((n.x || 0) - minX) * scale, y: oy + ((n.y || 0) - minY) * scale });
-      sizes.set(n.id, { w: S.minW, h: S.minH });   // sensible readable default
+      positions.set(n.id, { x: xLanes.get(Number(n.x) || 0), y: yLanes.get(Number(n.y) || 0) });
+      sizes.set(n.id, { w: S.minW, h: S.minH });
     });
     return { positions, sizes };
   }
@@ -746,9 +755,10 @@
       const seen = new Set();
       const merged = [];
       for (const ev of nodeSess.concat(agentSess)) {
-        if (ev.n !== undefined) {
-          if (seen.has(ev.n)) continue;
-          seen.add(ev.n);
+        const key = eventKey(ev);
+        if (key) {
+          if (seen.has(key)) continue;
+          seen.add(key);
         }
         merged.push(ev);
       }
@@ -974,6 +984,42 @@
   }
   function commitCustomLayout() { saveHomeLayouts(); }
 
+  function loadStoredNodeSessions(workflowId) {
+    if (!workflowId) return {};
+    try {
+      const all = JSON.parse(window.sessionStorage.getItem(HOME_NODE_SESSIONS_KEY) || "{}");
+      return all && typeof all[workflowId] === "object" ? all[workflowId] : {};
+    } catch (_) { return {}; }
+  }
+  function saveStoredNodeSessions() {
+    const workflowId = Ag.nodeSessionsWorkflowId || currentWorkflowId();
+    if (!workflowId) return;
+    try {
+      const all = JSON.parse(window.sessionStorage.getItem(HOME_NODE_SESSIONS_KEY) || "{}");
+      all[workflowId] = Ag.nodeSessions || {};
+      window.sessionStorage.setItem(HOME_NODE_SESSIONS_KEY, JSON.stringify(all));
+    } catch (_) { /* unavailable/private storage */ }
+  }
+  function reconcileNodeSessions(workflowId) {
+    if (Ag.nodeSessionsWorkflowId === workflowId) return;
+    saveStoredNodeSessions();
+    Ag.nodeSessions = loadStoredNodeSessions(workflowId);
+    Ag.nodeSessionsWorkflowId = workflowId || null;
+  }
+  function loadStoredAgentSessions() {
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem(HOME_AGENT_SESSIONS_KEY) || "{}");
+      Ag.sessions = saved && typeof saved === "object" ? saved : {};
+    } catch (_) { Ag.sessions = {}; }
+  }
+  function saveStoredAgentSessions() {
+    try { window.sessionStorage.setItem(HOME_AGENT_SESSIONS_KEY, JSON.stringify(Ag.sessions || {})); }
+    catch (_) { /* unavailable/private storage */ }
+  }
+  function eventKey(event) {
+    return event && event.n !== undefined ? `${event._epoch || 0}:${event.n}` : "";
+  }
+
   function bringToFront(card) {
     // stay above the edge SVG (z-index 1) and sibling panels (z-index 2)
     card.style.zIndex = ++Ag.homeZTop + 2;
@@ -1006,9 +1052,15 @@
         card.classList.add("dragging");
         const sx = ev.clientX, sy = ev.clientY;
         const startX = parseFloat(card.style.left), startY = parseFloat(card.style.top);
+        let lastX = sx, lastY = sy;
         const move = (e) => {
           const dx = e.clientX - sx, dy = e.clientY - sy;
-          if (dir) resizeNodeDelta(nodeId, dir, dx, dy);
+          if (dir) {
+            // resizeNodeDelta is incremental. Supplying a total delta here
+            // compounded the same pointer distance on every move event.
+            resizeNodeDelta(nodeId, dir, e.clientX - lastX, e.clientY - lastY);
+            lastX = e.clientX; lastY = e.clientY;
+          }
           else moveNode(nodeId, startX + dx, startY + dy);
         };
         const up = () => {
@@ -1083,6 +1135,7 @@
     const sess = (Ag.nodeSessions[nodeId] = Ag.nodeSessions[nodeId] || []);
     sess.push(ev);
     if (sess.length > 400) sess.splice(0, sess.length - 400);
+    saveStoredNodeSessions();
     const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
     if (card && PANEL_KINDS.includes(ev.kind)) {
       appendEv(card.querySelector(".p-console"), ev);
@@ -1142,11 +1195,13 @@
     //    its panel is not currently rendered. Ag.sessions[tag] is the single
     //    source of truth for workspace rebuilds; events are kept in arrival
     //    order and de-duplicated against the init snapshot by backend seq "n".
+    const stored = Object.assign({}, ev, { _epoch: Ag.backendEpoch });
     const sess = (Ag.sessions[tag] = Ag.sessions[tag] || []);
-    const seen = sess.some((e) => e.n !== undefined && e.n === ev.n);
+    const seen = sess.some((event) => eventKey(event) && eventKey(event) === eventKey(stored));
     if (!seen) {
-      sess.push(ev);
+      sess.push(stored);
       if (sess.length > SESSION_TAIL) sess.splice(0, sess.length - SESSION_TAIL);
+      saveStoredAgentSessions();
     }
     // 2) Render immediately when a panel exists; otherwise the event stays in
     //    Ag.sessions[tag] and is rendered when the agent becomes visible.
@@ -1164,7 +1219,7 @@
     if (PANEL_KINDS.includes(ev.kind) && !seen) {
       // skip the append when this event was already replayed from the init
       // snapshot — session and DOM must not disagree on page-load-during-run
-      appendEv(card.querySelector(".p-console"), ev);
+      appendEv(card.querySelector(".p-console"), stored);
     }
   }
 
@@ -2388,9 +2443,11 @@
   function checkBackendRestart(snapN) {
     if (snapN === undefined) return false;
     if (snapN < lastBackendN) {
-      // backend restarted — its own _sessions were reset too, so drop the mirror
-      Ag.sessions = {};
+      // Preserve browser-cached history. A new epoch prevents fresh backend
+      // sequence ids from colliding with the earlier process during dedupe.
+      Ag.backendEpoch += 1;
       lastBackendN = snapN;
+      saveStoredAgentSessions();
       buildWorkspace();
       return true;
     }
@@ -2403,7 +2460,7 @@
       const snap = await api("/api/state");
       // Restart detection runs on the 3s poll cadence, so output that arrives
       // within the first ~3s after a restart is the only theoretical window;
-      // real opencode output lands seconds later, always after the clear.
+      // real opencode output lands seconds later, after the new epoch begins.
       checkBackendRestart(snap.n);
       Ag.agents.forEach((a) => {
         const st = snap.statuses[a.tag]; const prog = snap.progress[a.tag];
@@ -2463,6 +2520,15 @@
     let data = null;
     try { data = await api("/api/active-workflow"); } catch (_) { return; }
     const wf = data && data.workflow;
+    // A page navigation/reload must reattach to a server-owned active run.
+    // This is intentionally read-only: changing the graph never cancels it.
+    if (wf && !Ag.activeRunId) {
+      try {
+        const runs = await api(`/api/workflows/${encodeURIComponent(wf.id)}/runs`);
+        const active = (runs.runs || []).find((run) => !run.finished);
+        if (active) Ag.activeRunId = active.run_id;
+      } catch (_) { /* a transient run-list failure is harmless */ }
+    }
     const sig = homeSignatureOf(wf);
     if (sig === Ag.homeSignature) return;
     Ag.homeSignature = sig;
@@ -2470,10 +2536,13 @@
       // An active workflow is projected even when it has zero agent nodes;
       // only ``workflow: null`` (no active id / missing file) is "inactive".
       Ag.homeWorkflow = wf;
+      reconcileNodeSessions(wf.id);
       Ag.homeNodes = (wf.nodes || []).filter((n) => n.kind === "agent");
       Ag.homeEdges = wf.edges || [];
     } else {
+      saveStoredNodeSessions();
       Ag.homeWorkflow = null; Ag.homeNodes = []; Ag.homeEdges = [];
+      Ag.nodeSessions = {}; Ag.nodeSessionsWorkflowId = null;
     }
     buildWorkspace();
     buildDispatchTarget();
@@ -2507,16 +2576,19 @@
       // keeps per-tag order intact while preserving all received output.
       for (const tag of Object.keys(incoming)) {
         const cur = Ag.sessions[tag] || [];
-        const have = new Set(cur.filter((e) => e.n !== undefined).map((e) => e.n));
+        const have = new Set(cur.map(eventKey).filter(Boolean));
         const merged = cur.slice();
-        for (const e of incoming[tag]) {
-          if (e.n !== undefined && have.has(e.n)) continue;
-          merged.push(e);
-          if (e.n !== undefined) have.add(e.n);
+        for (const event of incoming[tag]) {
+          const stored = Object.assign({}, event, { _epoch: Ag.backendEpoch });
+          const key = eventKey(stored);
+          if (key && have.has(key)) continue;
+          merged.push(stored);
+          if (key) have.add(key);
         }
         if (merged.length > SESSION_TAIL) merged.splice(0, merged.length - SESSION_TAIL);
         Ag.sessions[tag] = merged;
       }
+      saveStoredAgentSessions();
       // rebuild any panels to replay history (current sessions, not a snapshot)
       buildWorkspace();
       // watermark the backend event sequence so pollState can detect a backend
@@ -2549,6 +2621,7 @@
   /* ─────────────────────── init ──────────────────────────────── */
   function init() {
     loadHomeLayouts();
+    loadStoredAgentSessions();
     bindLayout();
     bindHomeLayout();
     bindAgentsPop();
@@ -2606,6 +2679,8 @@
                     computeLayout, currentHomeLayout, workflowOrder, buildWorkspace,
                     switchToCustom, clampToWorkspace, bindPanelInteractions,
                     bringToFront, commitCustomLayout,
+                    loadStoredNodeSessions, saveStoredNodeSessions, reconcileNodeSessions,
+                    loadStoredAgentSessions, saveStoredAgentSessions, eventKey,
                     toggleBottomDock, setBottomMinimized, loadBottomDockState,
                     dispatchTargetNodes, renderUserMessage, markNodesWorking,
                     setPanelRunStatus, RESIZE_DIRS, RESIZE_EDGES, avatarColor,

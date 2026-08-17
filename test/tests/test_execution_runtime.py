@@ -9,9 +9,11 @@ patched fake adapter (no subprocess, no real model call).
 
 import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -54,11 +56,15 @@ class FakeAdapter:
 
 class TestExecutionRuntime(unittest.TestCase):
     def setUp(self):
-        self.tmp = None
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store_path = runtime._STORE_PATH
+        runtime.configure_store(Path(self.tmp.name) / "workflow_runs.json")
         runtime.clear_runs()
 
     def tearDown(self):
         runtime.clear_runs()
+        runtime.configure_store(self.store_path)
+        self.tmp.cleanup()
 
     def _run_to_finish(self, wf):
         """Start a run with the fake adapter patched and wait for completion.
@@ -155,6 +161,16 @@ class TestExecutionRuntime(unittest.TestCase):
                 time.sleep(0.01)
         snaps = runtime.list_runs()
         self.assertTrue(any(s["run_id"] == run_id for s in snaps))
+
+    def test_completed_run_is_available_from_durable_journal(self):
+        run_id, _ = self._run_to_finish(make_wf())
+        # Simulate a fresh server registry reading the same runtime journal.
+        runtime._RUNS.clear()
+        runtime._load_archive()
+        restored = runtime.snapshot(run_id)
+        self.assertIsNotNone(restored)
+        self.assertTrue(restored["finished"])
+        self.assertEqual(restored["outputs"]["n1"], "out-n1")
 
 
 class TestWorkflowEngineDelegates(unittest.TestCase):

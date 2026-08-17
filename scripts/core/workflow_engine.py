@@ -248,6 +248,9 @@ class WorkflowRunner:
                 self.record_event("workflow_completed", status="completed")
             with self.lock:
                 self.finished = True
+            callback = getattr(self, "on_finished", None)
+            if callable(callback):
+                callback()
 
     def _run_inner(self, initial_state: dict | None) -> None:
         self.state = dict(self.workflow.state)
@@ -389,6 +392,11 @@ def cancel_run(run_id: str) -> bool:
 def list_runs() -> list[dict]:
     """Snapshots of every registered run."""
     return _execution_runtime.list_runs()
+
+
+def snapshot(run_id: str) -> dict | None:
+    """Return a live or journaled run snapshot for dashboard reconnects."""
+    return _execution_runtime.snapshot(run_id)
 
 
 if __name__ == "__main__":  # pragma: no cover — manual smoke only

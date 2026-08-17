@@ -23,6 +23,7 @@ from scripts.core.run_hub import HUB
 
 _REPO_ROOT = PROJECT_ROOT
 PREFS_PATH = Path("_logs") / "web_ui_prefs.json"
+SESSIONS_PATH = Path("_logs") / "web_ui_sessions.json"
 
 SESSION_TAIL = 800          # max events retained per agent session
 AGENT_TAGS = tuple(tag for tag, _name, _agent in AGENTS)
@@ -50,7 +51,8 @@ _TASKLINE_KINDS = {"taskline", "usermsg"}
 class WebState:
     """Flattens HUB + dashboard events into one ordered, drainable stream."""
 
-    def __init__(self, hub: object = HUB, session_tail: int = SESSION_TAIL) -> None:
+    def __init__(self, hub: object = HUB, session_tail: int = SESSION_TAIL,
+                 sessions_path: Path | None = None) -> None:
         self.hub = hub
         self.lock = threading.Lock()
         self.session_tail = session_tail
@@ -62,18 +64,25 @@ class WebState:
         self._sessions: dict[str, list[dict]] = {}
         self._prev_running = 0
         self._task_procs: dict[str, subprocess.Popen] = {}
+        # Fake hubs used by tests/embedders must not inherit a real operator's
+        # dashboard history. The live dashboard always uses the shared HUB.
+        self._sessions_path = sessions_path if sessions_path is not None else (
+            _REPO_ROOT / SESSIONS_PATH if hub is HUB else None)
+        self._prefs_path = _REPO_ROOT / PREFS_PATH if hub is HUB else None
 
         self.prefs: dict = dict(DEFAULT_PREFS)
         self.load_prefs()
+        self.load_sessions()
 
     # ------------------------------------------------------------ pref helpers
 
     def load_prefs(self) -> None:
         """Restore persisted UI preferences (best-effort, never raises)."""
+        if self._prefs_path is None:
+            return
         try:
-            path = _REPO_ROOT / PREFS_PATH
-            if path.is_file():
-                data = json.loads(path.read_text(encoding="utf-8"))
+            if self._prefs_path.is_file():
+                data = json.loads(self._prefs_path.read_text(encoding="utf-8"))
                 for key in DEFAULT_PREFS:
                     if key in data and data[key] is not None:
                         self.prefs[key] = data[key]
@@ -108,10 +117,11 @@ class WebState:
             awid if isinstance(awid, str) and awid.strip() else None)
 
     def save_prefs(self) -> None:
+        if self._prefs_path is None:
+            return
         try:
-            path = _REPO_ROOT / PREFS_PATH
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(self.prefs, indent=2), encoding="utf-8")
+            self._prefs_path.parent.mkdir(parents=True, exist_ok=True)
+            self._prefs_path.write_text(json.dumps(self.prefs, indent=2), encoding="utf-8")
         except OSError:
             pass
 
@@ -123,6 +133,36 @@ class WebState:
             self._sanitize_prefs()
         self.save_prefs()
         return dict(self.prefs)
+
+    # ---------------------------------------------------------- session journal
+
+    def load_sessions(self) -> None:
+        """Restore bounded panel history after a dashboard-server restart."""
+        if self._sessions_path is None:
+            return
+        try:
+            raw = json.loads(self._sessions_path.read_text(encoding="utf-8"))
+            rows = raw.get("sessions", {}) if isinstance(raw, dict) else {}
+            if isinstance(rows, dict):
+                self._sessions = {
+                    str(tag): [dict(event) for event in events[-self.session_tail:]
+                               if isinstance(event, dict)]
+                    for tag, events in rows.items() if isinstance(events, list)
+                }
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def _save_sessions(self) -> None:
+        if self._sessions_path is None:
+            return
+        try:
+            self._sessions_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self._sessions_path.with_suffix(".tmp")
+            temp.write_text(json.dumps({"version": 1, "sessions": self._sessions},
+                                       indent=2) + "\n", encoding="utf-8")
+            temp.replace(self._sessions_path)
+        except OSError:
+            pass
 
     # ------------------------------------------------------------ own events
 
@@ -188,8 +228,9 @@ class WebState:
                 out.append(self._own_events[self._own_cursor])
                 self._own_cursor += 1
 
-            if hub_running > 0 and self._prev_running == 0:
-                self._sessions = {}  # new dispatch batch → fresh conversations
+            # A new dispatch batch must not erase prior panel history. Session
+            # tails are bounded below, so preserve the conversation until the
+            # configured retention limit is reached.
             self._prev_running = hub_running
 
             for e in out:
@@ -199,6 +240,8 @@ class WebState:
                     bucket.append(e)
                     if len(bucket) > self.session_tail:
                         del bucket[: len(bucket) - self.session_tail]
+            if out:
+                self._save_sessions()
         return out
 
     # ------------------------------------------------------------ snapshots
