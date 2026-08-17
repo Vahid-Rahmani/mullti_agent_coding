@@ -55,6 +55,31 @@ def save_overrides(data: dict[str, Any], root: Path | None = None) -> Path:
     return path
 
 
+def migrate_agent_context(root: Path | None = None) -> dict[str, list[str]]:
+    """Copy legacy agent_context assignments into curated overrides, never delete it."""
+    base = Path(root) if root is not None else PROJECT_ROOT
+    source = base / "agent_context.json"
+    if not source.is_file():
+        return {}
+    try:
+        legacy = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise OverrideError("agent_context.json is not valid JSON") from exc
+    overrides = load_overrides(base)
+    assignments = overrides.setdefault("agent_assignment_overrides", {})
+    skills = legacy.get("skill_assignments", {}) if isinstance(legacy, dict) else {}
+    prompts = legacy.get("prompt_assignments", {}) if isinstance(legacy, dict) else {}
+    migrated = {}
+    for agent in sorted(set(skills) | set(prompts)):
+        if agent in assignments:
+            continue
+        assignments[agent] = {"skill_ids": list(skills.get(agent, [])), "prompt_profile_ids": list(prompts.get(agent, []))}
+        migrated[agent] = ["skills", "prompts"]
+    if migrated:
+        save_overrides(overrides, base)
+    return migrated
+
+
 def validate_overrides(taxonomy: dict[str, Any], overrides: dict[str, Any]) -> None:
     capabilities = {item["id"] for item in taxonomy["capabilities"]}
     roles = set(taxonomy["role_edges"])
@@ -76,3 +101,12 @@ def validate_overrides(taxonomy: dict[str, Any], overrides: dict[str, Any]) -> N
         for capability in values.get("capabilities", []):
             if capability not in capabilities:
                 raise OverrideError(f"orphaned capability reference: {capability}")
+    prompt_profiles = set(taxonomy.get("prompt_edges", {}))
+    for agent, values in overrides.get("agent_assignment_overrides", {}).items():
+        if not isinstance(values, dict):
+            raise OverrideError(f"invalid agent assignment override: {agent}")
+        for key, known in (("capability_ids", capabilities), ("role_ids", roles),
+                           ("skill_ids", skills), ("prompt_profile_ids", prompt_profiles)):
+            for reference in values.get(key, []):
+                if reference not in known:
+                    raise OverrideError(f"orphaned {key} reference: {reference}")

@@ -39,6 +39,7 @@ flowchart TD
     CONTEXT["[E] Component_ContextResolver"]
     CHANGES["[E] Component_ChangeDetector"]
     SYNC["[E] Component_KnowledgeSync"]
+    TAX["[E] Repository Taxonomy"]
     AGENTS["Agents (M1-M7)"]
     TASKS["03-Tasks"]
     TESTS["06-Testing"]
@@ -55,6 +56,7 @@ flowchart TD
     CORE --> CONTEXT
     CORE --> CHANGES
     CORE --> SYNC
+    CORE --> TAX
     CORE --> AGENTS
     CORE --> TASKS
     CORE --> TESTS
@@ -75,6 +77,7 @@ flowchart TD
 | [E] | [[Component_ContextResolver]] | `scripts/core/context_resolver.py` | Deterministic bounded linked-context packages for tasks |
 | [E] | [[Component_ChangeDetector]] | `scripts/core/change_detector.py` | Detection-only snapshots, classification, and impact mapping |
 | [E] | [[Component_KnowledgeSync]] | `scripts/core/knowledge_sync.py` | Dry-run-first documentation/code reconciliation and conflict reporting |
+| [E] | Repository taxonomy | `scripts/core/taxonomy/`, `knowledge/taxonomy/` | Evidence/capability graph, effective overrides, coverage, catalog, API/UI |
 
 ## Agents
 

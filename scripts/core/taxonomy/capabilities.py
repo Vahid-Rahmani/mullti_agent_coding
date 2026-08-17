@@ -1,9 +1,11 @@
 """First-class capability records and provenance validation."""
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
-from .evidence import Repository
+from .evidence import Evidence, Repository
 
 
 @dataclass(frozen=True)
@@ -52,3 +54,31 @@ def capabilities_from_repositories(repositories: tuple[Repository, ...] | list[R
         result.append(Capability(capability_id, name, f"Capability evidenced by repository research: {name.lower()}.", tuple(sorted(record["domains"])), tuple(sorted(record["evidence"])), tuple(sorted(record["repos"])), "source-derived", "aggregated"))
     validate_capabilities(result)
     return tuple(result)
+
+
+def load_internal_capabilities(root: Path) -> tuple[Capability, ...]:
+    """Load original/internal capability evidence without external provenance."""
+    data = json.loads((root / "knowledge" / "taxonomy" / "internal_capabilities.json").read_text(encoding="utf-8"))
+    capabilities = tuple(Capability(item["id"], item["name"], item["description"], tuple(item["domains"]), tuple(item["evidence"]), tuple(item["source_repos"]), item["origin"], item["license"]) for item in data)
+    validate_capabilities(capabilities)
+    return capabilities
+
+
+def internal_evidence_from_capabilities(
+        capabilities: tuple[Capability, ...]) -> tuple[Evidence, ...]:
+    """Materialize original/internal evidence records referenced by capabilities."""
+    grouped: dict[str, list[str]] = {}
+    for capability in capabilities:
+        for evidence_id in capability.evidence:
+            grouped.setdefault(evidence_id, []).append(capability.id)
+    return tuple(
+        Evidence(
+            id=evidence_id,
+            repository="internal",
+            kind="architecture",
+            summary="Original MultiAgentCoding capability declaration.",
+            supports=tuple(sorted(capability_ids)),
+            confidence="direct",
+        )
+        for evidence_id, capability_ids in sorted(grouped.items())
+    )

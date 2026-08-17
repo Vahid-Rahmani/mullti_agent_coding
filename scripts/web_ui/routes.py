@@ -50,7 +50,12 @@ from scripts.core.run_hub import HUB
 from scripts.core.taxonomy.build import write_taxonomy
 from scripts.core.taxonomy.coverage import runtime_agent_keys
 from scripts.core.taxonomy.effective import load_effective
-from scripts.core.taxonomy.overrides import load_overrides, overrides_path
+from scripts.core.taxonomy.integrity import taxonomy_integrity
+from scripts.core.taxonomy.overrides import (
+    load_overrides,
+    migrate_agent_context,
+    overrides_path,
+)
 from scripts.core.vault_bridge import (
     VALID_STATUSES,
     VaultError,
@@ -281,6 +286,7 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
             "overrides": {"path": str(overrides_path(_REPO_ROOT)), "exists": overrides_path(_REPO_ROOT).is_file(), "agent_assignment_count": len(load_overrides(_REPO_ROOT).get("agent_assignment_overrides", {}))},
             "counts": {"repositories": len(taxonomy["repositories"]), "evidence": len(taxonomy["evidence"]), "capabilities": len(taxonomy["capabilities"]), "categories": len(taxonomy["categories"]), "registered_agents": len(runtime_agent_keys())},
             "coverage": {"covered_agents": len(taxonomy["agent_assignments"]) - len(coverage["uncovered_agents"]), "uncovered_agents": coverage["uncovered_agents"], "uncovered_capabilities": coverage["uncovered_capabilities"], "assignment_sources": sources, "assignment_source_counts": {kind: list(sources.values()).count(kind) for kind in sorted(set(sources.values()))}},
+            "integrity": taxonomy_integrity(_REPO_ROOT),
         }
 
     # ---- live state -------------------------------------------------------
@@ -335,8 +341,9 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
     @router.post("/api/taxonomy/rebuild")
     async def api_taxonomy_rebuild() -> dict:
         try:
+            migrated = migrate_agent_context(_REPO_ROOT)
             artifact = write_taxonomy(_REPO_ROOT)
-            return {"ok": True, "artifact": str(artifact), "status": taxonomy_status()}
+            return {"ok": True, "artifact": str(artifact), "migrated_agent_context": migrated, "status": taxonomy_status()}
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise HTTPException(500, f"taxonomy rebuild failed: {exc}") from exc
 

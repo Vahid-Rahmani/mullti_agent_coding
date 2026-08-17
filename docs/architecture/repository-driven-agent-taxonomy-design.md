@@ -1,9 +1,10 @@
 # Repository-Driven, Capability-Driven Agent Taxonomy — Design
 
-**Status.** DESIGN ONLY. No source code, `roles.json`, `agent_catalog.py`,
-`runtime_context.py`, `skills.py`, `prompt_library`, or frontend files are
-modified by this document. It defines the architecture that will **replace**
-the current hard-coded taxonomy.
+**Status.** IMPLEMENTED through Phases A–H (2026-08-17). This is the design
+record for the implemented repository-driven taxonomy, effective override
+layer, runtime resolution, agent capability matrix, catalog, API/UI, and
+normalization/integrity checks. It is not a proposal to replace a separate
+hard-coded runtime taxonomy.
 
 **Companion document.** This design is the corrective follow-up to
 `docs/architecture/agent-taxonomy-forensic-audit.md`. It answers the same

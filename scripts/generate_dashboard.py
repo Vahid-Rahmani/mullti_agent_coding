@@ -16,6 +16,7 @@ Usage: python scripts/generate_dashboard.py [--vault P] [--check]
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -134,16 +135,16 @@ def _recent_executions() -> str:
     orch = _log_tail(_REPO_ROOT / "_logs" / "orchestrator.log", 5)
     sync = _log_tail(_REPO_ROOT / "_logs" / "sync_log.jsonl", 3)
     lines = ["**Orchestrator log (last 5):**", ""]
-    lines += [f"- `{ln.strip()[:120]}`" for ln in orch] or ["- _(no orchestrator activity yet)_"]
+    lines += [f"- `{ln.strip()[:120]}`" for ln in orch if "\\Temp\\" not in ln] or ["- _(no orchestrator activity yet)_"]
     lines += ["", "**Sync log (last 3):**", ""]
-    lines += [f"- `{ln.strip()[:120]}`" for ln in sync] or ["- _(no sync activity yet)_"]
+    lines += [f"- `{ln.strip()[:120]}`" for ln in sync if "\\Temp\\" not in ln] or ["- _(no sync activity yet)_"]
     return "\n".join(lines)
 
 
 def _recent_changes() -> str:
     changes = _log_tail(_REPO_ROOT / "_logs" / "vault_changes.jsonl", 3)
     lines = ["**Vault changes (last 3):**", ""]
-    lines += [f"- `{ln.strip()[:120]}`" for ln in changes] or ["- _(no recorded vault changes)_"]
+    lines += [f"- `{ln.strip()[:120]}`" for ln in changes if "\\Temp\\" not in ln] or ["- _(no recorded vault changes)_"]
     return "\n".join(lines)
 
 
@@ -164,6 +165,23 @@ def _architecture_status(node_names: set[str]) -> str:
     else:
         lines.append("- **O2 component gaps:** _None — all five nodes are mapped._")
     return "\n".join(lines)
+
+
+def _taxonomy_status() -> str:
+    """Compact status from the generated artifact; no runtime rebuild occurs."""
+    artifact = _REPO_ROOT / "knowledge" / "taxonomy" / "taxonomy.json"
+    try:
+        taxonomy = json.loads(artifact.read_text(encoding="utf-8"))
+        coverage = taxonomy["coverage"]
+        return (
+            f"- **Repository taxonomy:** {len(taxonomy['capabilities'])} capabilities · "
+            f"{len(taxonomy['categories'])} categories · "
+            f"{len(taxonomy['agent_assignments']) - len(coverage['uncovered_agents'])}/"
+            f"{len(taxonomy['agent_assignments'])} agents covered · "
+            "effective overrides available in the Taxonomy UI"
+        )
+    except (OSError, KeyError, TypeError, ValueError):
+        return "- **Repository taxonomy:** artifact unavailable — rebuild it before relying on status."
 
 
 # ---------------------------------------------------------------- build
@@ -192,6 +210,7 @@ def build_generated(vault: Path, node_names: set[str]) -> str:
 ## Architecture Status
 - Map: [[System_Architecture]]
 {_architecture_status(node_names)}
+{_taxonomy_status()}
 
 ## Blocked / Needs Attention
 - _None currently — see [[Task_Backlog]] for full status._

@@ -296,16 +296,13 @@ traceable to their source.
 
 ## Agent Catalog (Categories → Presets → Empty Agent)
 
-**Agent Catalog** (`scripts/core/agent_catalog.py`) is the deterministic
-template layer between the reusable building blocks (Roles / Skills / Prompt
-Profiles) and the 7 runtime agents. A hand-curated `AgentPreset` pins one role,
-ordered skills, and prompt profile(s) under a high-level category (AI
-Engineering, Research, Content/SEO, Software Development, DevOps/Cloud,
-Security, QA/Testing) and references an existing agent key — it is **never**
-synthesized from roles × prompts, so a category always shows exactly its
-registered presets. A special **Empty Agent** (always first, independent of
-every category) declares no role/skills/prompt/model/mode and therefore receives
-only the raw user request. Selecting a preset populates
+**Agent Catalog** (`scripts/core/agent_catalog.py`) is a deterministic view of
+the effective repository taxonomy: evidence → capabilities → agent capability
+matrix → roles/skills/prompt profiles → categories and presets. Curated choices
+are stored as taxonomy overrides, while generated structure is rebuilt from
+the structured taxonomy sources. A special **Empty Agent** (always first,
+independent of every category) declares no role/skills/prompt/model/mode and
+therefore receives only the raw user request. Selecting a preset populates
 `Template → Preset → Model → Mode → Role → Skills → Prompt Profile`
 deterministically; explicit customization still overrides preset defaults, and
 suggestions never modify an explicitly configured agent. The existing 7 agents
@@ -327,9 +324,11 @@ Agent identity → Assigned roles → Skills → Prompt profile / instruction
              → Project context → Workflow context → Task → User request
 ```
 
-Per-agent **skill** and **prompt-profile** assignments persist atomically in
-`agent_context.json` at the repo root (`$ZOVA_AGENT_CONTEXT` overrides),
-assignable via the Settings API (`PUT /api/settings/agents/{agent}/skills|prompts`).
+Per-agent **skill** and **prompt-profile** assignments persist as curated
+taxonomy overrides. Existing `agent_context.json` files remain compatible and
+can be copied into overrides during a controlled taxonomy rebuild; they are
+never silently deleted. Assignments remain editable through the Settings API
+(`PUT /api/settings/agents/{agent}/skills|prompts`).
 Provenance (source/license/origin) is surfaced in the rendered context, and the
 composition is ordered so task/user text can never overwrite system identity.
 An agent with no roles, skills, profiles, or task context receives its raw

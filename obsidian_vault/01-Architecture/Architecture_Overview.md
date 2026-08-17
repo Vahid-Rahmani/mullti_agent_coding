@@ -38,6 +38,7 @@ permanently coupled.
 | Context Resolver | `scripts/core/context_resolver.py` | Deterministic bounded WikiLink context for task dispatch |
 | Change Detector | `scripts/core/change_detector.py` | Detection-only snapshots and component impact mapping |
 | Knowledge Sync | `scripts/core/knowledge_sync.py` | Dry-run-first docs/code reconciliation and conflict reporting |
+| Repository Taxonomy | `scripts/core/taxonomy/`, `knowledge/taxonomy/` | Evidence → capabilities → effective overrides → runtime/catalog/API/UI |
 
 The task [[Component_Orchestrator]] is distinct from the workflow graph
 scheduler: it executes lifecycle-controlled Vault task nodes rather than

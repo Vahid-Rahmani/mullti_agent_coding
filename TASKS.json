@@ -45,6 +45,13 @@
       "description": "Added and indexed active Component_* nodes for orchestrator, vault_bridge, context_resolver, change_detector, and knowledge_sync; reconciled architecture docs and resolved the Dashboard O2 known-gaps list.",
       "priority": "medium",
       "status": "done"
+    },
+    {
+      "id": "T1",
+      "title": "Repository-driven taxonomy migration (Phases A–H)",
+      "description": "Implemented evidence/capability sources, deterministic taxonomy + effective overrides, coverage matrix, runtime/catalog/API/UI integration, normalization, legacy agent_context migration, integrity checks, and documentation reconciliation.",
+      "priority": "high",
+      "status": "done"
     }
   ]
 }

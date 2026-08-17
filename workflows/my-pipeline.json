@@ -1,0 +1,95 @@
+{
+  "id": "my-pipeline",
+  "name": "",
+  "project": "",
+  "nodes": [
+    {
+      "id": "n1",
+      "label": "Chloe",
+      "label_auto": true,
+      "agent": "chloe",
+      "kind": "agent",
+      "model": "opencode/ling-3.0-tiny-free",
+      "connection_id": "",
+      "roles": [
+        "ai-agent-engineer"
+      ],
+      "instructions": "",
+      "prompt_profile": "agent-workflow-planner",
+      "task": {},
+      "skills": [
+        "workflow-planning",
+        "repository-analysis"
+      ],
+      "tools": [],
+      "enabled": true,
+      "x": -1689.4000244140625,
+      "y": -1693.8000183105469
+    },
+    {
+      "id": "n2",
+      "label": "Max",
+      "label_auto": true,
+      "agent": "max",
+      "kind": "agent",
+      "model": "google/gemini-3.1-flash-lite",
+      "connection_id": "",
+      "roles": [
+        "ai-agent-engineer"
+      ],
+      "instructions": "",
+      "prompt_profile": "agent-workflow-planner",
+      "task": {},
+      "skills": [
+        "workflow-planning",
+        "repository-analysis"
+      ],
+      "tools": [],
+      "enabled": true,
+      "x": -1351.4000854492188,
+      "y": -1722.6000061035156
+    },
+    {
+      "id": "n3",
+      "label": "Elena",
+      "label_auto": true,
+      "agent": "elena",
+      "kind": "agent",
+      "model": "opencode/ling-3.0-tiny-free",
+      "connection_id": "",
+      "roles": [
+        "seo-writer"
+      ],
+      "instructions": "",
+      "prompt_profile": "writer-anti-slop",
+      "task": {},
+      "skills": [
+        "structured-research",
+        "anti-slop-refinement",
+        "action-first-communication"
+      ],
+      "tools": [],
+      "enabled": true,
+      "x": -986.60009765625,
+      "y": -1663.3999938964844
+    }
+  ],
+  "edges": [
+    {
+      "source": "n1",
+      "target": "n2",
+      "condition": ""
+    },
+    {
+      "source": "n2",
+      "target": "n3",
+      "condition": ""
+    }
+  ],
+  "entry": [],
+  "state": {},
+  "settings": {
+    "max_iterations": 3
+  },
+  "evaluation": ""
+}

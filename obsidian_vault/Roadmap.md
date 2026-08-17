@@ -127,12 +127,8 @@ one ordered prompt for every execution path.
 - [x] Deterministic composition order documented; task/user text can never
   overwrite system-level identity (identity is rendered first, request last)
 - [x] Provenance preserved (skills/profiles surface source/license/origin)
-- [x] Automatic Role → Skill mapping (`ROLE_SKILL_MAP` in `runtime_context.py`):
-  a role-only agent derives its skills deterministically; explicit assignments
-  always win (priority: explicit arg > agent assignment > role-derived)
-- [x] Automatic Role → Prompt Profile mapping via
-  `prompt_library.suggest_prompts_for_role` (union, deduplicated); explicit
-  agent/node profiles never overridden
+- [x] Role → Skill and Role → Prompt Profile resolution from the effective
+  repository taxonomy (union, deduplicated); explicit agent/node values win
 - [x] `roles.json` gains `researcher`, `seo-researcher`, `seo-writer` so the
   researcher/SEO roles the library already supports are first-class
 - [x] Settings API exposes role-derived vs explicit ids
@@ -143,6 +139,21 @@ one ordered prompt for every execution path.
   profile injection, composition order, empty-agent compatibility, workflow
   skill inheritance, no-secret exposure, automatic role derivation + override +
   multi-role union + unknown/unmapped role) + web UI assignment API tests
+
+---
+
+## Phases A–H — Repository-Driven Taxonomy Migration
+
+- [x] Structured repository evidence, native skill source, declared role
+  relations, and original/internal capability evidence
+- [x] Deterministic generated taxonomy plus durable curated overrides and
+  integrity checks (staleness, references, effective consistency, coverage)
+- [x] Effective taxonomy wired into runtime resolution, all-agent coverage,
+  Agent Catalog, Taxonomy API, and the Dashboard Taxonomy interface
+- [x] Compatibility migration from `agent_context.json` into taxonomy overrides
+  without deleting user data; dispatch never auto-rebuilds taxonomy
+- [x] Documentation/status reconciliation and taxonomy architecture record:
+  `docs/architecture/repository-driven-agent-taxonomy.md`
 
 ---
 

@@ -37,6 +37,7 @@ from pathlib import Path
 from scripts.core import opencode_cfg, prompt_library, roles, skills
 from scripts.core.agents import AGENT_SPEC_BY_AGENT, PROJECT_ROOT
 from scripts.core.taxonomy.effective import load_effective
+from scripts.core.taxonomy.overrides import load_overrides, save_overrides
 
 
 def agent_context_path(repo_root: Path | None = None) -> Path:
@@ -89,7 +90,11 @@ def _known_skill_ids() -> set[str]:
 
 
 def skills_for_agent(agent: str, repo_root: Path | None = None) -> list[str]:
-    """Ordered, validated skill ids assigned to an agent key."""
+    """Read a curated override, falling back to legacy ``agent_context.json``."""
+    override = _taxonomy_assignment(agent, repo_root)
+    if override is not None and "skill_ids" in override:
+        return [skill_id for skill_id in _dedupe(override["skill_ids"])
+                if skill_id in _known_skill_ids()]
     data = load_agent_context(repo_root)
     ids = data["skill_assignments"].get(agent) or []
     known = _known_skill_ids()
@@ -97,7 +102,10 @@ def skills_for_agent(agent: str, repo_root: Path | None = None) -> list[str]:
 
 
 def prompt_profiles_for_agent(agent: str, repo_root: Path | None = None) -> list[str]:
-    """Ordered, deduplicated prompt-profile ids assigned to an agent key."""
+    """Read curated profiles, falling back to legacy agent-context profiles."""
+    override = _taxonomy_assignment(agent, repo_root)
+    if override is not None and "prompt_profile_ids" in override:
+        return _dedupe(override["prompt_profile_ids"])
     data = load_agent_context(repo_root)
     ids = data["prompt_assignments"].get(agent) or []
     return list(dict.fromkeys(ids))
@@ -105,7 +113,7 @@ def prompt_profiles_for_agent(agent: str, repo_root: Path | None = None) -> list
 
 def assign_skills(agent: str, skill_ids: list[str] | tuple[str, ...],
                   repo_root: Path | None = None) -> list[str]:
-    """Set an agent's skill list (ids must exist; order preserved, deduped)."""
+    """Persist an explicit skill assignment in curated taxonomy overrides."""
     known = _known_skill_ids()
     normalized: list[str] = []
     for sid in skill_ids:
@@ -114,15 +122,13 @@ def assign_skills(agent: str, skill_ids: list[str] | tuple[str, ...],
             raise skills.SkillError(f"unknown skill {sid!r}")
         if sid not in normalized:
             normalized.append(sid)
-    data = load_agent_context(repo_root)
-    data["skill_assignments"][agent] = normalized
-    save_agent_context(data, repo_root)
+    _save_taxonomy_assignment(agent, {"skill_ids": normalized}, repo_root)
     return normalized
 
 
 def assign_prompt_profiles(agent: str, profile_ids: list[str] | tuple[str, ...],
                            repo_root: Path | None = None) -> list[str]:
-    """Set an agent's prompt-profile list (ids must exist; order preserved)."""
+    """Persist explicit prompt profiles in curated taxonomy overrides."""
     normalized: list[str] = []
     for pid in profile_ids:
         pid = str(pid).strip()
@@ -132,10 +138,19 @@ def assign_prompt_profiles(agent: str, profile_ids: list[str] | tuple[str, ...],
             raise prompt_library.PromptError(f"unknown prompt profile {pid!r}") from exc
         if pid not in normalized:
             normalized.append(pid)
-    data = load_agent_context(repo_root)
-    data["prompt_assignments"][agent] = normalized
-    save_agent_context(data, repo_root)
+    _save_taxonomy_assignment(agent, {"prompt_profile_ids": normalized}, repo_root)
     return normalized
+
+
+def _save_taxonomy_assignment(
+        agent: str, changes: dict[str, list[str]], repo_root: Path | None) -> None:
+    """Update one curated assignment without rewriting generated taxonomy."""
+    base = _assignment_root(repo_root)
+    overrides = load_overrides(base)
+    assignments = overrides.setdefault("agent_assignment_overrides", {})
+    assignment = assignments.setdefault(agent, {})
+    assignment.update(changes)
+    save_overrides(overrides, base)
 
 
 # ---------------------------------------------------------------- rendering
@@ -207,32 +222,6 @@ def _dedupe(ids: list[str] | tuple[str, ...] | None) -> list[str]:
 
 # ---------------------------------------------------------------- role mapping
 
-# Deterministic role id -> ordered skill ids. This is the automatic fallback
-# used ONLY when no explicit skills are assigned (agent_context.json, a
-# workflow node, or an explicit runtime argument). Skill ids are validated at
-# import; the union across multiple roles is order-preserving and deduplicated.
-ROLE_SKILL_MAP: dict[str, tuple[str, ...]] = {
-    "researcher": ("structured-research", "source-verification"),
-    "seo-researcher": ("structured-research", "source-verification",
-                       "anti-slop-refinement"),
-    "seo-writer": ("structured-research", "anti-slop-refinement",
-                   "action-first-communication"),
-    "security-engineer": ("security-reconnaissance", "security-validation"),
-    "software-engineer": ("repository-analysis", "fix-verify-loop"),
-    "python-developer": ("repository-analysis", "fix-verify-loop"),
-    "fastapi-developer": ("repository-analysis", "fix-verify-loop"),
-    "software-architect": ("repository-analysis", "workflow-planning"),
-    "code-reviewer": ("repository-analysis", "anti-slop-refinement"),
-    "qa-engineer": ("repository-analysis", "fix-verify-loop"),
-    "devops-engineer": ("repository-analysis", "workflow-planning"),
-    "ai-agent-engineer": ("workflow-planning", "repository-analysis"),
-    "ai-llm-engineer": ("repository-analysis", "workflow-planning"),
-    "technical-writer": ("anti-slop-refinement", "action-first-communication"),
-    "knowledge-engineer": ("knowledge-extraction", "structured-research",
-                           "source-verification"),
-}
-
-
 def skills_for_roles(role_ids: list[str] | tuple[str, ...] | None,
                      repo_root: Path | None = None) -> list[str]:
     """Union of skill ids mapped from a set of roles.
@@ -295,17 +284,17 @@ def role_derived_profile_ids_for_agent(agent: str,
 
 def _resolved_role_ids(agent: str, repo_root: Path | None) -> list[str]:
     """Explicit role assignments win; otherwise use the effective matrix."""
+    direct = _taxonomy_assignment(agent, repo_root)
+    if direct is not None and "role_ids" in direct:
+        return _dedupe(direct["role_ids"])
+    explicit = roles.roles_for_agent(agent, repo_root)
+    if explicit:
+        return explicit
     try:
         taxonomy = load_effective(repo_root)
     except (FileNotFoundError, ValueError, OSError):
         taxonomy = load_effective(PROJECT_ROOT)
-    assignment = taxonomy.get("agent_assignments", {}).get(agent, {})
-    if taxonomy.get("coverage", {}).get("assignment_sources", {}).get(agent) == "override":
-        return _dedupe(assignment.get("role_ids", []))
-    explicit = roles.roles_for_agent(agent, repo_root)
-    if explicit:
-        return explicit
-    return _dedupe(assignment.get("role_ids", []))
+    return _dedupe(taxonomy.get("agent_assignments", {}).get(agent, {}).get("role_ids", []))
 
 
 def _resolve_skills(agent: str,
@@ -315,6 +304,9 @@ def _resolve_skills(agent: str,
     """Effective skills: explicit arg > explicit agent assignment > role-derived."""
     if skill_ids is not None:
         return _dedupe(skill_ids)
+    override = _taxonomy_assignment(agent, repo_root)
+    if override is not None and "skill_ids" in override:
+        return _dedupe(override["skill_ids"])
     explicit = skills_for_agent(agent, repo_root)
     if explicit:
         return explicit
@@ -328,10 +320,32 @@ def _resolve_profiles(agent: str,
     """Effective profiles: explicit arg > explicit agent assignment > role-derived."""
     if prompt_profile_ids is not None:
         return _dedupe(prompt_profile_ids)
+    override = _taxonomy_assignment(agent, repo_root)
+    if override is not None and "prompt_profile_ids" in override:
+        return _dedupe(override["prompt_profile_ids"])
     explicit = prompt_profiles_for_agent(agent, repo_root)
     if explicit:
         return explicit
     return prompt_profiles_for_roles(eff_roles, repo_root)
+
+
+def _taxonomy_assignment(agent: str, repo_root: Path | None) -> dict | None:
+    """Return a persisted curated assignment when one exists."""
+    base = _assignment_root(repo_root)
+    direct = load_overrides(base).get("agent_assignment_overrides", {}).get(agent)
+    if isinstance(direct, dict):
+        return direct
+    return None
+
+
+def _assignment_root(repo_root: Path | None) -> Path:
+    """Locate curated overrides alongside an explicit compatibility context."""
+    if repo_root is not None:
+        return Path(repo_root)
+    configured_context = os.environ.get("ZOVA_AGENT_CONTEXT", "").strip()
+    if configured_context:
+        return Path(configured_context).expanduser().parent
+    return PROJECT_ROOT
 
 
 # ---------------------------------------------------------------- builder
@@ -408,21 +422,8 @@ def build_runtime_prompt(
     return "\n\n".join(parts)
 
 
-def _validate_role_skill_map() -> None:
-    """Fail fast if a mapped skill id does not exist (a programming error)."""
-    known = _known_skill_ids()
-    for role_id, skill_ids in ROLE_SKILL_MAP.items():
-        for sid in skill_ids:
-            if sid not in known:
-                raise RuntimeError(
-                    f"ROLE_SKILL_MAP[{role_id!r}] references unknown skill {sid!r}")
-
-
-_validate_role_skill_map()
-
 
 __all__ = [
-    "ROLE_SKILL_MAP",
     "agent_context_path",
     "assign_prompt_profiles",
     "assign_skills",

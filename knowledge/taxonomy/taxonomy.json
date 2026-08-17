@@ -236,6 +236,114 @@
       ],
       "confidence": "direct",
       "requires_inspection": true
+    },
+    {
+      "id": "internal:code-review",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "code-review"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:communication",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "clarity",
+        "communication"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:documentation",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "documentation"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:repository-analysis",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "codebase-analysis",
+        "conventions",
+        "impact-analysis",
+        "repository-analysis"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:research",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "research"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:security",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "attack-surface",
+        "penetration-testing",
+        "reconnaissance",
+        "validation"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:seo",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "seo"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:verification",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "fact-checking",
+        "verification"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "internal:workflow-planning",
+      "repository": "internal",
+      "kind": "architecture",
+      "summary": "Original MultiAgentCoding capability declaration.",
+      "supports": [
+        "decomposition",
+        "planning"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
     }
   ],
   "capabilities": [
@@ -257,6 +365,22 @@
       "license": "aggregated"
     },
     {
+      "id": "attack-surface",
+      "name": "Attack Surface",
+      "description": "Identify exposed trust boundaries and inputs.",
+      "domains": [
+        "security"
+      ],
+      "evidence": [
+        "internal:security"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
       "id": "citation",
       "name": "Citation",
       "description": "Capability evidenced by repository research: citation.",
@@ -272,6 +396,70 @@
       ],
       "origin": "source-derived",
       "license": "aggregated"
+    },
+    {
+      "id": "clarity",
+      "name": "Clarity",
+      "description": "Make communication specific and understandable.",
+      "domains": [
+        "communication"
+      ],
+      "evidence": [
+        "internal:communication"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
+      "id": "code-review",
+      "name": "Code Review",
+      "description": "Assess a change for correctness, maintainability, and risk.",
+      "domains": [
+        "engineering"
+      ],
+      "evidence": [
+        "internal:code-review"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
+      "id": "codebase-analysis",
+      "name": "Codebase Analysis",
+      "description": "Inspect code structure and conventions.",
+      "domains": [
+        "engineering"
+      ],
+      "evidence": [
+        "internal:repository-analysis"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
+      "id": "communication",
+      "name": "Communication",
+      "description": "Communicate actions and outcomes clearly.",
+      "domains": [
+        "communication"
+      ],
+      "evidence": [
+        "internal:communication"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
     },
     {
       "id": "competitive-analysis",
@@ -325,6 +513,38 @@
       "license": "aggregated"
     },
     {
+      "id": "conventions",
+      "name": "Project Conventions",
+      "description": "Follow the repository's established practices.",
+      "domains": [
+        "engineering"
+      ],
+      "evidence": [
+        "internal:repository-analysis"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
+      "id": "decomposition",
+      "name": "Decomposition",
+      "description": "Break work into clear units.",
+      "domains": [
+        "orchestration"
+      ],
+      "evidence": [
+        "internal:workflow-planning"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
       "id": "distillation",
       "name": "Distillation",
       "description": "Capability evidenced by repository research: distillation.",
@@ -340,6 +560,22 @@
       ],
       "origin": "source-derived",
       "license": "aggregated"
+    },
+    {
+      "id": "documentation",
+      "name": "Documentation",
+      "description": "Create and maintain technical documentation.",
+      "domains": [
+        "documentation"
+      ],
+      "evidence": [
+        "internal:documentation"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
     },
     {
       "id": "editing",
@@ -374,6 +610,22 @@
       ],
       "origin": "source-derived",
       "license": "aggregated"
+    },
+    {
+      "id": "fact-checking",
+      "name": "Fact Checking",
+      "description": "Trace claims to supporting sources.",
+      "domains": [
+        "research"
+      ],
+      "evidence": [
+        "internal:verification"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
     },
     {
       "id": "finding-validation",
@@ -425,6 +677,22 @@
       ],
       "origin": "source-derived",
       "license": "aggregated"
+    },
+    {
+      "id": "impact-analysis",
+      "name": "Impact Analysis",
+      "description": "Identify affected modules, callers, and data shapes.",
+      "domains": [
+        "engineering"
+      ],
+      "evidence": [
+        "internal:repository-analysis"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
     },
     {
       "id": "indexing",
@@ -563,6 +831,38 @@
       "license": "aggregated"
     },
     {
+      "id": "penetration-testing",
+      "name": "Penetration Testing",
+      "description": "Test authorized security hypotheses.",
+      "domains": [
+        "security"
+      ],
+      "evidence": [
+        "internal:security"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
+      "id": "planning",
+      "name": "Planning",
+      "description": "Plan bounded work sequences.",
+      "domains": [
+        "orchestration"
+      ],
+      "evidence": [
+        "internal:workflow-planning"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
       "id": "provenance",
       "name": "Provenance",
       "description": "Capability evidenced by repository research: provenance.",
@@ -618,6 +918,22 @@
       "license": "aggregated"
     },
     {
+      "id": "reconnaissance",
+      "name": "Reconnaissance",
+      "description": "Map a scoped surface before testing.",
+      "domains": [
+        "security"
+      ],
+      "evidence": [
+        "internal:security"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
       "id": "reflection",
       "name": "Reflection",
       "description": "Capability evidenced by repository research: reflection.",
@@ -650,6 +966,38 @@
       ],
       "origin": "source-derived",
       "license": "aggregated"
+    },
+    {
+      "id": "repository-analysis",
+      "name": "Repository Analysis",
+      "description": "Read a repository's structure, conventions, and impact before changing it.",
+      "domains": [
+        "engineering"
+      ],
+      "evidence": [
+        "internal:repository-analysis"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "description": "Investigate questions using structured evidence.",
+      "domains": [
+        "research"
+      ],
+      "evidence": [
+        "internal:research"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
     },
     {
       "id": "research-synthesis",
@@ -771,6 +1119,22 @@
       "license": "aggregated"
     },
     {
+      "id": "seo",
+      "name": "SEO",
+      "description": "Optimize content for search discovery.",
+      "domains": [
+        "content"
+      ],
+      "evidence": [
+        "internal:seo"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
       "id": "skill-authoring",
       "name": "Skill Authoring",
       "description": "Capability evidenced by repository research: skill authoring.",
@@ -840,6 +1204,38 @@
       "license": "aggregated"
     },
     {
+      "id": "validation",
+      "name": "Validation",
+      "description": "Validate findings with reproducible evidence.",
+      "domains": [
+        "security"
+      ],
+      "evidence": [
+        "internal:security"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
+      "id": "verification",
+      "name": "Verification",
+      "description": "Validate claims or outcomes against evidence.",
+      "domains": [
+        "verification"
+      ],
+      "evidence": [
+        "internal:verification"
+      ],
+      "source_repos": [
+        "internal"
+      ],
+      "origin": "original",
+      "license": "internal"
+    },
+    {
       "id": "vulnerability-discovery",
       "name": "Vulnerability Discovery",
       "description": "Capability evidenced by repository research: vulnerability discovery.",
@@ -900,6 +1296,8 @@
       "name": "Communication",
       "capabilities": [
         "action-first-communication",
+        "clarity",
+        "communication",
         "concise-output",
         "editing",
         "output-quality",
@@ -917,6 +1315,7 @@
         "keyword-clustering",
         "keyword-research",
         "search-intent",
+        "seo",
         "tool-orchestration"
       ]
     },
@@ -925,6 +1324,7 @@
       "name": "Documentation",
       "capabilities": [
         "distillation",
+        "documentation",
         "indexing",
         "knowledge-extraction",
         "provenance",
@@ -935,9 +1335,14 @@
       "id": "engineering",
       "name": "Engineering",
       "capabilities": [
+        "code-review",
+        "codebase-analysis",
+        "conventions",
         "generative-ai-app-development",
+        "impact-analysis",
         "multi-model-integration",
-        "provider-abstraction"
+        "provider-abstraction",
+        "repository-analysis"
       ]
     },
     {
@@ -975,8 +1380,10 @@
       "id": "orchestration",
       "name": "Orchestration",
       "capabilities": [
+        "decomposition",
         "evaluation",
         "multi-agent-orchestration",
+        "planning",
         "reflection",
         "routing",
         "workflow-planning"
@@ -998,11 +1405,13 @@
         "citation",
         "competitive-analysis",
         "content-strategy",
+        "fact-checking",
         "gap-analysis",
         "keyword-clustering",
         "keyword-research",
         "knowledge-organization",
         "provenance",
+        "research",
         "research-synthesis",
         "search-intent",
         "source-management",
@@ -1013,12 +1422,16 @@
       "id": "security",
       "name": "Security",
       "capabilities": [
+        "attack-surface",
         "finding-validation",
+        "penetration-testing",
         "re-scan-verification",
+        "reconnaissance",
         "remediation",
         "sandboxing",
         "security-reconnaissance",
         "security-reporting",
+        "validation",
         "vulnerability-discovery"
       ]
     },
@@ -1032,6 +1445,7 @@
         "sandboxing",
         "security-reconnaissance",
         "security-reporting",
+        "verification",
         "vulnerability-discovery"
       ]
     }
@@ -1039,98 +1453,151 @@
   "role_edges": {
     "ai-agent-engineer": {
       "capabilities": [
+        "codebase-analysis",
+        "conventions",
+        "decomposition",
         "evaluation",
-        "multi-agent-orchestration"
+        "impact-analysis",
+        "multi-agent-orchestration",
+        "planning"
       ],
       "category": "agents"
     },
     "ai-llm-engineer": {
       "capabilities": [
+        "codebase-analysis",
+        "conventions",
+        "decomposition",
         "evaluation",
-        "multi-agent-orchestration"
+        "impact-analysis",
+        "multi-agent-orchestration",
+        "planning"
       ],
       "category": "agents"
     },
     "code-reviewer": {
       "capabilities": [
+        "clarity",
+        "code-review",
+        "codebase-analysis",
+        "conventions",
         "editing",
+        "impact-analysis",
         "self-review"
       ],
       "category": "communication"
     },
     "devops-engineer": {
       "capabilities": [
-        "multi-agent-orchestration"
+        "codebase-analysis",
+        "conventions",
+        "decomposition",
+        "impact-analysis",
+        "multi-agent-orchestration",
+        "planning"
       ],
       "category": "agents"
     },
     "fastapi-developer": {
       "capabilities": [
-        "remediation"
+        "codebase-analysis",
+        "conventions",
+        "impact-analysis",
+        "remediation",
+        "verification"
       ],
-      "category": "security"
+      "category": "engineering"
     },
     "knowledge-engineer": {
       "capabilities": [
         "citation",
         "distillation",
+        "documentation",
+        "fact-checking",
         "knowledge-extraction",
         "provenance",
+        "research",
         "skill-authoring",
-        "source-management"
+        "source-management",
+        "verification"
       ],
       "category": "documentation"
     },
     "python-developer": {
       "capabilities": [
-        "remediation"
+        "codebase-analysis",
+        "conventions",
+        "impact-analysis",
+        "remediation",
+        "verification"
       ],
-      "category": "security"
+      "category": "engineering"
     },
     "qa-engineer": {
       "capabilities": [
-        "remediation"
+        "codebase-analysis",
+        "conventions",
+        "impact-analysis",
+        "remediation",
+        "verification"
       ],
-      "category": "security"
+      "category": "engineering"
     },
     "researcher": {
       "capabilities": [
         "citation",
         "competitive-analysis",
+        "fact-checking",
         "gap-analysis",
         "keyword-research",
         "provenance",
+        "research",
         "search-intent",
-        "source-management"
+        "seo",
+        "source-management",
+        "verification"
       ],
       "category": "content"
     },
     "security-engineer": {
       "capabilities": [
-        "remediation"
+        "attack-surface",
+        "penetration-testing",
+        "reconnaissance",
+        "remediation",
+        "validation"
       ],
       "category": "security"
     },
     "seo-researcher": {
       "capabilities": [
         "citation",
+        "clarity",
         "competitive-analysis",
         "editing",
+        "fact-checking",
         "gap-analysis",
         "keyword-research",
         "provenance",
+        "research",
         "search-intent",
         "self-review",
-        "source-management"
+        "seo",
+        "source-management",
+        "verification"
       ],
       "category": "communication"
     },
     "seo-writer": {
       "capabilities": [
         "citation",
+        "clarity",
+        "communication",
         "concise-output",
+        "documentation",
         "editing",
         "provenance",
+        "research",
         "self-review",
         "source-management",
         "task-decomposition"
@@ -1139,13 +1606,21 @@
     },
     "software-architect": {
       "capabilities": [
-        "multi-agent-orchestration"
+        "codebase-analysis",
+        "conventions",
+        "decomposition",
+        "impact-analysis",
+        "multi-agent-orchestration",
+        "planning"
       ],
       "category": "agents"
     },
     "technical-writer": {
       "capabilities": [
+        "clarity",
+        "communication",
         "concise-output",
+        "documentation",
         "editing",
         "self-review",
         "task-decomposition"
@@ -1156,12 +1631,14 @@
   "skill_edges": {
     "action-first-communication": {
       "capabilities": [
+        "communication",
         "concise-output",
         "task-decomposition"
       ]
     },
     "anti-slop-refinement": {
       "capabilities": [
+        "clarity",
         "editing",
         "self-review"
       ]
@@ -1169,58 +1646,78 @@
     "competitive-analysis": {
       "capabilities": [
         "competitive-analysis",
-        "gap-analysis"
+        "gap-analysis",
+        "seo"
       ]
     },
     "fix-verify-loop": {
       "capabilities": [
-        "remediation"
+        "remediation",
+        "verification"
       ]
     },
     "knowledge-extraction": {
       "capabilities": [
         "distillation",
+        "documentation",
         "knowledge-extraction",
         "skill-authoring"
       ]
     },
     "repository-analysis": {
-      "capabilities": []
+      "capabilities": [
+        "codebase-analysis",
+        "conventions",
+        "impact-analysis"
+      ]
     },
     "security-reconnaissance": {
-      "capabilities": []
+      "capabilities": [
+        "attack-surface",
+        "reconnaissance"
+      ]
     },
     "security-validation": {
-      "capabilities": []
+      "capabilities": [
+        "penetration-testing",
+        "validation"
+      ]
     },
     "seo-research": {
       "capabilities": [
         "keyword-research",
-        "search-intent"
+        "search-intent",
+        "seo"
       ]
     },
     "source-verification": {
       "capabilities": [
-        "citation"
+        "citation",
+        "fact-checking",
+        "verification"
       ]
     },
     "structured-research": {
       "capabilities": [
         "citation",
         "provenance",
+        "research",
         "source-management"
       ]
     },
     "workflow-planning": {
       "capabilities": [
-        "multi-agent-orchestration"
+        "decomposition",
+        "multi-agent-orchestration",
+        "planning"
       ]
     }
   },
   "prompt_edges": {
     "agent-workflow-planner": {
       "capabilities": [
-        "multi-agent-orchestration"
+        "multi-agent-orchestration",
+        "planning"
       ]
     },
     "ai-agent-engineer": {
@@ -1251,16 +1748,23 @@
       "capabilities": []
     },
     "code-reviewer": {
-      "capabilities": []
+      "capabilities": [
+        "code-review"
+      ]
     },
     "code-reviewer-performance": {
-      "capabilities": []
+      "capabilities": [
+        "code-review"
+      ]
     },
     "code-reviewer-security": {
-      "capabilities": []
+      "capabilities": [
+        "code-review"
+      ]
     },
     "communicator-action-first": {
       "capabilities": [
+        "communication",
         "concise-output",
         "task-decomposition"
       ]
@@ -1305,13 +1809,21 @@
       "capabilities": []
     },
     "pm-delivery": {
-      "capabilities": []
+      "capabilities": [
+        "decomposition",
+        "planning"
+      ]
     },
     "pm-risk": {
-      "capabilities": []
+      "capabilities": [
+        "planning"
+      ]
     },
     "pm-technical": {
-      "capabilities": []
+      "capabilities": [
+        "decomposition",
+        "planning"
+      ]
     },
     "qa-e2e-engineer": {
       "capabilities": []
@@ -1326,17 +1838,24 @@
       "capabilities": [
         "citation",
         "provenance",
+        "research",
         "source-management"
       ]
     },
     "researcher-analyst": {
-      "capabilities": []
+      "capabilities": [
+        "research"
+      ]
     },
     "researcher-literature": {
-      "capabilities": []
+      "capabilities": [
+        "research"
+      ]
     },
     "researcher-technical": {
-      "capabilities": []
+      "capabilities": [
+        "research"
+      ]
     },
     "security-appsec-engineer": {
       "capabilities": []
@@ -1346,7 +1865,9 @@
     },
     "security-pentest-validator": {
       "capabilities": [
-        "remediation"
+        "penetration-testing",
+        "remediation",
+        "validation"
       ]
     },
     "security-threat-modeler": {
@@ -1355,13 +1876,15 @@
     "seo-competitive-analysis": {
       "capabilities": [
         "competitive-analysis",
-        "gap-analysis"
+        "gap-analysis",
+        "seo"
       ]
     },
     "seo-keyword-research": {
       "capabilities": [
         "keyword-research",
-        "search-intent"
+        "search-intent",
+        "seo"
       ]
     },
     "software-engineer": {
@@ -1378,18 +1901,28 @@
     },
     "writer-anti-slop": {
       "capabilities": [
+        "clarity",
         "editing",
         "self-review"
       ]
     },
     "writer-docs-reviewer": {
-      "capabilities": []
+      "capabilities": [
+        "clarity",
+        "documentation"
+      ]
     },
     "writer-documentation": {
-      "capabilities": []
+      "capabilities": [
+        "clarity",
+        "documentation"
+      ]
     },
     "writer-readme": {
-      "capabilities": []
+      "capabilities": [
+        "clarity",
+        "documentation"
+      ]
     }
   },
   "role_skill_edges": {
@@ -1540,11 +2073,18 @@
     "matthew": {
       "capability_ids": [
         "action-first-communication",
+        "clarity",
+        "code-review",
+        "codebase-analysis",
+        "conventions",
         "editing",
+        "finding-validation",
+        "impact-analysis",
         "output-quality",
         "remediation",
-        "security-reporting",
-        "self-review"
+        "security-reconnaissance",
+        "self-review",
+        "verification"
       ],
       "role_ids": [
         "code-reviewer",
@@ -1566,12 +2106,19 @@
     },
     "alex": {
       "capability_ids": [
-        "finding-validation",
+        "attack-surface",
+        "codebase-analysis",
+        "conventions",
+        "decomposition",
+        "impact-analysis",
         "multi-agent-orchestration",
+        "penetration-testing",
+        "planning",
         "re-scan-verification",
+        "reconnaissance",
         "remediation",
         "sandboxing",
-        "security-reconnaissance",
+        "validation",
         "vulnerability-discovery"
       ],
       "role_ids": [
@@ -1598,12 +2145,17 @@
       "capability_ids": [
         "citation",
         "competitive-analysis",
+        "fact-checking",
         "gap-analysis",
         "keyword-research",
         "knowledge-organization",
         "provenance",
+        "research",
         "search-intent",
-        "source-management"
+        "security-reporting",
+        "seo",
+        "source-management",
+        "verification"
       ],
       "role_ids": [
         "researcher"
@@ -1626,12 +2178,16 @@
         "citation",
         "content-strategy",
         "distillation",
+        "documentation",
+        "fact-checking",
         "indexing",
         "knowledge-extraction",
         "provenance",
+        "research",
         "research-synthesis",
         "skill-authoring",
-        "source-management"
+        "source-management",
+        "verification"
       ],
       "role_ids": [
         "knowledge-engineer"
@@ -1650,10 +2206,14 @@
     "elena": {
       "capability_ids": [
         "citation",
+        "clarity",
+        "communication",
         "concise-output",
+        "documentation",
         "editing",
         "keyword-clustering",
         "provenance",
+        "research",
         "self-review",
         "source-management",
         "task-decomposition",
@@ -1676,11 +2236,16 @@
     },
     "max": {
       "capability_ids": [
+        "codebase-analysis",
+        "conventions",
+        "decomposition",
         "evaluation",
+        "impact-analysis",
         "multi-agent-orchestration",
+        "multi-model-integration",
+        "planning",
         "reflection",
-        "routing",
-        "workflow-planning"
+        "routing"
       ],
       "role_ids": [
         "ai-agent-engineer"
@@ -1698,11 +2263,17 @@
     },
     "chloe": {
       "capability_ids": [
+        "codebase-analysis",
+        "conventions",
+        "decomposition",
         "evaluation",
         "generative-ai-app-development",
+        "impact-analysis",
         "multi-agent-orchestration",
-        "multi-model-integration",
-        "provider-abstraction"
+        "planning",
+        "provider-abstraction",
+        "repository-analysis",
+        "workflow-planning"
       ],
       "role_ids": [
         "ai-agent-engineer"

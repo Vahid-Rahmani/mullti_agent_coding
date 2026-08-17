@@ -15,7 +15,12 @@ from scripts.core import prompt_library, skills
 from scripts.core.agents import PROJECT_ROOT
 from scripts.core.roles import load_roles
 
-from .capabilities import capabilities_from_repositories, stable_capability_id
+from .capabilities import (
+    capabilities_from_repositories,
+    internal_evidence_from_capabilities,
+    load_internal_capabilities,
+    stable_capability_id,
+)
 from .coverage import build_coverage
 from .evidence import load_source_records
 from .overrides import load_overrides
@@ -28,29 +33,29 @@ def _root(root: Path | None) -> Path:
 def build_taxonomy(root: Path | None = None) -> dict[str, Any]:
     root = _root(root)
     repositories = load_source_records(root / "knowledge" / "sources")
-    capabilities = capabilities_from_repositories(repositories)
+    internal_capabilities = load_internal_capabilities(root)
+    capabilities = tuple(sorted((*capabilities_from_repositories(repositories), *internal_capabilities), key=lambda item: item.id))
     capability_ids = {c.id for c in capabilities}
 
     role_data = load_roles(root)
-    role_skill_map = _role_skill_map()
+    relations = _load_relations(root)
     skill_records = {skill.id: skill for skill in skills.list_skills()}
     prompt_records = {profile.id: profile for profile in prompt_library.list_prompts()}
 
     role_edges: dict[str, dict[str, Any]] = {}
     for role_id in sorted(role_data["roles"]):
-        skill_ids = role_skill_map.get(role_id, ())
+        skill_ids = relations["role_skill_edges"].get(role_id, ())
         role_caps = {
             stable_capability_id(cap)
             for sid in skill_ids
             for cap in skill_records.get(sid, ()).capabilities
             if stable_capability_id(cap) in capability_ids
         }
-        # Phase B seeds the derived graph from today's deterministic prompt
-        # suggestions. Phase C reads only the resulting artifact, never these
-        # heuristics at dispatch time.
         role_caps.update(
             stable_capability_id(cap)
-            for profile in prompt_library.suggest_prompts_for_role(role_id)
+            for profile_id in relations["role_prompt_edges"].get(role_id, ())
+            for profile in (prompt_records.get(profile_id),)
+            if profile is not None
             for cap in profile.capabilities
             if stable_capability_id(cap) in capability_ids
         )
@@ -66,15 +71,12 @@ def build_taxonomy(root: Path | None = None) -> dict[str, Any]:
         pid: {"capabilities": sorted(stable_capability_id(cap) for cap in profile.capabilities if stable_capability_id(cap) in capability_ids)}
         for pid, profile in sorted(prompt_records.items())
     }
-    # These seed edges reproduce the existing registries exactly. The artifact
-    # is now the sole runtime input; later taxonomy phases can replace the seed
-    # with pure capability-overlap once all internal capabilities are modeled.
     role_skill_edges = {
-        rid: [sid for sid in role_skill_map.get(rid, ()) if sid in skill_records]
+        rid: [sid for sid in relations["role_skill_edges"].get(rid, ()) if sid in skill_records]
         for rid in role_edges
     }
     role_prompt_edges = {
-        rid: [profile.id for profile in prompt_library.suggest_prompts_for_role(rid)]
+        rid: [pid for pid in relations["role_prompt_edges"].get(rid, ()) if pid in prompt_records]
         for rid in role_edges
     }
     categories = _categories(capabilities)
@@ -91,7 +93,8 @@ def build_taxonomy(root: Path | None = None) -> dict[str, Any]:
         "schema_version": 1,
         "generated_from": "knowledge/sources/*.md (frontmatter evidence)",
         "repositories": [_repository_dict(repo) for repo in repositories],
-        "evidence": [_evidence_dict(item) for repo in repositories for item in repo.evidence],
+        "evidence": [_evidence_dict(item) for repo in repositories for item in repo.evidence]
+        + [_evidence_dict(item) for item in internal_evidence_from_capabilities(internal_capabilities)],
         "capabilities": [_capability_dict(capability) for capability in capabilities],
         "categories": categories,
         "role_edges": role_edges,
@@ -124,10 +127,11 @@ def validate_taxonomy(taxonomy: dict[str, Any]) -> None:
         raise ValueError("invalid taxonomy artifact: incomplete coverage")
 
 
-def _role_skill_map() -> dict[str, tuple[str, ...]]:
-    from scripts.core.runtime_context import ROLE_SKILL_MAP
-
-    return {key: tuple(value) for key, value in ROLE_SKILL_MAP.items()}
+def _load_relations(root: Path) -> dict[str, dict[str, list[str]]]:
+    data = json.loads((root / "knowledge" / "taxonomy" / "relations.json").read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not all(isinstance(data.get(key), dict) for key in ("role_skill_edges", "role_prompt_edges")):
+        raise ValueError("relations.json must define role_skill_edges and role_prompt_edges")
+    return data
 
 
 def _category_for(capability_ids: list[str], capabilities: tuple) -> str:

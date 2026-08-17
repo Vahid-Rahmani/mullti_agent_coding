@@ -46,24 +46,22 @@ related: [System_Core, Architecture_Home, Agents_Home, Tasks_Home, Testing_Home]
 ## Recent Executions
 **Orchestrator log (last 5):**
 
-- `[2026-08-17T09:43:16] set-status Task_Demo: ready -> in_progress`
-- `[2026-08-17T09:43:16] set-status Task_Demo: planned -> ready`
-- `[2026-08-17T09:43:16] set-status Task_Demo: ready -> in_progress`
-- `[2026-08-17T09:43:16] report Task_Demo: recorded failed`
-- `[2026-08-17T09:43:16] set-status Task_Demo: planned -> ready`
+- `[2026-08-17T11:12:02] set-status Task_Demo: ready -> in_progress`
+- `[2026-08-17T11:12:02] set-status Task_Demo: planned -> ready`
+- `[2026-08-17T11:12:02] set-status Task_Demo: ready -> in_progress`
+- `[2026-08-17T11:12:02] report Task_Demo: recorded failed`
+- `[2026-08-17T11:12:02] set-status Task_Demo: planned -> ready`
 
 **Sync log (last 3):**
 
-- `{"ts": "2026-08-17T09:41:18", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
-- `{"ts": "2026-08-17T09:42:24", "mode": "check-conflicts", "dry_run": true, "actions": [], "conflicts": ["agent_catalog.py`
-- `{"ts": "2026-08-17T09:43:07", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
+- `{"ts": "2026-08-17T10:42:55", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
+- `{"ts": "2026-08-17T10:46:10", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
+- `{"ts": "2026-08-17T11:11:53", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
 
 ## Recent Changes
 **Vault changes (last 3):**
 
-- `{"ts": "2026-08-17T09:43:21", "caller": "set-status", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpi6lap5wm\\vaul`
-- `{"ts": "2026-08-17T09:43:21", "caller": "web-ui-role-override", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpshwf`
-- `{"ts": "2026-08-17T09:43:21", "caller": "web-ui-role-override", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpshwf`
+- _(no recorded vault changes)_
 
 ## Testing Status
 - See [[Testing_Home]] and [[Test_Report_Suite]] — current suite: `python -m unittest discover -s test/tests`
@@ -72,6 +70,7 @@ related: [System_Core, Architecture_Home, Agents_Home, Tasks_Home, Testing_Home]
 - Map: [[System_Architecture]]
 - **O2 components:** [[Component_Orchestrator]] · [[Component_VaultBridge]] · [[Component_ContextResolver]] · [[Component_ChangeDetector]] · [[Component_KnowledgeSync]]
 - **O2 component gaps:** _None — all five nodes are mapped._
+- **Repository taxonomy:** 55 capabilities · 14 categories · 7/7 agents covered · effective overrides available in the Taxonomy UI
 
 ## Blocked / Needs Attention
 - _None currently — see [[Task_Backlog]] for full status._

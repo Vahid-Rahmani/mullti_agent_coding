@@ -1,0 +1,146 @@
+{
+  "role_skill_edges": {
+    "ai-agent-engineer": [
+      "workflow-planning",
+      "repository-analysis"
+    ],
+    "ai-llm-engineer": [
+      "repository-analysis",
+      "workflow-planning"
+    ],
+    "code-reviewer": [
+      "repository-analysis",
+      "anti-slop-refinement"
+    ],
+    "devops-engineer": [
+      "repository-analysis",
+      "workflow-planning"
+    ],
+    "fastapi-developer": [
+      "repository-analysis",
+      "fix-verify-loop"
+    ],
+    "knowledge-engineer": [
+      "knowledge-extraction",
+      "structured-research",
+      "source-verification"
+    ],
+    "python-developer": [
+      "repository-analysis",
+      "fix-verify-loop"
+    ],
+    "qa-engineer": [
+      "repository-analysis",
+      "fix-verify-loop"
+    ],
+    "researcher": [
+      "structured-research",
+      "source-verification"
+    ],
+    "security-engineer": [
+      "security-reconnaissance",
+      "security-validation"
+    ],
+    "seo-researcher": [
+      "structured-research",
+      "source-verification",
+      "anti-slop-refinement"
+    ],
+    "seo-writer": [
+      "structured-research",
+      "anti-slop-refinement",
+      "action-first-communication"
+    ],
+    "software-architect": [
+      "repository-analysis",
+      "workflow-planning"
+    ],
+    "technical-writer": [
+      "anti-slop-refinement",
+      "action-first-communication"
+    ]
+  },
+  "role_prompt_edges": {
+    "ai-agent-engineer": [
+      "agent-workflow-planner",
+      "ai-agent-engineer",
+      "ai-engineer",
+      "ai-llm-engineer"
+    ],
+    "ai-llm-engineer": [
+      "agent-workflow-planner",
+      "ai-agent-engineer",
+      "ai-engineer",
+      "ai-llm-engineer"
+    ],
+    "code-reviewer": [
+      "code-reviewer",
+      "code-reviewer-performance",
+      "code-reviewer-security"
+    ],
+    "devops-engineer": [
+      "devops-cicd",
+      "devops-deployment",
+      "devops-infrastructure"
+    ],
+    "fastapi-developer": [
+      "software-engineer",
+      "software-engineer-expert",
+      "software-engineer-production"
+    ],
+    "knowledge-engineer": [
+      "software-engineer",
+      "software-engineer-expert",
+      "software-engineer-production"
+    ],
+    "python-developer": [
+      "software-engineer",
+      "software-engineer-expert",
+      "software-engineer-production"
+    ],
+    "qa-engineer": [
+      "qa-e2e-engineer",
+      "qa-test-engineer",
+      "qa-test-strategy"
+    ],
+    "researcher": [
+      "research-source-manager",
+      "researcher-analyst",
+      "researcher-literature",
+      "researcher-technical",
+      "seo-competitive-analysis",
+      "seo-keyword-research"
+    ],
+    "security-engineer": [
+      "security-appsec-engineer",
+      "security-auditor",
+      "security-pentest-validator",
+      "security-threat-modeler"
+    ],
+    "seo-researcher": [
+      "research-source-manager",
+      "researcher-analyst",
+      "researcher-literature",
+      "researcher-technical",
+      "seo-competitive-analysis",
+      "seo-keyword-research"
+    ],
+    "seo-writer": [
+      "writer-anti-slop",
+      "writer-docs-reviewer",
+      "writer-documentation",
+      "writer-readme"
+    ],
+    "software-architect": [
+      "architecture-reviewer",
+      "distributed-systems-architect",
+      "system-architect"
+    ],
+    "technical-writer": [
+      "writer-anti-slop",
+      "writer-docs-reviewer",
+      "writer-documentation",
+      "writer-readme"
+    ]
+  }
+}

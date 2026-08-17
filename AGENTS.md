@@ -28,12 +28,12 @@ permanently couples them:
 6. **Project / repository context** — a `ProjectProfile` derived read-only by
    `scripts/core/project_profile.py` (technologies, manifests, instructions,
    suggested roles) and injected dynamically, never duplicated per agent.
-7. **Agent Catalog / Preset** — the deterministic template layer
-   (`scripts/core/agent_catalog.py`): hand-curated `AgentPreset`s grouped under
-   high-level categories, plus a special **Empty Agent** (zero configuration).
-   A preset pins one deliberate role + skills + prompt profile(s) and
-   references an existing agent key; it is never synthesized from roles ×
-   prompts, and the existing 7 agents are preserved as the runtime identities.
+7. **Agent Catalog / Preset** — a compatibility-facing view derived from the
+   effective repository taxonomy (`scripts/core/agent_catalog.py`): categories
+   and presets resolve from evidence, capabilities, the agent matrix, and
+   curated overrides. The special **Empty Agent** remains zero configuration
+   and never inherits taxonomy context. The existing 7 agents remain runtime
+   identities; the catalog never defines a model or provider.
 
 So **any agent can run on any user-selected model**, and **any role can be
 assigned to one or many agents** (and an agent may hold many roles) without
@@ -46,9 +46,10 @@ profile deterministically, and the Empty Agent stays empty (raw request only).
 (identity → roles → skills → prompt profile/instruction → project → workflow →
 task → user request). Every execution path (terminal RunHub, task
 Orchestrator, workflow planner) uses the same builder, so an agent's configured
-roles/skills/prompt profiles actually reach its runtime prompt. Per-agent skill
-and prompt-profile assignments persist in `agent_context.json`
-(`$ZOVA_AGENT_CONTEXT` overrides) and are editable via the Settings API. The
+roles/skills/prompt profiles actually reach its runtime prompt. Curated
+per-agent assignments persist in `knowledge/taxonomy/overrides.json`; an
+existing `agent_context.json` remains a supported compatibility input and can
+be migrated into that curated overlay without deletion. The
 order is fixed so task/user text can never overwrite system-level identity.
 
 On top of that plain contract the repo ships an **Obsidian vault stack**

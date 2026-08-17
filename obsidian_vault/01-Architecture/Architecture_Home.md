@@ -35,6 +35,7 @@ models, and integration contracts.
   - [[Component_ContextResolver]] — bounded linked task context
   - [[Component_ChangeDetector]] — detection-only snapshot and impact mapping
   - [[Component_KnowledgeSync]] — docs/code reconciliation and drift reporting
+- ↔ Taxonomy architecture: `docs/architecture/repository-driven-agent-taxonomy.md`
 - ↔ Related: [[Documentation_Home]], [[Decisions_Home]]
 
 ## Rules
