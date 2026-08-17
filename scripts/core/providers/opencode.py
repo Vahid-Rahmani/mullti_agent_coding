@@ -19,6 +19,7 @@ every dispatch path shares one command builder.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import re
 import shutil
@@ -147,6 +148,8 @@ class OpenCodeAdapter:
             raise AdapterError(f"failed to launch opencode: {exc}",
                                error_code="opencode_missing") from exc
 
+        job_handle = _assign_windows_job(proc)
+
         lines: list[str] = []
         started = time.monotonic()
 
@@ -183,11 +186,18 @@ class OpenCodeAdapter:
                     continue
         finally:
             reader.join(timeout=2.0)
-            try:
-                if proc.stdout is not None:
-                    proc.stdout.close()
-            except OSError:
-                pass
+            # A descendant can inherit the stdout pipe even after the direct
+            # process has been killed.  On Windows, closing the text wrapper
+            # while the reader still owns it waits on the reader's lock until
+            # that descendant exits, defeating prompt cancellation.  The
+            # reader is a daemon; only close synchronously once it has stopped.
+            if not reader.is_alive():
+                try:
+                    if proc.stdout is not None:
+                        proc.stdout.close()
+                except OSError:
+                    pass
+            _close_windows_job(job_handle)
 
         returncode = proc.returncode
         latency_ms = round((time.monotonic() - started) * 1000.0, 1)
@@ -218,20 +228,66 @@ def _kill(proc: subprocess.Popen) -> None:
     (``start_new_session``) so ``killpg`` covers the tree.
     """
     if os.name == "nt":
+        job_handle = getattr(proc, "_zova_job_handle", None)
+        if job_handle:
+            try:
+                ctypes.windll.kernel32.TerminateJobObject(job_handle, 1)
+            except (AttributeError, OSError):
+                pass
         try:
             subprocess.run(
                 ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=5.0,
+                check=False,
             )
-        except OSError:
-            pass
+        except (OSError, subprocess.TimeoutExpired):
+            # ``taskkill`` can itself stall in constrained Windows
+            # environments.  Killing the direct process is still preferable
+            # to blocking cancellation indefinitely.
+            try:
+                proc.kill()
+            except OSError:
+                pass
     else:
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (OSError, ProcessLookupError):
             pass
     try:
-        proc.wait()
-    except OSError:
+        proc.wait(timeout=5.0)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            proc.kill()
+            proc.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+
+def _assign_windows_job(proc: subprocess.Popen):
+    """Put a Windows child in a killable job that owns its descendants."""
+    if os.name != "nt":
+        return None
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+        handle = kernel32.CreateJobObjectW(None, None)
+        if not handle:
+            return None
+        if not kernel32.AssignProcessToJobObject(handle, int(proc._handle)):
+            kernel32.CloseHandle(handle)
+            return None
+        proc._zova_job_handle = handle
+        return handle
+    except (AttributeError, OSError, TypeError):
+        return None
+
+
+def _close_windows_job(handle) -> None:
+    if not handle or os.name != "nt":
+        return
+    try:
+        ctypes.windll.kernel32.CloseHandle(handle)
+    except (AttributeError, OSError):
         pass

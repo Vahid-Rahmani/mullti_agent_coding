@@ -1,3 +1,25 @@
+---
+id: open-notebook
+source_url: https://github.com/lfnovo/open-notebook
+license: MIT
+source_type: open-source application
+extraction_mode: ideas
+code_reuse: concepts only
+domains: [research, knowledge-management]
+evidence:
+  - id: citation-discipline
+    kind: pattern
+    summary: Separate source claims from AI interpretation and preserve citations.
+    supports: [source-management, citation, provenance]
+    confidence: direct
+    requires_inspection: false
+  - id: reusable-sources
+    kind: architecture
+    summary: Keep sources as reusable first-class assets for research workflows.
+    supports: [source-management, knowledge-organization, research-synthesis]
+    confidence: direct
+    requires_inspection: false
+---
 # lfnovo/open-notebook
 
 - **Repository:** `lfnovo/open-notebook`

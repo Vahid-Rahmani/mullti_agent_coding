@@ -36,7 +36,7 @@ STATUS_SYMBOL: dict[str, tuple[str, str]] = {}
 
 def _init_status_symbol() -> None:
     """Populate STATUS_SYMBOL using core constants (called at init time)."""
-    from ..core.agents import STATUS_IDLE, STATUS_THINKING, STATUS_ACTIVE, STATUS_ERROR
+    from ..core.agents import STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE, STATUS_THINKING
 
     STATUS_SYMBOL.clear()
     STATUS_SYMBOL.update({

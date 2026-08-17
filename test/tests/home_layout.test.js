@@ -419,6 +419,16 @@ function main() {
   eq(parseFloat(lineResized.x1), parseFloat(panelByNode("n4").style.left),
      "S7: edge start follows the panel center after resize");
 
+  /* ── S8. No snap-back: interactive + programmatic custom sizes beyond the
+         legacy 480×400 render cap round-trip a rebuild unchanged ── */
+  setHomeLayout("custom");
+  resizeNode("n4", 520, 200);   // 520px exceeds the old 480px render cap
+  eq(panelByNode("n4").style.width, "520px", "S8: interactive resize accepts an in-workspace width");
+  buildWorkspace();             // simulate the 3s poll / session-reload rebuild
+  eq(panelByNode("n4").style.width, "520px", "S8: rebuild preserves the width (no snap-back)");
+  setCustomNode("n4", { w: 640, h: 200 });   // programmatic path shares the ceiling
+  eq(panelByNode("n4").style.width, "640px", "S8: programmatic width above 480 preserved");
+
   /* ── P. no active workflow → empty state ── */
   Ag.homeWorkflow = null; Ag.homeNodes = []; Ag.homeEdges = [];
   buildWorkspace();

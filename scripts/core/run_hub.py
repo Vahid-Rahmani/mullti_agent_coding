@@ -18,16 +18,23 @@ import threading
 import time
 from pathlib import Path
 
-from . import opencode_cfg
-from . import roles
+from . import opencode_cfg, runtime_context
+from . import state_tracker as _state_tracker
 from .agents import (
-    AGENTS, _AGENT_TAGS, AGENT_SPEC_BY_AGENT, PROJECT_ROOT,
-    STATUS_ACTIVE, STATUS_ERROR, STATUS_IDLE, STATUS_THINKING,
+    _AGENT_TAGS,
+    AGENT_SPEC_BY_AGENT,
+    AGENTS,
+    PROJECT_ROOT,
+    STATUS_ACTIVE,
+    STATUS_ERROR,
+    STATUS_IDLE,
+    STATUS_THINKING,
 )
 from .progress import (
-    DEFAULT_PROGRESS_WEIGHTS, _estimate_token_percent, _weighted_progress,
+    DEFAULT_PROGRESS_WEIGHTS,
+    _estimate_token_percent,
+    _weighted_progress,
 )
-from . import state_tracker as _state_tracker
 
 # Ensure scripts/ directory is on path for optional imports from sibling modules.
 _SCRIPT_DIR = str(Path(__file__).resolve().parent.parent)
@@ -37,11 +44,19 @@ if _SCRIPT_DIR not in sys.path:
 # Phase 5: the OpenCode command/exec helpers are canonical in
 # scripts.core.providers.opencode; run_hub re-exports them under the same
 # private names so every dispatch path shares one command builder.
-from scripts.core.providers.opencode import (  # noqa: E402
+from scripts.core.providers.opencode import (
     build_run_command as _build_run_command,
+)
+from scripts.core.providers.opencode import (
     insecure_tls_env as _insecure_tls_env,
+)
+from scripts.core.providers.opencode import (
     opencode_command as _opencode_command,
+)
+from scripts.core.providers.opencode import (
     sanitize_prompt as _sanitize_prompt,
+)
+from scripts.core.providers.opencode import (
     strip_ansi as _strip_ansi,
 )
 
@@ -124,9 +139,7 @@ class RunHub:
                 self.progress[tag] = max(self.progress.get(tag, 0), 8)
             elif status == STATUS_ACTIVE:
                 self.progress[tag] = max(self.progress.get(tag, 0), 18)
-            elif status == STATUS_IDLE:
-                self.progress[tag] = 100
-            elif status == STATUS_ERROR:
+            elif status == STATUS_IDLE or status == STATUS_ERROR:
                 self.progress[tag] = 100
         self._emit(tag, "status", status)
 
@@ -240,11 +253,9 @@ class RunHub:
                     "opencode executable not found on PATH. Install opencode or "
                     "add it to PATH before using the terminal."
                 )
-            # Compose the agent's roles onto the task at runtime (role_default
-            # precedence layer); the agent identity and model stay untouched.
-            role_ctx = roles.agent_context(agent)
-            if role_ctx:
-                prompt = role_ctx + "\n" + prompt
+            # Compose the full runtime context (identity → roles → skills →
+            # prompt profiles → request). A bare agent keeps its raw prompt.
+            prompt = runtime_context.build_runtime_prompt(agent, user_request=prompt)
             cmd = _build_run_command(exe, agent, prompt, model)
             with self.lock:
                 if tag in self._cancelled_tags:
@@ -352,8 +363,8 @@ class RunHub:
         if proc is not None:
             try:
                 proc.terminate()
-            except Exception:
-                pass
+            except OSError:
+                self.append_line(tag, f"── {tag.upper()} process already stopped ──")
             name = next((n for t, n, _ in AGENTS if t == tag), tag.upper())
             self.append_line(tag, f"── {name} terminated ──")
             self.append_line("master", f"── {tag.upper()} terminated ──")
@@ -370,8 +381,8 @@ class RunHub:
         for proc in procs:
             try:
                 proc.terminate()
-            except Exception:
-                pass
+            except OSError:
+                continue
         self.force_ui_idle()
         self.append_line("master", "── terminated ──")
         _state_tracker.STATE.record_restart("interrupted", "terminated by user")

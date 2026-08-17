@@ -51,7 +51,7 @@
 
   const SECTION_LABEL = {
     general: "General", connections: "AI Connections", models: "Models",
-    agents: "Agents", modes: "Agent Modes", roles: "Roles",
+    agents: "Agents", modes: "Agent Modes", roles: "Roles", prompts: "Prompt Profiles",
     profile: "Repository", graph: "Graph", security: "Security",
   };
   const STATUS_LABEL = {
@@ -115,8 +115,8 @@
     empty(content);
     const view = {
       general: viewGeneral, connections: viewConnections, models: viewModels,
-      agents: viewAgents, modes: viewModes, roles: viewRoles, profile: viewProfile,
-      graph: viewGraph, security: viewSecurity,
+      agents: viewAgents, modes: viewModes, roles: viewRoles, prompts: viewPrompts,
+      profile: viewProfile, graph: viewGraph, security: viewSecurity,
     }[sec];
     const node = view ? view() : el("div", "muted", "no such section");
     if (node && typeof node.then === "function") node.then((n) => content.appendChild(n));
@@ -829,7 +829,9 @@
       "Reusable, model-independent roles (predefined + custom). One agent may hold many roles; " +
       "many agents may share one role. Assigning a role never changes an agent's model."));
     let data = { roles: [], assignments: {} };
+    let roleCats = { categories: [] };
     try { data = await api("/api/settings/roles"); } catch (_) { /* empty */ }
+    try { roleCats = await api("/api/settings/role-categories"); } catch (_) { /* empty */ }
 
     s.appendChild(el("h4", null, "Role definitions"));
     const list = el("div");
@@ -841,7 +843,8 @@
     s.appendChild(createRoleForm());
 
     s.appendChild(el("h4", null, "Agent role assignment"));
-    s.appendChild(agentRoleTable(data.roles || [], data.assignments || {}));
+    s.appendChild(agentRoleTable(data.roles || [], data.assignments || [],
+                                  roleCats.categories || []));
     return s;
   }
 
@@ -926,40 +929,177 @@
     return box;
   }
 
-  function agentRoleTable(rolesList, assignments) {
+  function _opt(value, label) {
+    const o = el("option", null, label);
+    o.value = value;
+    return o;
+  }
+
+  // Two-level Role Category → Role selector. The category filter narrows the
+  // role chips so the flat list never grows unbounded.
+  function agentRoleTable(rolesList, assignments, roleCategories) {
     const wrap = el("div");
     if (!rolesList.length) {
       wrap.appendChild(el("div", "muted", "create a role first, then assign it"));
       return wrap;
     }
-    state.agents.forEach((a) => {
-      if (!a.agent) return;
-      const row = el("div", "set-row");
-      row.appendChild(el("label", null, `${a.name} (${a.tag.toUpperCase()})`));
-      const chips = el("div", "model-chips");
-      const current = new Set(assignments[a.agent] || []);
-      rolesList.forEach((r) => {
-        const c = el("button", "f-chip" + (current.has(r.id) ? " active" : ""), r.name || r.id);
-        c.title = "click to toggle";
-        c.addEventListener("click", async () => {
-          if (current.has(r.id)) current.delete(r.id); else current.add(r.id);
-          c.classList.toggle("active", current.has(r.id));
-          try {
-            await put(`/api/settings/agents/${encodeURIComponent(a.agent)}/roles`,
-                      { role_ids: Array.from(current) });
-            c.title = "saved";
-          } catch (err) {
-            c.title = err.message;
-            c.classList.toggle("active", current.has(r.id));
+
+    function roleCat(rid) {
+      for (const c of (roleCategories || [])) {
+        if ((c.roles || []).some((r) => r.id === rid)) return c.id || "uncategorized";
+      }
+      return "uncategorized";
+    }
+
+    const catSel = el("select");
+    catSel.appendChild(_opt("all", "All categories"));
+    (roleCategories || []).forEach((c) =>
+      catSel.appendChild(_opt(c.id || "uncategorized", c.name || c.id || "Uncategorized")));
+    wrap.appendChild(setRow("Role Category", catSel));
+
+    const table = el("div");
+    function renderTable() {
+      empty(table);
+      const filter = catSel.value;
+      state.agents.forEach((a) => {
+        if (!a.agent) return;
+        const row = el("div", "set-row");
+        row.appendChild(el("label", null, `${a.name} (${a.tag.toUpperCase()})`));
+        const chips = el("div", "model-chips");
+        const current = new Set(assignments[a.agent] || []);
+        let shown = 0;
+        rolesList.forEach((r) => {
+          if (filter !== "all" && roleCat(r.id) !== filter) return;
+          shown++;
+          const c = el("button", "f-chip" + (current.has(r.id) ? " active" : ""), r.name || r.id);
+          c.title = "click to toggle";
+          c.addEventListener("click", async () => {
             if (current.has(r.id)) current.delete(r.id); else current.add(r.id);
+            c.classList.toggle("active", current.has(r.id));
+            try {
+              await put(`/api/settings/agents/${encodeURIComponent(a.agent)}/roles`,
+                        { role_ids: Array.from(current) });
+              c.title = "saved";
+            } catch (err) {
+              c.title = err.message;
+              c.classList.toggle("active", current.has(r.id));
+              if (current.has(r.id)) current.delete(r.id); else current.add(r.id);
+            }
+          });
+          chips.appendChild(c);
+        });
+        if (!shown) chips.appendChild(el("span", "muted", "no roles in this category"));
+        row.appendChild(chips);
+        table.appendChild(row);
+      });
+    }
+    catSel.addEventListener("change", renderTable);
+    renderTable();
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  /* ── Prompt Profiles (Prompt Category → Prompt Profile) ──────── */
+  async function viewPrompts() {
+    const s = el("div", "set-section");
+    s.appendChild(el("h3", null, "Prompt Profiles"));
+    s.appendChild(el("span", "muted",
+      "Reusable behavioral/instruction profiles, grouped by category. Only profiles in " +
+      "the selected category are shown — never the whole flat list. Assign one or more " +
+      "to each agent; a preset's profile is pre-selected when it comes from the catalog."));
+    let cats = { categories: [] };
+    try { cats = await api("/api/settings/prompt-categories"); } catch (_) { /* empty */ }
+    const wrap = el("div");
+    if (!(cats.categories || []).length) {
+      wrap.appendChild(el("div", "muted", "no prompt profiles available"));
+    } else {
+      state.agents.forEach((a) => {
+        if (a.agent) wrap.appendChild(promptAgentRow(a, cats.categories));
+      });
+    }
+    s.appendChild(wrap);
+    return s;
+  }
+
+  function promptAgentRow(a, categories) {
+    const row = el("div", "set-row");
+    row.appendChild(el("label", null, `${a.name} (${a.tag.toUpperCase()})`));
+
+    let assigned = [];
+    const flat = categories.reduce((acc, c) => acc.concat(c.profiles || []), []);
+    const profileName = (pid) => { const p = flat.find((x) => x.id === pid); return p ? p.name : pid; };
+
+    const catSel = el("select");
+    categories.forEach((c) => catSel.appendChild(_opt(c.id, c.name)));
+    const profSel = el("select");
+    function fillProfiles() {
+      empty(profSel);
+      const cat = categories.find((c) => c.id === catSel.value);
+      ((cat && cat.profiles) || []).forEach((p) => profSel.appendChild(_opt(p.id, p.name)));
+      if (!profSel.options.length) profSel.appendChild(_opt("", "(no profiles in this category)"));
+    }
+    catSel.addEventListener("change", fillProfiles);
+    fillProfiles();
+
+    const assign = el("button", "btn", "Assign");
+    const badge = el("span", "verify-badge");
+    const chips = el("div", "model-chips");
+
+    function renderChips() {
+      empty(chips);
+      if (!assigned.length) chips.appendChild(el("span", "muted", "none assigned"));
+      assigned.forEach((pid) => {
+        const c = el("button", "f-chip active", profileName(pid));
+        c.title = "click to remove";
+        c.addEventListener("click", async () => {
+          assigned = assigned.filter((x) => x !== pid);
+          try {
+            await put(`/api/settings/agents/${encodeURIComponent(a.agent)}/prompts`,
+                      { prompt_profile_ids: assigned });
+            renderChips();
+          } catch (err) {
+            badge.className = "verify-badge err";
+            badge.textContent = err.message;
           }
         });
         chips.appendChild(c);
       });
-      row.appendChild(chips);
-      wrap.appendChild(row);
+    }
+
+    assign.addEventListener("click", async () => {
+      const pid = profSel.value;
+      if (!pid) return;
+      assign.disabled = true;
+      try {
+        const next = Array.from(new Set(assigned.concat(pid)));
+        await put(`/api/settings/agents/${encodeURIComponent(a.agent)}/prompts`,
+                  { prompt_profile_ids: next });
+        assigned = next;
+        badge.className = "verify-badge ok";
+        badge.textContent = "assigned ✓";
+        renderChips();
+      } catch (err) {
+        badge.className = "verify-badge err";
+        badge.textContent = err.message;
+      } finally {
+        assign.disabled = false;
+      }
     });
-    return wrap;
+
+    // load current assignments for this agent
+    api(`/api/settings/agents/${encodeURIComponent(a.agent)}/prompts`)
+      .then((r) => { assigned = r.prompt_profile_ids || []; renderChips(); })
+      .catch(() => renderChips());
+    renderChips();
+
+    const line = el("div", "wizard-actions");
+    line.appendChild(catSel);
+    line.appendChild(profSel);
+    line.appendChild(assign);
+    line.appendChild(badge);
+    row.appendChild(line);
+    row.appendChild(chips);
+    return row;
   }
 
   /* ── Repository analysis ──────────────────────────────────────── */

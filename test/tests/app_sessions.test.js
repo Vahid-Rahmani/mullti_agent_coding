@@ -137,9 +137,20 @@ Ag.agents = TAGS.map((tag) => ({
   tag, name: NAMES[tag], agent: tag, model: "", status: "idle",
   progress: 0, token_usage: 0, running: false, prompt: "",
 }));
-Ag.prefs.layout = "4";
-Ag.prefs.agents_visible = ["m1", "m2", "m3", "m4", "m5", "m6"];
+// Home is a projection of the active workflow: panel visibility is driven by
+// which agents have workflow nodes (not the legacy prefs.agents_visible list).
+Ag.homeWorkflow = { id: "wf-test", name: "Test" };
+Ag.homeEdges = [];
+Ag.nodeSessions = {};
+Ag.runStatuses = {};
 Ag.sessions = {};
+const showAgents = (tags) => {
+  Ag.homeNodes = tags.map((tag, i) => ({
+    id: "n_" + tag, agent: tag, label: NAMES[tag],
+    x: 100 + i * 120, y: 100, model: "", kind: "agent",
+  }));
+};
+showAgents(["m1", "m2", "m3", "m4", "m5", "m6"]);
 
 const rows = (tag) => {
   const p = query(registry.grid, `.panel[data-tag="${tag}"]`);
@@ -164,8 +175,7 @@ eq(sessTexts("m7")[0], "m7 secret output", "C: session holds the hidden output")
 /* D — rebuild with the agent now visible replays previous output
    (the UI renders at most 6 of the 7 panels, so m7 becomes visible by
    swapping it into the visible set) */
-Ag.prefs.layout = "6";
-Ag.prefs.agents_visible = ["m1", "m2", "m3", "m4", "m5", "m7"];
+showAgents(["m1", "m2", "m3", "m4", "m5", "m7"]);
 buildWorkspace();
 ok(panelEl("m7"), "D: m7 panel rendered after layout/visibility change");
 deepEq(rows("m7"), ["m7 secret output"], "D: previously hidden output replayed on visibility");
@@ -177,16 +187,15 @@ deepEq(sessTexts("m7"), ["m7 secret output", "one", "two", "three"], "E: session
 deepEq(rows("m7"), ["m7 secret output", "one", "two", "three"], "E: rendered order preserved");
 
 /* F — later layout changes never erase received output */
-Ag.prefs.layout = "4";
+showAgents(["m1", "m2", "m3", "m4", "m5", "m6"]);
 buildWorkspace();
 ok(panelEl("m7") === null, "F: m7 hidden again");
-Ag.prefs.layout = "6";
+showAgents(["m1", "m2", "m3", "m4", "m5", "m7"]);
 buildWorkspace();
 deepEq(rows("m7"), ["m7 secret output", "one", "two", "three"], "F: toggles never erase output");
 
 /* G — SSE protocol compatibility (driven through the real openStream handler) */
-Ag.prefs.layout = "4";
-Ag.prefs.agents_visible = ["m1", "m2", "m3", "m4"];
+showAgents(["m1", "m2", "m3", "m4"]);
 buildWorkspace();
 openStream();
 const es = MockEventSource.last;
@@ -209,12 +218,10 @@ ok(sessTexts("m6").includes("▶ dispatched (target=m6)"), "G: usermsg persisted
 es._emit("status", { n: 24, tag: "m4", kind: "status", text: "thinking" });
 ok(sessTexts("m4").includes("thinking"), "G: status event persisted");
 ok(!rows("m4").includes("thinking"), "G: status never rendered as a console row");
-Ag.prefs.layout = "6";
-Ag.prefs.agents_visible = ["m1", "m2", "m3", "m4", "m5", "m6"];
+showAgents(["m1", "m2", "m3", "m4", "m5", "m6"]);
 buildWorkspace();
 ok(!rows("m4").includes("thinking"), "G: status not replayed as a row either (live == replay)");
-Ag.prefs.layout = "4";
-Ag.prefs.agents_visible = ["m1", "m2", "m3", "m4"];
+showAgents(["m1", "m2", "m3", "m4"]);
 buildWorkspace();
 
 /* init-snapshot merge: snapshot arriving after live events must not revert them */

@@ -214,7 +214,7 @@ class TestSuccessfulTask(E2ETestCase):
         self.assertTrue(any("Task_Ok" in r for r in new_rows),
                         f"no fresh change-log row for Task_Ok in {new_rows}")
         # 4. Lock released.
-        self.assertFalse(orch._lock_path("Task_Ok").exists())
+        self.assertFalse(orch._lock_path(self.vault, "Task_Ok").exists())
         # 5. Graph integrity: no NEW errors introduced on the temp vault.
         self.assertEqual(self.graph_errors_after(), [])
         # 6. Dashboard reflects the completed task.
@@ -234,7 +234,7 @@ class TestFailedTask(E2ETestCase):
         self.assertEqual(self.status_of("Task_Bad"), "failed")
         self.assertIn("## Execution Log", self.body_of("Task_Bad"))
         # Never stuck in_progress, lock released.
-        self.assertFalse(orch._lock_path("Task_Bad").exists())
+        self.assertFalse(orch._lock_path(self.vault, "Task_Bad").exists())
         self.assertEqual(self.graph_errors_after(), [])
         self.assert_workspace_untouched()
 
@@ -299,7 +299,7 @@ class TestConflictingDocumentation(E2ETestCase):
 class TestConcurrentExecution(E2ETestCase):
     def test_second_dispatch_refused_while_locked(self):
         self.add_task("Task_Lock")
-        lock = orch._acquire_lock("Task_Lock")
+        lock = orch._acquire_lock(self.vault, "Task_Lock")
         self.assertIsNotNone(lock)
         try:
             with self.assertRaises(orch.VaultError) as cm:

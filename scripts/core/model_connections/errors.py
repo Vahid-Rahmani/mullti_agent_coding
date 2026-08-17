@@ -36,9 +36,9 @@ class ResolutionError(ConnectionError):
 
 __all__ = [
     "ConnectionError",
-    "UnknownProviderError",
-    "UnknownConnectionError",
-    "DuplicateConnectionError",
     "CredentialError",
+    "DuplicateConnectionError",
     "ResolutionError",
+    "UnknownConnectionError",
+    "UnknownProviderError",
 ]

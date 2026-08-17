@@ -64,13 +64,15 @@ class TestParseFrontmatter(unittest.TestCase):
         self.assertEqual(fields, {})
         self.assertIn("missing frontmatter block", err)
 
-    def test_unknown_key(self):
+    def test_unknown_key_parsed_by_canonical_parser(self):
+        # The canonical parser (scripts.core.vault_bridge.parse_frontmatter)
+        # accepts any flat key: schema-level unknown-key rejection happens in
+        # main(), not in the parser (see TestValidationRules).
         text = "---\ntype: system\nstatus: active\nowner: o\n" \
                "created: 2026-08-11\nupdated: 2026-08-11\nbogus: 1\n---\n\n"
         fields, err = vv.parse_frontmatter(text)
-        self.assertEqual(fields, {})
-        self.assertIn("unknown frontmatter key", err)
-        self.assertIn("bogus", err)
+        self.assertIsNone(err)
+        self.assertEqual(fields["bogus"], "1")
 
     def test_unparseable_line(self):
         text = "---\ntype: system\nno colon here\n---\n\n"
@@ -284,6 +286,11 @@ class TestValidationRules(VaultValidateTestCase):
         code, out = self.run_validator()
         self.assert_fails_with(out, code, "priority 'urgent' not in")
 
+    def test_unknown_frontmatter_key(self):
+        self.make_flawed_vault(frontmatter(bogus="1"))
+        code, out = self.run_validator()
+        self.assert_fails_with(out, code, "unknown frontmatter key(s): bogus")
+
     def test_duplicate_node_name(self):
         self.write("00-System/System_Core.md",
                    node(frontmatter(), "System_Core", "[[Dup]]\n"))
@@ -318,6 +325,52 @@ class TestValidationRules(VaultValidateTestCase):
         self.write("00-System/System_Node.md",
                    node(frontmatter(related="[]"), "System_Node",
                         "↑ Parent: [[System_Core]]\n"))
+        code, out = self.run_validator()
+        self.assertEqual(code, 0, out)
+
+
+class TestTaskStatusVocabulary(VaultValidateTestCase):
+    """Phase 29: task nodes use the Orchestrator's execution statuses.
+
+    The validator's task-status set was reconciled with
+    ``scripts/core/vault_bridge.py`` (planned/ready/in_progress/blocked/
+    completed/failed) so any dispatchable task also validates. The legacy
+    ``todo``/``done`` aliases were retired, and the Dashboard's task-level
+    ``role`` override is now an allowed frontmatter key.
+    """
+
+    def _task(self, name, status, **extra):
+        self.write("00-System/System_Core.md",
+                   node(frontmatter(), "System_Core", f"[[{name}]]\n"))
+        self.write(f"03-Tasks/{name}.md",
+                   node(frontmatter(ntype="task", status=status,
+                                    owner="orchestrator", **extra),
+                        name, "↑ Parent: [[System_Core]]\n"))
+
+    def test_ready_task_validates(self):
+        self._task("Task_A", "ready")
+        code, out = self.run_validator()
+        self.assertEqual(code, 0, out)
+
+    def test_completed_and_failed_tasks_validate(self):
+        self._task("Task_A", "completed")
+        self.write("00-System/System_Core.md",
+                   node(frontmatter(), "System_Core", "[[Task_A]] [[Task_B]]\n"))
+        self.write("03-Tasks/Task_B.md",
+                   node(frontmatter(ntype="task", status="failed",
+                                    owner="orchestrator"),
+                        "Task_B", "↑ Parent: [[System_Core]]\n"))
+        code, out = self.run_validator()
+        self.assertEqual(code, 0, out)
+
+    def test_legacy_todo_status_rejected(self):
+        self._task("Task_A", "todo")
+        code, out = self.run_validator()
+        self.assertEqual(code, 1, out)
+        self.assertIn("status 'todo' not allowed", out)
+
+    def test_task_role_override_key_allowed(self):
+        self._task("Task_A", "ready", role="security-engineer")
         code, out = self.run_validator()
         self.assertEqual(code, 0, out)
 

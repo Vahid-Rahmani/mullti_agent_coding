@@ -1,6 +1,7 @@
 ---
 type: task
 status: planned
+owner: orchestrator
 priority: medium
 assigned_agent: Agent_Matthew
 related_component: Component_RunHub
@@ -39,9 +40,10 @@ updated: YYYY-MM-DD
 ## How to use this template
 
 1. Copy this file to `03-Tasks/Task_<Short_Name>.md`.
-2. Fill every frontmatter field (the 9 required fields: title, status,
-   priority, assigned_agent, related_component, dependencies,
-   acceptance_criteria, created, updated).
+2. Fill the required frontmatter fields (`type: task`, `status`, `owner`,
+   `created`, `updated`) plus the optional task fields (`priority`,
+   `assigned_agent`, `related_component`, `dependencies`). Put the title and
+   acceptance criteria in the body, not frontmatter.
 3. Set `status` per the allowed values: `planned`, `ready`, `in_progress`,
    `blocked`, `completed`, `failed`.
 4. `assigned_agent` and `related_component` must be node names that exist

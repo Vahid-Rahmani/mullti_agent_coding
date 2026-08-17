@@ -352,8 +352,8 @@ def _score_model(cap: ModelCapabilityProfile,
 
 
 __all__ = [
-    "PromptRecommendation",
     "ModelRecommendation",
-    "recommend_prompts",
+    "PromptRecommendation",
     "recommend_model_capabilities",
+    "recommend_prompts",
 ]

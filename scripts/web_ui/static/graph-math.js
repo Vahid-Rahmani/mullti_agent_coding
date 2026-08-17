@@ -268,9 +268,22 @@
     var iterations = opts.iterations == null ? 500 : opts.iterations;
     var k = opts.edgeLen || TARGET_EDGE;
     var n = nodes.length;
-    var seed = opts.seed && opts.seed[nodes[0] && nodes[0].name]
-      ? opts.seed
-      : seedPositions(nodes, edges, W, H);
+    var seed;
+    if (opts.fixed) {
+      // Stability mode: nodes named in opts.fixed keep their opts.seed
+      // positions (previously settled); every other node falls back to the
+      // deterministic section-anchored seed and relaxes normally.
+      var baseSeed = seedPositions(nodes, edges, W, H);
+      var givenSeed = opts.seed || {};
+      seed = {};
+      nodes.forEach(function (nd) {
+        seed[nd.name] = givenSeed[nd.name] || baseSeed[nd.name];
+      });
+    } else {
+      seed = opts.seed && opts.seed[nodes[0] && nodes[0].name]
+        ? opts.seed
+        : seedPositions(nodes, edges, W, H);
+    }
     var pos = nodes.map(function (nd, i) {
       var p = seed[nd.name];
       if (p) return { x: p.x, y: p.y };
@@ -306,6 +319,15 @@
         pos[hi].x = anchor.x; pos[hi].y = anchor.y;
       }
     });
+    // Stability pins: previously-laid-out nodes (opts.fixed, with positions in
+    // opts.seed) keep their exact positions, so a re-render or a
+    // visibility/topology change never moves an already-settled node. Only
+    // nodes absent from opts.fixed relax.
+    if (opts.fixed) {
+      for (var fi = 0; fi < n; fi++) {
+        if (opts.fixed[nodes[fi].name]) pinned[fi] = true;
+      }
+    }
 
     var t = 12;
     for (var it = 0; it < iterations; it++) {

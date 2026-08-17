@@ -50,13 +50,22 @@ related: [Node_A, Node_B]   # optional
 | `system` | `00-System/` | `active`, `draft` | `orchestrator`, `all` |
 | `architecture` | `01-Architecture/` | `active`, `draft`, `superseded` | `architect` |
 | `agent` | `02-Agents/` | `active`, `retired` | `orchestrator` |
-| `task` | `03-Tasks/` | `active`, `draft`, `todo`, `in_progress`, `done`, `blocked` | `orchestrator` |
+| `task` | `03-Tasks/` | `active`, `draft`, `planned`, `ready`, `in_progress`, `blocked`, `completed`, `failed` | `orchestrator` |
 | `decision` | `04-Decisions/` | `active`, `draft`, `proposed`, `accepted`, `superseded` | `architect` |
 | `documentation` | `05-Documentation/` | `active`, `draft` | `all` |
 | `test` | `06-Testing/` | `active`, `draft`, `passed`, `failed`, `blocked` | `testing` |
 
 **Enforcement:** a node's `type` must match its section folder (e.g. a node in
 `02-Agents/` must have `type: agent`).
+
+**Task status vocabulary:** hub/index nodes (`Tasks_Home`, `Task_Backlog`) use
+`active`/`draft`; leaf task nodes use the Orchestrator's execution vocabulary —
+`planned` → `ready` → `in_progress` → `completed` | `blocked` | `failed`. This
+is the same set `scripts/core/vault_bridge.py` and the Orchestrator's
+`TRANSITIONS` enforce, so any task that can be dispatched also validates.
+Optional task frontmatter: `priority`, `assigned_agent`, `related_component`,
+`dependencies`, and a temporary `role` override (written by the Dashboard,
+never to `roles.json`).
 
 ## 3. Node References (WikiLinks)
 

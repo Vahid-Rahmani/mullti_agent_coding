@@ -60,7 +60,7 @@ role prompt; its model and role are resolved at runtime (model from
 
 ## Related Tasks
 
-- [[Tasks_Home]] — no individual task nodes exist yet
+- [[Tasks_Home]] — seeded task nodes listed in [[Task_Backlog]]
 
 ## Related Architecture
 

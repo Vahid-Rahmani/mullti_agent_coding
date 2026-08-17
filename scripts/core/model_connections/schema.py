@@ -61,7 +61,7 @@ class ModelConnection:
     updated_at: str = ""
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ModelConnection":
+    def from_dict(cls, data: dict) -> ModelConnection:
         now = _now_iso()
         created = str(data.get("created_at") or now)
         return cls(
@@ -94,7 +94,7 @@ class ModelConnection:
             "updated_at": self.updated_at,
         }
 
-    def with_updates(self, **changes: object) -> "ModelConnection":
+    def with_updates(self, **changes: object) -> ModelConnection:
         """Return a copy with metadata changes applied (no secret fields)."""
         allowed = {"display_name", "endpoint", "deployment", "status",
                    "default", "updated_at", "credential_type"}
@@ -118,5 +118,9 @@ class ModelConnection:
         )
 
 
-__all__ = ["ModelConnection", "CONNECTION_STATUSES", "CREDENTIAL_TYPES",
-           "validate_connection_id"]
+__all__ = [
+    "CONNECTION_STATUSES",
+    "CREDENTIAL_TYPES",
+    "ModelConnection",
+    "validate_connection_id",
+]

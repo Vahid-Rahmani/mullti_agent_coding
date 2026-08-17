@@ -14,15 +14,15 @@ personas, role descriptions, or mode routing in the specs.
 
 from __future__ import annotations
 
-from .base import AgentSpec
-from .matthew import SPEC as MATTHEW
 from .alex import SPEC as ALEX
-from .sarah import SPEC as SARAH
+from .base import AgentSpec
+from .chloe import SPEC as CHLOE
 from .david import SPEC as DAVID
 from .elena import SPEC as ELENA
-from .max import SPEC as MAX
-from .chloe import SPEC as CHLOE
 from .master import SPEC as MASTER
+from .matthew import SPEC as MATTHEW
+from .max import SPEC as MAX
+from .sarah import SPEC as SARAH
 
 # Roster order matches opencode.json agents (M1..M7).
 AGENT_SPECS: tuple[AgentSpec, ...] = (MATTHEW, ALEX, SARAH, DAVID, ELENA, MAX, CHLOE)

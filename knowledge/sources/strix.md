@@ -1,3 +1,19 @@
+---
+id: strix
+source_url: https://github.com/usestrix/strix
+license: Apache-2.0
+source_type: open-source security application
+extraction_mode: ideas
+code_reuse: concepts only
+domains: [security, verification]
+evidence:
+  - id: validated-security-loop
+    kind: workflow
+    summary: Use recon, discovery, validation, remediation, rescan, and reporting.
+    supports: [security-reconnaissance, vulnerability-discovery, finding-validation, remediation, re-scan-verification, security-reporting, sandboxing]
+    confidence: direct
+    requires_inspection: true
+---
 # usestrix/strix
 
 - **Repository:** `usestrix/strix`

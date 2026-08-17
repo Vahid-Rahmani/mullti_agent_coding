@@ -11,7 +11,7 @@ reviewing (wired into OpenCode via the `references.knowledge` config key in
   upstream repository researched for MultiAgentCoding (license, purpose,
   useful concepts, and the integration decision). These are research/reference
   sources, not runtime dependencies. See `sources/README.md` for the license
-  matrix and the source → prompt/workflow reference map.
+  matrix and the source → prompt/skill/workflow/evaluation reference map.
 - `metrics.jsonl` — per-session metrics (tokens, success, interventions).
 - `fine_tune_dataset.jsonl` — reserved for fine-tuning data (currently empty).
 

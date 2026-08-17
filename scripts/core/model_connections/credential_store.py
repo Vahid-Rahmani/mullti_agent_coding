@@ -136,12 +136,12 @@ def safe_error(exc: BaseException, *secrets: str | None) -> str:
 
 
 __all__ = [
+    "CredentialError",
+    "_resolve_credential",
     "auth_store_path",
     "has_credential",
-    "store_credential",
-    "remove_credential",
-    "_resolve_credential",
     "redact",
+    "remove_credential",
     "safe_error",
-    "CredentialError",
+    "store_credential",
 ]

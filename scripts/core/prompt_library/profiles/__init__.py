@@ -6,21 +6,23 @@ validates and turns them into immutable :class:`PromptProfile` objects.
 
 from __future__ import annotations
 
-from . import ai_engineer
-from . import cloud_engineer
-from . import code_reviewer
-from . import data_engineer
-from . import debugger
-from . import devops_engineer
-from . import external
-from . import orchestrator
-from . import project_manager
-from . import qa_engineer
-from . import researcher
-from . import security_engineer
-from . import software_architect
-from . import software_engineer
-from . import technical_writer
+from . import (
+    ai_engineer,
+    cloud_engineer,
+    code_reviewer,
+    data_engineer,
+    debugger,
+    devops_engineer,
+    external,
+    orchestrator,
+    project_manager,
+    qa_engineer,
+    researcher,
+    security_engineer,
+    software_architect,
+    software_engineer,
+    technical_writer,
+)
 
 # Deterministic module order (mirrors PROMPT_ROLES) so registry ordering is stable.
 MODULES = (

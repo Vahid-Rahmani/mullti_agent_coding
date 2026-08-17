@@ -109,7 +109,7 @@ __all__ = [
     "ModelError",
     "get_model",
     "list_models",
-    "list_models_by_provider",
     "list_models_by_capability",
+    "list_models_by_provider",
     "model_providers",
 ]

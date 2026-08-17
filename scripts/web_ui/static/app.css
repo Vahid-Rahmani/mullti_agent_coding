@@ -507,15 +507,44 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
   cursor: pointer;
   user-select: none;
 }
+.p-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: #fff;
+  flex-shrink: 0;
+  user-select: none;
+}
+.p-name-wrap { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .p-name { font-weight: 600; }
-.p-model { color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
+.p-model { color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .p-status { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
 .p-status .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .st-idle .dot, .st-idle { color: var(--text-faint); }
-.st-busy .dot { background: var(--busy); }
+.st-busy .dot { background: var(--busy); animation: busy-pulse 1.1s ease-in-out infinite; }
 .st-ok .dot { background: var(--ok); }
 .st-err .dot { background: var(--err); }
 .st-err { color: var(--err); }
+@keyframes busy-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+/* current action / state line (real run status only — never invented text) */
+.p-action {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel.running .p-action { color: var(--busy); }
 .p-stop {
   background: transparent;
   border: 1px solid var(--err);
@@ -586,6 +615,26 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tab-panel { flex: 1; min-height: 0; display: none; padding: 6px 10px; overflow: hidden; }
 .tab-panel.active { display: flex; flex-direction: column; }
+
+/* bottom dock minimize/expand toggle (compact dock) */
+#bottom-toggle {
+  align-self: center;
+  margin-left: auto;
+  margin-right: 4px;
+  width: auto;
+  height: 20px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.2;
+}
+#bottom-toggle:hover { color: var(--text); border-color: var(--border-strong); }
+body.bottom-minimized #bottom { overflow: hidden; }
+body.bottom-minimized #bottom .tab-panel { display: none !important; }
 
 .status-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .status-table th, .status-table td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--border); }
@@ -854,6 +903,9 @@ body.ws-body {
 .ws-lib-name { font-size: 13px; font-weight: 600; }
 .ws-lib-model { font-size: 11px; color: var(--accent); }
 .ws-lib-roles { font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-lib-cat { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); padding: 10px 2px 2px; border-bottom: 1px solid var(--border); }
+.ws-lib-cat:first-child { padding-top: 2px; }
+.ws-lib-agent.ws-lib-empty { border-style: dashed; }
 
 .ws-canvas-wrap { flex: 1 1 auto; position: relative; min-width: 0; width: 100%; display: flex; flex-direction: column; }
 .ws-canvas { flex: 1 1 0; position: relative; overflow: hidden; min-width: 0; width: 100%; background: var(--bg); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 24px 24px; cursor: grab; }
@@ -1043,22 +1095,34 @@ body.ws-body {
   stroke-dasharray: 6 4;
 }
 
-/* Every Home panel is draggable (by header) and resizable (corner handle) in
-   any layout mode; a manual drag/resize promotes the layout to Custom. */
+/* Every Home panel is draggable (by header) and resizable from all eight
+   edges/corners (desktop-window semantics); a manual drag/resize promotes the
+   layout to Custom. */
 #workspace-grid .panel .p-head { cursor: grab; }
 #workspace-grid .panel .p-head:active { cursor: grabbing; }
 #workspace-grid .panel.dragging .p-head { cursor: grabbing; }
 #workspace-grid .panel.dragging { box-shadow: 0 6px 20px rgba(0, 0, 0, .45); }
 .panel-resize {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 16px;
-  height: 16px;
-  cursor: nwse-resize;
-  border-right: 2px solid var(--border-strong);
-  border-bottom: 2px solid var(--border-strong);
-  opacity: .6;
   z-index: 3;
+  opacity: 0;
+  transition: opacity .12s ease;
 }
-.panel-resize:hover { opacity: 1; }
+.panel:hover .panel-resize { opacity: .55; }
+.panel-resize:hover { opacity: 1; background: var(--accent-soft); }
+
+/* edge handles (thin strips along each side) */
+.panel-resize.r-n { top: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.panel-resize.r-s { bottom: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.panel-resize.r-e { right: 0; top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.panel-resize.r-w { left: 0; top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+
+/* corner handles */
+.panel-resize.r-ne { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize;
+  border-top: 2px solid var(--border-strong); border-right: 2px solid var(--border-strong); }
+.panel-resize.r-nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize;
+  border-top: 2px solid var(--border-strong); border-left: 2px solid var(--border-strong); }
+.panel-resize.r-se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize;
+  border-bottom: 2px solid var(--border-strong); border-right: 2px solid var(--border-strong); }
+.panel-resize.r-sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize;
+  border-bottom: 2px solid var(--border-strong); border-left: 2px solid var(--border-strong); }

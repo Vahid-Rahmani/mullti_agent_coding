@@ -60,6 +60,7 @@
     prompts: [],           // prompt-profile metadata from /api/prompts
     promptById: {},        // {id: meta} quick lookup
     promptTexts: {},       // {id: full prompt text} cache (fetched on demand)
+    catalog: { empty_agent: null, categories: [] },  // Agent Catalog (presets by category)
     taskRecs: {},          // {nodeId: [recommendation]} transient (not persisted)
     dirty: false,
     selected: { type: null, id: null },   // 'node' | 'edge'
@@ -702,6 +703,10 @@
       S.promptById = {};
       S.prompts.forEach((p) => { S.promptById[p.id] = p; });
     } catch (_) { /* keep empty */ }
+    try {
+      const cat = await api("/api/agent-catalog");
+      S.catalog = cat || { empty_agent: null, categories: [] };
+    } catch (_) { /* keep empty → flat-agent fallback */ }
     await loadModelCatalog();
     await loadConnections();
     renderLibrary();
@@ -869,9 +874,88 @@
       (a.model && a.model.toLowerCase().includes(q)));
   }
 
-  function renderLibrary() {
-    const list = $("#ws-library-list");
-    empty(list);
+  // Does one preset match the live library search query?
+  function presetMatches(preset, q) {
+    const needle = (q || "").trim().toLowerCase();
+    if (!needle) return true;
+    return [preset.display_name, preset.id, preset.role, preset.agent_key,
+            preset.category, preset.description]
+      .filter(Boolean).join(" ").toLowerCase().includes(needle);
+  }
+
+  function allPresets() {
+    const out = [];
+    if (S.catalog && S.catalog.empty_agent) out.push(S.catalog.empty_agent);
+    ((S.catalog && S.catalog.categories) || []).forEach((c) => {
+      (c.presets || []).forEach((p) => out.push(p));
+    });
+    return out;
+  }
+
+  function matchingPresets() {
+    const q = S.agentFilter || "";
+    const presets = allPresets();
+    if (!q.trim()) return presets;
+    return presets.filter((p) => presetMatches(p, q));
+  }
+
+  function presetById(id) {
+    if (!id) return null;
+    if (S.catalog && S.catalog.empty_agent && S.catalog.empty_agent.id === id) {
+      return S.catalog.empty_agent;
+    }
+    for (const c of ((S.catalog && S.catalog.categories) || [])) {
+      const p = (c.presets || []).find((x) => x.id === id);
+      if (p) return p;
+    }
+    return null;
+  }
+
+  // A catalog preset card (Empty Agent included). Draggable; stores the preset
+  // id under PRESET_DRAG_TYPE plus the legacy agent key (when bound) so drops
+  // resolve deterministically without ever carrying a model/credential.
+  function libraryPresetCard(preset) {
+    const card = el("button", "ws-lib-agent");
+    card.type = "button";
+    card.draggable = true;
+    card.appendChild(el("span", "ws-lib-name", preset.display_name || preset.id));
+    card.appendChild(el("span", "ws-lib-model", preset.model || "Auto"));
+    if (preset.role) {
+      card.appendChild(el("span", "ws-lib-roles", roleName(preset.role)));
+    }
+    card.title = "Add an instance of this preset to the canvas (click or drag)";
+    card.addEventListener("click", () => addNodeFromPreset(preset));
+    card.addEventListener("dragstart", (e) => {
+      if (e.dataTransfer) {
+        e.dataTransfer.setData(PRESET_DRAG_TYPE, preset.id);   // preset identity
+        if (preset.agent_key) {
+          e.dataTransfer.setData(AGENT_DRAG_TYPE, preset.agent_key);  // legacy key
+        }
+        e.dataTransfer.effectAllowed = "copy";
+      }
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", () => card.classList.remove("dragging"));
+    return card;
+  }
+
+  function renderCatalogLibrary(list, catalog) {
+    // Empty Agent is always first and independent of every category.
+    if (catalog.empty_agent) list.appendChild(libraryPresetCard(catalog.empty_agent));
+    (catalog.categories || []).forEach((cat) => {
+      const presets = (cat.presets || []).filter((p) => presetMatches(p, S.agentFilter));
+      if (!presets.length) return;
+      list.appendChild(el("div", "ws-lib-cat", cat.name));
+      presets.forEach((p) => list.appendChild(libraryPresetCard(p)));
+    });
+    if (!catalog.empty_agent && !(catalog.categories || []).length) {
+      list.appendChild(el("div", "placeholder", "no agent presets"));
+    }
+  }
+
+  function renderFlatLibrary(list) {
+    // Legacy flat-agent fallback (catalog endpoint unavailable). Preserved so
+    // the workspace still works against a backend without /api/agent-catalog.
     if (!S.agents.length) {
       list.appendChild(el("div", "placeholder", "no agents"));
       return;
@@ -903,12 +987,25 @@
     });
   }
 
+  function renderLibrary() {
+    const list = $("#ws-library-list");
+    empty(list);
+    const catalog = S.catalog || { empty_agent: null, categories: [] };
+    if (catalog.empty_agent || (catalog.categories && catalog.categories.length)) {
+      renderCatalogLibrary(list, catalog);
+    } else {
+      renderFlatLibrary(list);
+    }
+  }
+
   /* ── library → canvas drag & drop (HTML5) ──────────────────────
      The library uses the native drag/drop event chain (dragstart → dragover
      → drop → dragend) to create a node at the drop point; existing node
      move/connect stays on pointer events — the two systems never mix. Only
-     the agent key travels in the drag payload (never a model/credential). */
+     the preset id / agent key travels in the drag payload (never a
+     model/credential). */
   const AGENT_DRAG_TYPE = "application/x-zova-agent";
+  const PRESET_DRAG_TYPE = "application/x-zova-preset";
 
   function bindDragDrop() {
     const canvas = $("#ws-canvas");
@@ -922,8 +1019,19 @@
     canvas.addEventListener("drop", (e) => {
       e.preventDefault();
       canvas.classList.remove("drag-over");
-      const key = e.dataTransfer && typeof e.dataTransfer.getData === "function"
-        ? e.dataTransfer.getData(AGENT_DRAG_TYPE) : "";
+      const dt = e.dataTransfer && typeof e.dataTransfer.getData === "function"
+        ? e.dataTransfer : null;
+      const presetId = dt ? dt.getData(PRESET_DRAG_TYPE) : "";
+      if (presetId) {
+        const preset = presetById(presetId);
+        if (preset) {
+          const p = canvasPos(e);               // client → world coordinates
+          addNodeFromPreset(preset, { x: p.x, y: p.y });
+          return;
+        }
+        // Unknown/legacy payload — fall through to the agent-key path.
+      }
+      const key = dt ? dt.getData(AGENT_DRAG_TYPE) : "";
       if (!key) return;
       const agent = S.agents.find((a) => a.agent === key);
       if (!agent) return;
@@ -940,6 +1048,34 @@
       label_auto: true,   // agent-derived label — follows the prompt profile until customized
       agent: agent.agent, kind: "agent", model: "",
       roles: [], instructions: "", tools: [], enabled: true,
+      x: (pos && Number.isFinite(pos.x)) ? pos.x : 120 + (S.workflow.nodes.length % 4) * 160,
+      y: (pos && Number.isFinite(pos.y)) ? pos.y : 120 + (S.workflow.nodes.length % 3) * 140,
+    };
+    S.workflow.nodes.push(n);
+    markDirty();
+    render();
+    select("node", n.id);
+    return n;
+  }
+
+  // Create a node pre-configured from a catalog preset (Template → Agent →
+  // Model → Mode → Role → Skills → Prompt Profile). The Empty Agent produces
+  // an unbound, empty node the user configures from scratch.
+  function addNodeFromPreset(preset, pos) {
+    const count = S.workflow.nodes.filter((n) => n.agent === (preset.agent_key || "")).length;
+    const n = {
+      id: nextId(),
+      label: preset.display_name || preset.id || "Agent",
+      label_auto: true,
+      agent: preset.agent_key || "",
+      kind: "agent",
+      model: preset.model || "",
+      roles: preset.role ? [preset.role] : [],
+      instructions: "",
+      prompt_profile: (preset.prompt_profiles && preset.prompt_profiles[0]) || "",
+      skills: (preset.skills || []).slice(),
+      tools: [],
+      enabled: true,
       x: (pos && Number.isFinite(pos.x)) ? pos.x : 120 + (S.workflow.nodes.length % 4) * 160,
       y: (pos && Number.isFinite(pos.y)) ? pos.y : 120 + (S.workflow.nodes.length % 3) * 140,
     };
@@ -1835,8 +1971,9 @@
       });
       agentSearch.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
-          const agents = matchingAgents();
-          if (agents.length) addNode(agents[0]);
+          const presets = matchingPresets();
+          if (presets.length) addNodeFromPreset(presets[0]);
+          else { const agents = matchingAgents(); if (agents.length) addNode(agents[0]); }
         }
       });
     }
@@ -1890,9 +2027,10 @@
     render();
   }
 
-  window.MACWorkspace = { S, select, render, addNode, saveWorkflow, loadWorkflow,
+  window.MACWorkspace = { S, select, render, addNode, addNodeFromPreset, saveWorkflow, loadWorkflow,
                           validateWorkflow, runWorkflow, dryRunWorkflow, fitToScreen,
-                          loadMeta, matchingAgents, bindDragDrop, ORIGIN,
+                          loadMeta, matchingAgents, matchingPresets, presetById,
+                          presetMatches, allPresets, bindDragDrop, ORIGIN,
                           activateWorkflow, refreshActiveIndicator, updateActivateButton,
                           loadTemplate, recalcNid,
                           promptRoleKey, suggestPromptRole, nodePromptRoleKeys,

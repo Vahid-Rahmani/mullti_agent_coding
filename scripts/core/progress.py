@@ -5,7 +5,7 @@ No UI/rendering dependencies. These are pure math/telemetry functions.
 
 from __future__ import annotations
 
-from .agents import AGENTS, STATUS_IDLE, STATUS_THINKING, STATUS_ACTIVE
+from .agents import AGENTS, STATUS_ACTIVE, STATUS_IDLE, STATUS_THINKING
 
 TOKEN_CONTEXT_WINDOW = 8192
 _TOKEN_CHARS_PER_TOKEN = 4

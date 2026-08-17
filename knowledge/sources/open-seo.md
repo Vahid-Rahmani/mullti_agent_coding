@@ -1,3 +1,19 @@
+---
+id: open-seo
+source_url: https://github.com/every-app/open-seo
+license: MIT
+source_type: open-source application
+extraction_mode: ideas
+code_reuse: concepts only
+domains: [content, research]
+evidence:
+  - id: seo-research-workflow
+    kind: workflow
+    summary: Combine keyword research, clustering, intent, and competitive analysis.
+    supports: [keyword-research, search-intent, keyword-clustering, competitive-analysis, gap-analysis, content-strategy, tool-orchestration]
+    confidence: direct
+    requires_inspection: true
+---
 # every-app/open-seo
 
 - **Repository:** `every-app/open-seo`

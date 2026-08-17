@@ -26,7 +26,10 @@ the task nodes — it is the orchestrator's entry point for planning.
 
 | Status | Task | Assigned | Component | Priority |
 |---|---|---|---|---|
-| *(none yet — tasks are created as work is planned)* | | | | |
+| `ready` | [[Task_Vault_Health_Check]] | Agent_Sarah | Component_StateTracker | medium |
+| `ready` | [[Task_WebUI_Smoke_Test]] | Agent_Alex | System_Architecture | medium |
+| `planned` | [[Task_Docs_Audit]] | Agent_Chloe | System_Architecture | low |
+| `completed` | [[Task_Skill_Evaluation_Extraction]] | Agent_David | System_Architecture | high |
 
 ## Status Legend
 

@@ -20,6 +20,7 @@ sys.path.insert(0, REPO_ROOT)
 
 from fastapi.testclient import TestClient
 
+from scripts.core import runtime_context
 from scripts.web_ui import graph as vgraph
 from scripts.web_ui.state import WebState
 
@@ -252,6 +253,32 @@ class ApiTestCase(VaultTestCase):
     def test_tasks_list(self):
         tasks = self.ctx.get("/api/tasks").json()["tasks"]
         self.assertEqual([t["name"] for t in tasks], ["Task_Demo"])
+
+    def test_task_detail_result_endpoint(self):
+        # A task carrying a persisted execution log + agent report parses both
+        # out of the node body (the Tasks → Run → Result retrieval path).
+        body = TASK_TEXT + (
+            "\n## Execution Log\n\n"
+            "- 2026-08-14T00:00:00 — completed\n\n"
+            "## Agent Report\n\n"
+            "- actions performed: did the thing\n"
+            "- test results: pass 3 tests, 0 failures\n"
+        )
+        self.task_path.write_text(body, encoding="utf-8")
+        r = self.ctx.get("/api/tasks/Task_Demo")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["name"], "Task_Demo")
+        self.assertEqual(data["status"], "planned")
+        self.assertEqual(data["assigned_agent"], "Agent_Matthew")
+        self.assertEqual(data["execution_log"],
+                         ["2026-08-14T00:00:00 — completed"])
+        self.assertEqual(data["agent_report"]["actions performed"],
+                         "did the thing")
+        self.assertIn("pass 3 tests", data["agent_report"]["test results"])
+
+    def test_task_detail_unknown_404(self):
+        self.assertEqual(self.ctx.get("/api/tasks/Task_Nope").status_code, 404)
 
     def test_assign_writes_frontmatter_and_status(self):
         res = self.ctx.post("/api/tasks/Task_Demo/assign", json={"agent": "matthew"})
@@ -1196,8 +1223,9 @@ class UiAssetsTestCase(unittest.TestCase):
         # zoomed-out band hides everything but the section-hub spine
         self.assertIn('(band === "out" && !graphEls.sectionHubs[nd.name]) ? "none" : ""', self.js)
         self.assertIn("GP.sectionHubNames(nodes)", self.js)
-        # layout runs in the larger section-aware world plane
-        self.assertIn("GP.runLayout(nodes, edges, { iterations: 500 })", self.js)
+        # layout runs in the larger section-aware world plane (seeded + pinned
+        # with settled positions so re-renders never move unchanged nodes)
+        self.assertIn("GP.runLayout(nodes, edges, { iterations: 500, seed: graphPosCache, fixed: fixed })", self.js)
         # band-specific edge weight/opacity in CSS
         self.assertIn('data-band="out"', self.css)
         self.assertIn('stroke-width: .5', self.css)
@@ -1638,6 +1666,73 @@ class WorkspaceAssetsTestCase(unittest.TestCase):
                       "model_connections.validate_connection",
                       "model_connections.resolve"):
             self.assertIn(token, routes)
+
+
+class AgentContextApiTestCase(VaultTestCase):
+    """Phase 30: per-agent skill / prompt-profile assignment API → runtime."""
+
+    def setUp(self):
+        super().setUp()
+        self._ctx_env = os.environ.get("ZOVA_AGENT_CONTEXT")
+        self.ctx_file = Path(self.tmp.name) / "agent_context.json"
+        os.environ["ZOVA_AGENT_CONTEXT"] = str(self.ctx_file)
+        import scripts.web_ui.routes as routes_mod
+        from scripts.web_ui.server import create_app
+        self.routes_mod = routes_mod
+        self.real_hub = routes_mod.HUB
+        routes_mod.HUB = self.hub
+        self.app = create_app(vault=self.vault, state=self.state)
+        self.ctx = TestClient(self.app)
+
+    def tearDown(self):
+        self.routes_mod.HUB = self.real_hub
+        if self._ctx_env is None:
+            os.environ.pop("ZOVA_AGENT_CONTEXT", None)
+        else:
+            os.environ["ZOVA_AGENT_CONTEXT"] = self._ctx_env
+        super().tearDown()
+
+    def test_skills_list_endpoint(self):
+        data = self.ctx.get("/api/settings/skills").json()["skills"]
+        ids = {s["id"] for s in data}
+        self.assertIn("structured-research", ids)
+        self.assertIn("seo-research", ids)
+
+    def test_prompt_profiles_list_endpoint_never_leaks_prompt_text(self):
+        data = self.ctx.get("/api/settings/prompt-profiles").json()["profiles"]
+        self.assertTrue(any(p["id"] == "researcher-analyst" for p in data))
+        self.assertTrue(all("prompt" not in p for p in data))
+
+    def test_assign_skills_reaches_runtime(self):
+        r = self.ctx.put("/api/settings/agents/matthew/skills",
+                         json={"skill_ids": ["structured-research", "seo-research"]})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["skill_ids"],
+                         ["structured-research", "seo-research"])
+        prompt = runtime_context.build_runtime_prompt("matthew", user_request="hi")
+        self.assertIn("Structured Research", prompt)
+        self.assertIn("SEO Keyword Research", prompt)
+
+    def test_assign_prompts_reaches_runtime(self):
+        r = self.ctx.put("/api/settings/agents/matthew/prompts",
+                         json={"prompt_profile_ids": ["researcher-analyst"]})
+        self.assertEqual(r.status_code, 200)
+        prompt = runtime_context.build_runtime_prompt("matthew", user_request="hi")
+        self.assertIn("Research Analyst", prompt)
+
+    def test_assign_skills_unknown_409(self):
+        r = self.ctx.put("/api/settings/agents/matthew/skills",
+                         json={"skill_ids": ["nope"]})
+        self.assertEqual(r.status_code, 409)
+
+    def test_assign_prompts_unknown_409(self):
+        r = self.ctx.put("/api/settings/agents/matthew/prompts",
+                         json={"prompt_profile_ids": ["nope"]})
+        self.assertEqual(r.status_code, 409)
+
+    def test_unknown_agent_404(self):
+        self.assertEqual(self.ctx.get("/api/settings/agents/nope/skills").status_code, 404)
+        self.assertEqual(self.ctx.get("/api/settings/agents/nope/prompts").status_code, 404)
 
 
 if __name__ == "__main__":

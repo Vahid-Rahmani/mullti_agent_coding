@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from scripts.core.agents import PROJECT_ROOT
@@ -56,7 +56,7 @@ class Role:
     expected_outputs: tuple[str, ...] = ()
 
     @classmethod
-    def from_dict(cls, role_id: str, data: dict) -> "Role":
+    def from_dict(cls, role_id: str, data: dict) -> Role:
         def _list(key: str) -> tuple[str, ...]:
             value = data.get(key) or []
             return tuple(str(x) for x in value)

@@ -44,7 +44,7 @@ class ResolvedConnection:
     source: str = "local"
     _credential: str | None = field(default=None, repr=False, compare=False)
 
-    def with_credential(self, secret: str | None) -> "ResolvedConnection":
+    def with_credential(self, secret: str | None) -> ResolvedConnection:
         """Return a copy carrying the secret — execution boundary only."""
         return replace(self, _credential=secret)
 

@@ -355,7 +355,9 @@ class RunStateWiringTestCase(unittest.TestCase):
     def test_run_agent_guards_option_like_prompt(self):
         proc = _FakeProc(returncode=0)
         with mock.patch("scripts.core.run_hub._opencode_command", return_value="opencode"), \
-             mock.patch("scripts.core.run_hub.roles.agent_context", return_value=""), \
+             mock.patch(
+                 "scripts.core.run_hub.runtime_context.build_runtime_prompt",
+                 side_effect=lambda agent, user_request="", **kw: user_request), \
              mock.patch("scripts.core.run_hub.subprocess.Popen", return_value=proc) as popen:
             self.hub._run_agent("m1", "matthew", "- Peer-Assistance handoff", None)
         cmd = popen.call_args.args[0]

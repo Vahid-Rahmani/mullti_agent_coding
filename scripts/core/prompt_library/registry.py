@@ -129,9 +129,9 @@ def suggest_prompts_for_role(role: str) -> list[PromptProfile]:
 __all__ = [
     "PromptError",
     "get_prompt",
-    "list_prompts",
-    "list_prompts_by_role",
-    "list_prompts_by_category",
-    "suggest_prompts_for_role",
     "list_prompt_roles",
+    "list_prompts",
+    "list_prompts_by_category",
+    "list_prompts_by_role",
+    "suggest_prompts_for_role",
 ]

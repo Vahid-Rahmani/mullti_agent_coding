@@ -59,6 +59,32 @@
   // they are never appended as console rows — live and replay stay identical.
   const PANEL_KINDS = ["run", "line", "error", "usermsg", "taskline"];
 
+  // Resize handles: every edge + corner of an agent window. Each direction
+  // names which edges move (e.g. "nw" moves the top + left edges). The handle
+  // DOM carries data-dir; bindPanelInteractions maps pointer deltas through
+  // resizeNodeDelta using these edge flags.
+  const RESIZE_DIRS = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+  const RESIZE_EDGES = {
+    n: { h: null, v: "n" }, s: { h: null, v: "s" },
+    e: { h: "e", v: null }, w: { h: "w", v: null },
+    ne: { h: "e", v: "n" }, nw: { h: "w", v: "n" },
+    se: { h: "e", v: "s" }, sw: { h: "w", v: "s" },
+  };
+
+  // Professional agent-window avatar palette (indexed by agent tag m1…m7).
+  const AVATAR_COLORS = [
+    "#7c6cd9", "#58a6ff", "#3fb950", "#f0883e", "#d2a8ff", "#79c0ff", "#ffa657",
+  ];
+  function avatarColor(tag) {
+    const n = parseInt(String(tag || "").replace(/\D/g, ""), 10);
+    return AVATAR_COLORS[(Number.isFinite(n) ? n : 1) - 1] || AVATAR_COLORS[0];
+  }
+
+  // Bottom dock: minimized height (just the tab bar) + storage key.
+  const BOTTOM_MIN_H = 34;
+  const BOTTOM_MIN_KEY = "zova-bottom-minimized";
+  const BOTTOM_H_KEY = "zova-bottom-h";
+
   /* ── Home layout system ──────────────────────────────────────────
      The workflow graph (nodes/edges/x/y) is the single source of truth; the
      Home layout layer is independent and only controls how that graph is shown.
@@ -128,6 +154,9 @@
     homePositions: new Map(),  // last-rendered nodeId -> {x,y} (center)
     homeSizes: new Map(),      // last-rendered nodeId -> {w,h}
     homeZTop: 0,               // z-index counter for bring-to-front
+    // Bottom Status/Tasks/Execution/Logs dock (minimizable, reflows panels).
+    bottomMinimized: false,
+    bottomExpandedH: null,     // last expanded --bottom-h before minimize
   };
 
   /* ─────────────────────── toolbar wiring ────────────────────── */
@@ -222,6 +251,61 @@
     });
   }
 
+  // Which node panels receive a Home command's user message. A ``node:X``
+  // target names one node; otherwise the workflow's entry nodes (zero
+  // in-degree) receive it first — matching the workflow execution semantics
+  // where ``user_prompt`` seeds the entry nodes.
+  function dispatchTargetNodes(rawTarget) {
+    const nodes = enabledNodes();
+    if (!nodes.length) return [];
+    if (rawTarget && rawTarget.startsWith("node:")) {
+      const id = rawTarget.slice(5);
+      return nodes.filter((n) => n.id === id);
+    }
+    const indeg = new Map(nodes.map((n) => [n.id, 0]));
+    (Ag.homeEdges || []).forEach((ed) => {
+      if (indeg.has(ed.target)) indeg.set(ed.target, (indeg.get(ed.target) || 0) + 1);
+    });
+    const entries = nodes.filter((n) => (indeg.get(n.id) || 0) === 0);
+    return entries.length ? entries : nodes;
+  }
+
+  // Render the user's own message immediately (frontend state → session + DOM).
+  // Never sourced from the backend — the backend only emits a "dispatched"
+  // summary, not the message text.
+  function renderUserMessage(rawTarget, prompt) {
+    const text = "You: " + prompt;
+    const nodes = dispatchTargetNodes(rawTarget);
+    if (nodes.length) {
+      nodes.forEach((n) => nodeEvent(n.id, { kind: "usermsg", text: text }));
+      return;
+    }
+    let tag = rawTarget;
+    if (tag === "active") tag = Ag.activeTag;
+    if (tag === "all" || tag === "workflow") tag = null;
+    if (tag && !Ag.agents.some((a) => a.tag === tag)) tag = null;
+    if (tag) {
+      const ev = { kind: "usermsg", text: text, tag: tag };
+      const sess = (Ag.sessions[tag] = Ag.sessions[tag] || []);
+      sess.push(ev);
+      const card = panelEl(tag);
+      if (card) appendEv(card.querySelector(".p-console"), ev);
+    }
+  }
+
+  // Flip the target panels to "working" the instant a run is accepted (the
+  // real per-node status follows on the next poll — no invented content).
+  function markNodesWorking(nodeIds) {
+    (nodeIds || []).forEach((id) => {
+      Ag.runStatuses[id] = "running";
+      const card = $(`.panel[data-workflow-node-id="${id}"]`);
+      if (card) {
+        setPanelRunStatus(card, "running");
+        card.classList.add("running");
+      }
+    });
+  }
+
   function bindDispatch() {
     const form = $("#prompt-box");
     const input = $("#prompt-input");
@@ -243,17 +327,25 @@
       e.preventDefault();
       const prompt = input.value.trim();
       if (!prompt) return;
-      let tag = $("#prompt-target").value;
+      const rawTarget = $("#prompt-target").value;
+      let tag = rawTarget;
       if (tag === "active") tag = Ag.activeTag;
-      if (tag === "all") tag = null;
+      if (tag === "all" || tag === "workflow") tag = null;
+      if (tag && tag.startsWith("node:")) tag = null;   // graph runs as a whole
       if (tag && !Ag.agents.some((a) => a.tag === tag)) tag = null;
+
+      // 1) The user's own message appears immediately in the target window(s).
+      const targetNodes = dispatchTargetNodes(rawTarget);
+      renderUserMessage(rawTarget, prompt);
+
       try {
         const resp = await post("/api/dispatch", { prompt, agent: tag });
-        // A Home command with an active workflow executes the workflow graph;
-        // track its run so Home can show node-aware status/output.
+        // 2) A Home command with an active workflow executes the workflow
+        //    graph; track its run and show node-aware working status.
         if (resp && resp.mode === "workflow" && resp.run_id) {
           Ag.activeRunId = resp.run_id;
           Ag.runStatuses = {};
+          markNodesWorking(targetNodes.map((n) => n.id));
           pollActiveRun();
         }
         input.value = "";
@@ -285,8 +377,15 @@
     card.dataset.tag = a.tag;
     if (opts.nodeId) card.dataset.workflowNodeId = opts.nodeId;
     const head = el("header", "p-head");
-    head.appendChild(el("span", "p-name", `${a.tag.toUpperCase()} · ${a.name}`));
-    head.appendChild(el("span", "p-model", a.model || ""));
+    // Agent avatar: a colored monogram (identity only — never invented content).
+    const avatar = el("span", "p-avatar", avatarLabel(a));
+    avatar.style.background = avatarColor(a.tag);
+    avatar.title = a.name || a.tag || "";
+    head.appendChild(avatar);
+    const nameWrap = el("span", "p-name-wrap");
+    nameWrap.appendChild(el("span", "p-name", `${a.tag.toUpperCase()} · ${a.name}`));
+    nameWrap.appendChild(el("span", "p-model", a.model || ""));
+    head.appendChild(nameWrap);
     const status = el("span", "p-status st-idle");
     status.appendChild(el("span", "dot"));
     status.appendChild(el("span", "p-status-label", "idle"));
@@ -301,6 +400,10 @@
       head.appendChild(stop);
     }
     card.appendChild(head);
+
+    // Current action / state line — reflects the REAL run status only, never
+    // fabricated reasoning or hidden chain-of-thought.
+    card.appendChild(el("div", "p-action", "idle"));
 
     const task = el("div", "p-task", a.prompt || "…");
     task.title = a.prompt || "";
@@ -322,6 +425,34 @@
     return card;
   }
 
+  // Agent monogram for the avatar (first initial, else the tag).
+  function avatarLabel(a) {
+    const name = String(a.name || "").trim();
+    if (name) return name[0].toUpperCase();
+    return String(a.tag || "?").toUpperCase();
+  }
+
+  // Map a real run status to the human-readable current-action line.
+  function actionLabelFor(status) {
+    if (status === "running" || status === "thinking") return "working…";
+    if (status === "completed" || status === "active") return "completed";
+    if (status === "failed" || status === "error") return "failed";
+    if (status === "waiting" || status === "pending") return "waiting";
+    return "idle";
+  }
+
+  // Update one panel's status dot + label + current-action line from a REAL
+  // run status (no invented thinking text).
+  function setPanelRunStatus(card, runStatus) {
+    const ui = runStatusToUi(runStatus);
+    const st = card.querySelector(".p-status");
+    if (st) st.className = "p-status " + statusCls(ui);
+    const lbl = card.querySelector(".p-status-label");
+    if (lbl) lbl.textContent = runStatus || "idle";
+    const action = card.querySelector(".p-action");
+    if (action) action.textContent = actionLabelFor(runStatus);
+  }
+
   function updatePanelUi(card, a) {
     // Workflow panels (data-workflow-node-id) are driven by the workflow run
     // (node-aware status/session), never by the registry agent row.
@@ -329,7 +460,10 @@
     const label = card.querySelector(".p-status-label");
     label.textContent = STATUS_LABEL[a.status] || a.status;
     card.querySelector(".p-status").className = "p-status " + statusCls(a.status);
-    card.querySelector(".p-stop").disabled = !a.running;
+    const action = card.querySelector(".p-action");
+    if (action) action.textContent = actionLabelFor(a.status);
+    const stop = card.querySelector(".p-stop");
+    if (stop) stop.disabled = !a.running;
     card.querySelector(".p-task").textContent = a.prompt || "…";
     card.querySelector(".p-task").title = a.prompt || "";
     card.querySelector(".fill").style.width = (a.progress || 0) + "%";
@@ -479,7 +613,7 @@
       const c = (custom && custom[n.id]) || null;
       if (c && Number.isFinite(c.x) && Number.isFinite(c.y)) positions.set(n.id, { x: c.x, y: c.y });
       else positions.set(n.id, base.positions.get(n.id));
-      if (c && Number.isFinite(c.w) && Number.isFinite(c.h)) sizes.set(n.id, { w: clamp(c.w, 120, 480), h: clamp(c.h, 80, 400) });
+      if (c && Number.isFinite(c.w) && Number.isFinite(c.h)) sizes.set(n.id, { w: clamp(c.w, 120, avail.w), h: clamp(c.h, 80, avail.h) });
       else sizes.set(n.id, base.sizes.get(n.id));
     });
     return { positions, sizes };
@@ -604,20 +738,28 @@
       card.style.transform = "translate(-50%, -50%)";
       wg.appendChild(card);
       // node-aware console: replay this node's own session (independent per
-      // workflow node id — duplicate agents never share output)
-      const sess = (Ag.nodeSessions ? Ag.nodeSessions[n.id] : null) || [];
-      sess.forEach((ev) => {
+      // workflow node id — duplicate agents never share output), merged with
+      // the agent's live SSE session (Ag.sessions[tag]) so terminal-dispatch
+      // output survives workspace rebuilds. De-duplicated by backend seq "n".
+      const nodeSess = (Ag.nodeSessions ? Ag.nodeSessions[n.id] : null) || [];
+      const agentSess = (view.tag && Ag.sessions && Ag.sessions[view.tag]) || [];
+      const seen = new Set();
+      const merged = [];
+      for (const ev of nodeSess.concat(agentSess)) {
+        if (ev.n !== undefined) {
+          if (seen.has(ev.n)) continue;
+          seen.add(ev.n);
+        }
+        merged.push(ev);
+      }
+      merged.forEach((ev) => {
         if (PANEL_KINDS.includes(ev.kind)) {
           appendEv(card.querySelector(".p-console"), ev);
         }
       });
       // node-aware run status (from the active workflow run, keyed by node id)
       const st = Ag.runStatuses ? Ag.runStatuses[n.id] : undefined;
-      if (st) {
-        card.querySelector(".p-status-label").textContent = st;
-        card.querySelector(".p-status").className =
-          "p-status " + statusCls(runStatusToUi(st));
-      }
+      if (st) setPanelRunStatus(card, st);
     });
     drawHomeEdges(wg, edges, positions, sizes);
     bindPanelInteractions(wg);
@@ -762,6 +904,57 @@
     saveHomeLayouts();
     redrawHomeEdges();
   }
+  /* Directional (edge/corner) resize: each handle names which edges move.
+     The opposite edge stays fixed (normal desktop-window semantics), so the
+     center follows by half the applied delta; size is clamped to the readable
+     floor and the workspace ceiling, and the top-left stays on the workspace. */
+  function resizeNodeDelta(nodeId, dir, dx, dy) {
+    const edges = RESIZE_EDGES[dir];
+    if (!edges) return;
+    switchToCustom();
+    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
+    if (!card) return;
+    const w0 = parseFloat(card.style.width) || 280;
+    const h0 = parseFloat(card.style.height) || 200;
+    const cx0 = parseFloat(card.style.left) || 0;
+    const cy0 = parseFloat(card.style.top) || 0;
+    const S = panelSizes();
+    const avail = homeAvail();
+    const minW = S.resizeMinW, minH = S.resizeMinH;
+    const maxW = Math.max(minW, avail.w), maxH = Math.max(minH, avail.h);
+    let w = w0, h = h0;
+    if (edges.h === "e") w = w0 + dx;
+    if (edges.h === "w") w = w0 - dx;
+    if (edges.v === "s") h = h0 + dy;
+    if (edges.v === "n") h = h0 - dy;
+    let wc = clamp(w, minW, maxW), hc = clamp(h, minH, maxH);
+    // A leading (top/left) edge must not cross the workspace origin: clamp the
+    // growth so the moving edge stops at 0 while the fixed edge stays put. The
+    // trailing (bottom/right) edges may overflow — the workspace scrolls.
+    if (edges.h === "w") wc = Math.min(wc, cx0 + w0 / 2);
+    if (edges.v === "n") hc = Math.min(hc, cy0 + h0 / 2);
+    // Recompute the center from the fixed edge(s): dragging the left/top edge
+    // moves the opposite (fixed) edge's position, so the center follows by
+    // half the applied width/height delta.
+    let cx = cx0, cy = cy0;
+    if (edges.h === "e") cx = cx0 + (wc - w0) / 2;
+    if (edges.h === "w") cx = cx0 + (w0 - wc) / 2;
+    if (edges.v === "s") cy = cy0 + (hc - h0) / 2;
+    if (edges.v === "n") cy = cy0 + (h0 - hc) / 2;
+    const p = { x: cx, y: cy };
+    const wfId = currentWorkflowId();
+    if (wfId && Ag.homeLayouts) {
+      const layout = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
+      if (!layout.custom) layout.custom = {};
+      layout.custom[nodeId] = { x: p.x, y: p.y, w: wc, h: hc };
+    }
+    card.style.left = p.x + "px";
+    card.style.top = p.y + "px";
+    card.style.width = wc + "px";
+    card.style.height = hc + "px";
+    saveHomeLayouts();
+    redrawHomeEdges();
+  }
   function setCustomNode(nodeId, patch) {
     const wfId = currentWorkflowId();
     if (!wfId) return;
@@ -769,11 +962,12 @@
     const layout = Ag.homeLayouts[wfId] || (Ag.homeLayouts[wfId] = {});
     if (!layout.custom) layout.custom = {};
     const cur = layout.custom[nodeId] || {};
+    const avail = homeAvail();
     layout.custom[nodeId] = {
       x: Number.isFinite(patch.x) ? patch.x : cur.x,
       y: Number.isFinite(patch.y) ? patch.y : cur.y,
-      w: Number.isFinite(patch.w) ? clamp(patch.w, 120, 480) : cur.w,
-      h: Number.isFinite(patch.h) ? clamp(patch.h, 80, 400) : cur.h,
+      w: Number.isFinite(patch.w) ? clamp(patch.w, 120, avail.w) : cur.w,
+      h: Number.isFinite(patch.h) ? clamp(patch.h, 80, avail.h) : cur.h,
     };
     saveHomeLayouts();
     buildWorkspace();
@@ -791,14 +985,19 @@
       const nodeId = card.dataset.workflowNodeId;
       if (!nodeId || card.dataset.panelBound) return;
       card.dataset.panelBound = "1";
+      // 8 resize handles: every edge + corner, each carrying its direction.
       if (!card.querySelector(".panel-resize")) {
-        card.appendChild(el("div", "panel-resize"));
+        RESIZE_DIRS.forEach((dir) => {
+          const handle = el("div", "panel-resize r-" + dir);
+          handle.dataset.dir = dir;
+          card.appendChild(handle);
+        });
       }
       const head = card.querySelector(".p-head");
-      const start = (ev, isResize) => {
+      const start = (ev, dir) => {
         if (ev.button !== 0) return;   // primary button only
         // never start a drag from an interactive control inside the panel
-        if (!isResize && ev.target && ev.target.closest &&
+        if (!dir && ev.target && ev.target.closest &&
             ev.target.closest("button, input, select, textarea, a, .p-console, .p-status, .panel-resize")) return;
         ev.preventDefault();
         ev.stopPropagation();
@@ -807,10 +1006,10 @@
         card.classList.add("dragging");
         const sx = ev.clientX, sy = ev.clientY;
         const startX = parseFloat(card.style.left), startY = parseFloat(card.style.top);
-        const startW = parseFloat(card.style.width), startH = parseFloat(card.style.height);
         const move = (e) => {
-          if (isResize) resizeNode(nodeId, startW + (e.clientX - sx), startH + (e.clientY - sy));
-          else moveNode(nodeId, startX + (e.clientX - sx), startY + (e.clientY - sy));
+          const dx = e.clientX - sx, dy = e.clientY - sy;
+          if (dir) resizeNodeDelta(nodeId, dir, dx, dy);
+          else moveNode(nodeId, startX + dx, startY + dy);
         };
         const up = () => {
           card.classList.remove("dragging");
@@ -821,9 +1020,10 @@
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
       };
-      if (head) head.addEventListener("pointerdown", (ev) => start(ev, false));
-      const handle = card.querySelector(".panel-resize");
-      if (handle) handle.addEventListener("pointerdown", (ev) => start(ev, true));
+      if (head) head.addEventListener("pointerdown", (ev) => start(ev, null));
+      Array.from(card.querySelectorAll(".panel-resize")).forEach((handle) => {
+        handle.addEventListener("pointerdown", (ev) => start(ev, handle.dataset.dir));
+      });
     });
   }
 
@@ -906,8 +1106,7 @@
     Object.entries(Ag.runStatuses).forEach(([nid, st]) => {
       const card = $(`.panel[data-workflow-node-id="${nid}"]`);
       if (!card) return;
-      card.querySelector(".p-status-label").textContent = st;
-      card.querySelector(".p-status").className = "p-status " + statusCls(runStatusToUi(st));
+      setPanelRunStatus(card, st);
       card.classList.toggle("running", st === "running");
     });
     if (snap.finished) Ag.activeRunId = null;
@@ -932,6 +1131,8 @@
     const nearBottom = consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 40;
     const row = el("div", "ev " + (ev.kind || "line"));
     row.textContent = ev.text || "";
+    // Hover timestamp (non-intrusive; the text itself stays verbatim).
+    try { row.title = new Date().toLocaleTimeString(); } catch (_) { /* no Date */ }
     consoleEl.appendChild(row);
     if (nearBottom) consoleEl.scrollTop = consoleEl.scrollHeight;
   }
@@ -1020,6 +1221,9 @@
     svg: null, world: null, nodes: new Map(), edges: new Map(), byName: {},
     sectionHubs: {}, planeH: 440, bounds: null, layoutSig: null, cachedPos: [], mmRaf: null,
   };
+  // Per-node settled positions (name -> {x,y}), persisted across renders so a
+  // re-render or a visibility/topology change never moves an unchanged node.
+  const graphPosCache = {};
   const GraphView = { scale: 1, tx: 0, ty: 0, atFit: true };
   const panState = { active: false, pid: null, px: 0, py: 0, moved: false };
   const GP = window.GraphMath;
@@ -1124,20 +1328,13 @@
   function resetGraphView() { fitGraph(); }
 
   function layoutGraph(nodes, edges) {
-    const sig = nodes.map((nd) => nd.name).join("|") + "::" +
-                edges.map((p) => p.join("-")).join("|");
-    if (graphEls.layoutSig === sig && graphEls.cachedPos.length === nodes.length) {
-      const map = {};
-      nodes.forEach((nd, i) => (map[nd.name] = graphEls.cachedPos[i]));
-      nodes.forEach((nd) => {
-        const p = map[nd.name];
-        if (p) { nd.x = p.x; nd.y = p.y; }
-      });
-      return;
-    }
-    GP.runLayout(nodes, edges, { iterations: 500 });
-    graphEls.cachedPos = nodes.map((nd) => ({ x: nd.x, y: nd.y }));
-    graphEls.layoutSig = sig;
+    // Stable incremental layout: nodes that already have a settled position
+    // keep it (pinned + seeded), so a re-render or a visibility/topology
+    // change never moves an unchanged node. Only nodes new to the graph relax.
+    const fixed = {};
+    nodes.forEach((nd) => { if (graphPosCache[nd.name]) fixed[nd.name] = true; });
+    GP.runLayout(nodes, edges, { iterations: 500, seed: graphPosCache, fixed: fixed });
+    nodes.forEach((nd) => { graphPosCache[nd.name] = { x: nd.x, y: nd.y }; });
   }
 
   function renderGraph() {
@@ -2000,6 +2197,47 @@
     if (name === "tasks") loadTasks();
   }
 
+  /* ── Bottom Status/Tasks/Execution/Logs dock (minimize → compact bar) ── */
+  function setBottomMinimized(min) {
+    Ag.bottomMinimized = !!min;
+    const body = document.body;
+    const btn = $("#bottom-toggle");
+    if (min) {
+      Ag.bottomExpandedH =
+        parseFloat(getComputedStyle(body).getPropertyValue("--bottom-h"))
+        || Ag.bottomExpandedH || 200;
+      body.classList.add("bottom-minimized");
+      body.style.setProperty("--bottom-h", BOTTOM_MIN_H + "px");
+    } else {
+      body.classList.remove("bottom-minimized");
+      body.style.setProperty("--bottom-h", (Ag.bottomExpandedH || 200) + "px");
+    }
+    if (btn) {
+      btn.textContent = min ? "▔" : "▁";
+      btn.title = min ? "Expand the bottom dock" : "Minimize the bottom dock";
+    }
+    try { localStorage.setItem(BOTTOM_MIN_KEY, min ? "1" : "0"); } catch (_) { /* blocked */ }
+    if (!min) { try { localStorage.setItem(BOTTOM_H_KEY, String(Ag.bottomExpandedH || 200)); } catch (_) {} }
+    // Reflow agent windows into the new available vertical space.
+    buildWorkspace();
+  }
+  function toggleBottomDock() { setBottomMinimized(!Ag.bottomMinimized); }
+
+  function loadBottomDockState() {
+    let min = false;
+    try { min = localStorage.getItem(BOTTOM_MIN_KEY) === "1"; } catch (_) { /* blocked */ }
+    if (!min) return;
+    Ag.bottomMinimized = true;
+    try {
+      const h = parseFloat(localStorage.getItem(BOTTOM_H_KEY));
+      if (Number.isFinite(h)) Ag.bottomExpandedH = h;
+    } catch (_) { /* blocked */ }
+    document.body.classList.add("bottom-minimized");
+    document.body.style.setProperty("--bottom-h", BOTTOM_MIN_H + "px");
+    const btn = $("#bottom-toggle");
+    if (btn) { btn.textContent = "▔"; btn.title = "Expand the bottom dock"; }
+  }
+
   function bindSplitters() {
     const v = $("#vsplit"), h = $("#hsplit");
     const setWinPref = () => {
@@ -2017,6 +2255,7 @@
       const up = () => {
         v.classList.remove("dragging");
         setWinPref();
+        buildWorkspace();  // reflow panels to the new workspace width
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
       };
@@ -2033,6 +2272,7 @@
       const up = () => {
         h.classList.remove("dragging");
         setWinPref();
+        buildWorkspace();  // reflow panels to the new workspace height
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
       };
@@ -2067,8 +2307,13 @@
     appendEv($("#master-console"), ev);
   }
 
+  let _stream = null;
   function openStream() {
+    // Idempotent: a BFCache restore (or re-init) must not stack duplicate
+    // EventSource connections that would double-render output.
+    if (_stream) { try { _stream.close(); } catch (_) { /* already closed */ } _stream = null; }
     const es = new EventSource("/api/events/stream");
+    _stream = es;
     const kinds = ["run", "line", "error", "status", "taskline", "usermsg"];
     kinds.forEach((kind) => {
       es.addEventListener(kind, (event) => {
@@ -2149,6 +2394,7 @@
     Ag.activeTag = Ag.prefs.active_tag;
     await refreshActiveWorkflow();
     applyPrefs();
+    loadBottomDockState();
     buildPop();
     buildDispatchTarget();
     buildStatusTable();
@@ -2273,6 +2519,8 @@
     bindTabs();
     bindSplitters();
     bindGraphWindow();
+    const bottomToggle = $("#bottom-toggle");
+    if (bottomToggle) bottomToggle.addEventListener("click", toggleBottomDock);
     document.body.style.setProperty("--graph-h", loadGraphH() + "px");
     const settingsBtn = $("#settings-btn");
     if (settingsBtn && window.MACSettings) {
@@ -2284,6 +2532,23 @@
     loadTasks();
     openStream();
     setInterval(pollState, 3000);
+    // BFCache restore (navigating Home → Workflow → back) kills the SSE
+    // connection and can leave the workspace stale; re-open the stream and
+    // reconcile on restore / visibility so agent windows reappear without a
+    // manual reload.
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted) {
+        openStream();
+        refreshActiveWorkflow();
+        loadSessions();
+      }
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        openStream();
+        refreshActiveWorkflow();
+      }
+    });
   }
 
   window.addEventListener("DOMContentLoaded", init);
@@ -2295,8 +2560,12 @@
                     refreshActiveWorkflow, buildWorkflowWorkspace, nodeEvent,
                     pollActiveRun, setActiveNode, homeSignatureOf,
                     setHomeLayout, setHomeZoom, resetHomeLayout, setCustomNode,
-                    moveNode, resizeNode, redrawHomeEdges, computeLayout,
-                    currentHomeLayout, workflowOrder, buildWorkspace,
+                    moveNode, resizeNode, resizeNodeDelta, redrawHomeEdges,
+                    computeLayout, currentHomeLayout, workflowOrder, buildWorkspace,
                     switchToCustom, clampToWorkspace, bindPanelInteractions,
-                    bringToFront, commitCustomLayout };
+                    bringToFront, commitCustomLayout,
+                    toggleBottomDock, setBottomMinimized, loadBottomDockState,
+                    dispatchTargetNodes, renderUserMessage, markNodesWorking,
+                    setPanelRunStatus, RESIZE_DIRS, RESIZE_EDGES, avatarColor,
+                    layoutGraph };
 })();

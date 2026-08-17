@@ -21,8 +21,13 @@ The system combines:
   with fan-in, fan-out, conditional routing, and bounded retry loops.
 - **Reusable roles** — many-to-many role definitions (responsibilities, tools,
   permissions, rules, expected outputs) that are independent of models.
+- **Reusable skills** — model/agent-independent operating procedures
+  (ordered steps + capabilities) that sit between roles and prompts/workflows
+  and compose into workflow nodes.
 - **A Prompt Library** — reusable, role-typed prompt profiles that separate
   *what the AI should do* from *which model executes it*.
+- **Evaluation** — reusable output rubrics (criteria dimensions, weighted
+  scoring, pass/review/fail decisions) for judging agent/workflow output.
 - **Visual workflow construction** — an executable graph designer where nodes
   are agent instances and edges carry success/failure conditions.
 - **Model / provider abstraction** — a provider-neutral request/response layer
@@ -138,8 +143,10 @@ The system is layered so that each concern is decoupled from the others:
 ```text
 Agent Identity   (tag / name / key — no model, no role)
 Role             (reusable behavior — many-to-many with agents)
+Skill            (reusable operating procedure — steps + capabilities)
 Prompt Profile   (reusable "what to do" instructions)
 Workflow         (nodes = agent instances; edges = success/failure routing)
+Evaluation       (reusable output rubric — criteria / scores / decision)
 Model / Provider (runtime selection + BYOK connections)
 Credential       (auth store only — never in a workflow)
 Execution        (planner → executor → provider adapter → runtime)
@@ -249,6 +256,84 @@ Execution
 The value: prompts become **reusable**, workflows become **composable**,
 models become **replaceable**, providers become **interchangeable**, execution
 becomes **observable**, and agents remain **model-independent**.
+
+---
+
+## Skills
+
+A **Skill** (`scripts/core/skills.py`) is a lightweight, reusable *operating
+procedure* that sits between a role and the prompt/workflow layer. Unlike a
+prompt profile (a long "how to think" instruction), a skill is an **ordered
+sequence of steps plus capabilities** — e.g. structured research, source
+verification, anti-slop refinement, action-first communication, SEO research,
+competitive analysis, security reconnaissance, security validation, the
+fix→verify loop, repository analysis, and workflow planning. Skills are
+model-independent, agent-independent, composable by id from workflow nodes,
+and provenance-aware: skills adapted from external research carry
+`source`/`license`/`origin` fields exactly like prompt profiles. Nothing here
+introduces a runtime dependency on any external repository.
+
+```text
+Role → Skill → Prompt Profile / Workflow Node → Execution
+```
+
+---
+
+## Evaluation
+
+**Evaluation** (`scripts/core/evaluation.py`) is a native, reusable way to
+judge agent or workflow output. An `EvaluationDefinition` declares ordered
+criteria across a fixed dimension vocabulary (correctness, completeness,
+quality, consistency, security, relevance, adherence); `evaluate()` turns
+per-criterion 0–4 scores into a weighted total, a pass/review/fail decision,
+and generated findings — deterministically, with no model, provider, or
+credential involved. Definitions carry the same provenance metadata as prompt
+profiles and skills, so evaluation patterns adapted from external research
+(e.g. evidence-grounded security findings, cited research output) stay
+traceable to their source.
+
+---
+
+## Agent Catalog (Categories → Presets → Empty Agent)
+
+**Agent Catalog** (`scripts/core/agent_catalog.py`) is the deterministic
+template layer between the reusable building blocks (Roles / Skills / Prompt
+Profiles) and the 7 runtime agents. A hand-curated `AgentPreset` pins one role,
+ordered skills, and prompt profile(s) under a high-level category (AI
+Engineering, Research, Content/SEO, Software Development, DevOps/Cloud,
+Security, QA/Testing) and references an existing agent key — it is **never**
+synthesized from roles × prompts, so a category always shows exactly its
+registered presets. A special **Empty Agent** (always first, independent of
+every category) declares no role/skills/prompt/model/mode and therefore receives
+only the raw user request. Selecting a preset populates
+`Template → Preset → Model → Mode → Role → Skills → Prompt Profile`
+deterministically; explicit customization still overrides preset defaults, and
+suggestions never modify an explicitly configured agent. The existing 7 agents
+are preserved as runtime identities (their `opencode.json` / `roles.json`
+config is untouched).
+
+---
+
+## Runtime Context (Role → Skill → Prompt → Runtime)
+
+The registries define Roles, Skills, and Prompt Profiles, but plain dispatch
+only ever injected role assignments — so a multi-role agent still described
+itself as a generic software engineer. `scripts/core/runtime_context.py` closes
+that gap with **one deterministic builder** used by every execution path
+(terminal RunHub, task Orchestrator, and workflow planner):
+
+```text
+Agent identity → Assigned roles → Skills → Prompt profile / instruction
+             → Project context → Workflow context → Task → User request
+```
+
+Per-agent **skill** and **prompt-profile** assignments persist atomically in
+`agent_context.json` at the repo root (`$ZOVA_AGENT_CONTEXT` overrides),
+assignable via the Settings API (`PUT /api/settings/agents/{agent}/skills|prompts`).
+Provenance (source/license/origin) is surfaced in the rendered context, and the
+composition is ordered so task/user text can never overwrite system identity.
+An agent with no roles, skills, profiles, or task context receives its raw
+request unchanged — exactly as before.
 
 ---
 
@@ -430,6 +515,10 @@ Planning before execution, explicit connection resolution, execution IDs, a
 runtime registry, timeout handling, bounded retries, execution state, typed
 errors, safe (secret-free) metadata, and dry-run previews. The guarantees are
 deliberately modest — this is an execution control layer, not a sandbox.
+The vault Orchestrator closes the loop end-to-end: a `ready` task node can be
+assigned, dispatched (`--yes`; dry-run by default), and its status plus a
+structured `## Agent Report` are written back into the node — inspectable via
+`GET /api/tasks/{name}`.
 
 ### 8. Persistent AI project knowledge
 
@@ -449,7 +538,7 @@ engineering environment**, not an opaque autonomous system.
 ## Persistent Project Knowledge
 
 An Obsidian vault (`obsidian_vault/`) holds the project's persistent knowledge
-as a linked, schema-validated graph (36 core nodes):
+as a linked, schema-validated graph (40 core nodes, including 4 seeded task nodes):
 
 ```text
 Code
@@ -523,11 +612,20 @@ execution**.
 
 Implemented today: identity-only agent roster with runtime models and fallback;
 reusable roles; the prompt library (49 profiles) with task classification and
-recommendations; the model registry and selection; BYOK connections with a
-secure credential store; the execution planner, executor, and runtime with
-timeouts, cancellation, and bounded retries; the workflow model, validation,
-templates, and dry-run; the Obsidian vault stack; and three interfaces — the
-Agent Dashboard, the workflow graph designer, and the ZOVA terminal.
+recommendations; reusable skills (11 operating procedures) and evaluation
+rubrics (3 built-in definitions); the model registry and selection; BYOK
+connections with a secure credential store; the execution planner, executor,
+and runtime with timeouts, cancellation, and bounded retries; the workflow
+model, validation, templates, and dry-run; the deterministic **runtime-context
+builder** that composes identity → roles → skills → prompt profiles → task into
+one dispatch prompt on every execution path; the Obsidian vault stack; and
+three interfaces — the Agent Dashboard, the workflow graph designer, and the
+ZOVA terminal.
+
+A real end-to-end task path is seeded in the vault: four task nodes in
+`03-Tasks/` (`ready` / `planned` / `completed`) flow through assignment →
+ContextResolver → Orchestrator → real agent execution → persisted status and
+Agent Report, with `GET /api/tasks/{name}` returning the stored result.
 
 Not yet implemented: direct (non-OpenCode) provider adapters, a persistent
 run store, and the ad-supported free-model funding layer (an architectural
@@ -579,6 +677,9 @@ terminal, BYOK settings, and the agent/role/model decoupling).
 │   │   ├── opencode_cfg.py      # Runtime models single source of truth
 │   │   ├── workflows.py         # Workflow model + persistence + validation + templates
 │   │   ├── workflow_engine.py   # Wave scheduler + run lifecycle
+│   │   ├── skills.py            # Reusable operating procedures + registry
+│   │   ├── evaluation.py        # Output rubrics + weighted scoring + decisions
+│   │   ├── runtime_context.py   # Deterministic runtime-prompt builder (identity → roles → skills → profiles → task)
 │   │   ├── prompt_library/      # Prompt profiles + recommendations
 │   │   ├── model_registry/      # Model catalog + selection
 │   │   ├── model_connections/   # BYOK registry + resolver + credential store

@@ -26,7 +26,6 @@ from scripts.core.model_connections.errors import (
 )
 from scripts.core.model_connections.providers import (
     get_provider,
-    provider_known,
 )
 from scripts.core.model_connections.schema import (
     CONNECTION_STATUSES,
@@ -246,7 +245,7 @@ def _clear_provider_default(provider: str) -> None:
     """Ensure only one connection per provider is marked default."""
     stored = _load()
     changed = False
-    for cid, raw in stored.items():
+    for raw in stored.values():
         if raw.get("provider") == provider and raw.get("default"):
             raw["default"] = False
             changed = True
@@ -274,11 +273,11 @@ def validate_connection(connection_id: str) -> dict:
     except UnknownProviderError as exc:
         return {"ok": False, "detail": str(exc), "connection": connection.to_dict()}
 
-    if connection.credential_type == "api_key":
-        if meta.requires_api_key and not credential_store.has_credential(connection_id):
-            return {"ok": False,
-                    "detail": f"no API key stored for {connection_id!r} — add one",
-                    "connection": connection.to_dict()}
+    if (connection.credential_type == "api_key" and meta.requires_api_key
+            and not credential_store.has_credential(connection_id)):
+        return {"ok": False,
+                "detail": f"no API key stored for {connection_id!r} — add one",
+                "connection": connection.to_dict()}
 
     if meta.supports_base_url and meta.provider != "openai" and not connection.endpoint:
         return {"ok": False,
@@ -295,13 +294,13 @@ def validate_connection(connection_id: str) -> dict:
 
 
 __all__ = [
+    "connection_metadata",
     "connections_path",
+    "create_connection",
+    "delete_connection",
+    "get_connection",
     "list_connections",
     "list_connections_by_provider",
-    "get_connection",
-    "connection_metadata",
-    "create_connection",
     "update_connection",
-    "delete_connection",
     "validate_connection",
 ]

@@ -1,0 +1,1747 @@
+{
+  "schema_version": 1,
+  "generated_from": "knowledge/sources/*.md (frontmatter evidence)",
+  "repositories": [
+    {
+      "id": "book-to-skill",
+      "source_url": "https://github.com/virgiliojr94/book-to-skill",
+      "url": "https://github.com/virgiliojr94/book-to-skill",
+      "license": "MIT",
+      "source_type": "open-source methodology",
+      "extraction_mode": "ideas",
+      "code_reuse": "concepts only",
+      "domains": [
+        "knowledge",
+        "documentation"
+      ]
+    },
+    {
+      "id": "genai-agents",
+      "source_url": "https://github.com/NirDiamant/GenAI_Agents",
+      "url": "https://github.com/NirDiamant/GenAI_Agents",
+      "license": "custom non-commercial",
+      "source_type": "concept reference",
+      "extraction_mode": "concepts",
+      "code_reuse": "no code reuse",
+      "domains": [
+        "orchestration",
+        "agents"
+      ]
+    },
+    {
+      "id": "i-have-adhd",
+      "source_url": "https://github.com/ayghri/i-have-adhd",
+      "url": "https://github.com/ayghri/i-have-adhd",
+      "license": "MIT",
+      "source_type": "open-source guidance",
+      "extraction_mode": "ideas",
+      "code_reuse": "concepts only",
+      "domains": [
+        "communication",
+        "execution"
+      ]
+    },
+    {
+      "id": "no-ai-slop",
+      "source_url": "https://github.com/petergyang/no-ai-slop",
+      "url": "https://github.com/petergyang/no-ai-slop",
+      "license": "MIT",
+      "source_type": "open-source guidance",
+      "extraction_mode": "ideas",
+      "code_reuse": "concepts only",
+      "domains": [
+        "communication",
+        "quality"
+      ]
+    },
+    {
+      "id": "open-generative-ai",
+      "source_url": "https://github.com/Anil-matcha/Open-Generative-AI",
+      "url": "https://github.com/Anil-matcha/Open-Generative-AI",
+      "license": "MIT",
+      "source_type": "open-source application",
+      "extraction_mode": "ideas",
+      "code_reuse": "concepts only",
+      "domains": [
+        "ai",
+        "engineering"
+      ]
+    },
+    {
+      "id": "open-notebook",
+      "source_url": "https://github.com/lfnovo/open-notebook",
+      "url": "https://github.com/lfnovo/open-notebook",
+      "license": "MIT",
+      "source_type": "open-source application",
+      "extraction_mode": "ideas",
+      "code_reuse": "concepts only",
+      "domains": [
+        "research",
+        "knowledge-management"
+      ]
+    },
+    {
+      "id": "open-seo",
+      "source_url": "https://github.com/every-app/open-seo",
+      "url": "https://github.com/every-app/open-seo",
+      "license": "MIT",
+      "source_type": "open-source application",
+      "extraction_mode": "ideas",
+      "code_reuse": "concepts only",
+      "domains": [
+        "content",
+        "research"
+      ]
+    },
+    {
+      "id": "strix",
+      "source_url": "https://github.com/usestrix/strix",
+      "url": "https://github.com/usestrix/strix",
+      "license": "Apache-2.0",
+      "source_type": "open-source security application",
+      "extraction_mode": "ideas",
+      "code_reuse": "concepts only",
+      "domains": [
+        "security",
+        "verification"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "book-to-skill:structured-skill-extraction",
+      "repository": "book-to-skill",
+      "kind": "methodology",
+      "summary": "Distill documents into structured skills with indexed rules and provenance.",
+      "supports": [
+        "knowledge-extraction",
+        "skill-authoring",
+        "indexing",
+        "distillation",
+        "provenance"
+      ],
+      "confidence": "direct",
+      "requires_inspection": true
+    },
+    {
+      "id": "genai-agents:multi-agent-patterns",
+      "repository": "genai-agents",
+      "kind": "architecture",
+      "summary": "Provide concept-level planner, routing, reflection, memory, and evaluation patterns.",
+      "supports": [
+        "workflow-planning",
+        "multi-agent-orchestration",
+        "reflection",
+        "routing",
+        "evaluation"
+      ],
+      "confidence": "inferred",
+      "requires_inspection": true
+    },
+    {
+      "id": "i-have-adhd:action-first-communication",
+      "repository": "i-have-adhd",
+      "kind": "output-policy",
+      "summary": "Prefer concise numbered action-first communication without tangents.",
+      "supports": [
+        "action-first-communication",
+        "task-decomposition",
+        "concise-output"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "no-ai-slop:anti-generic-output",
+      "repository": "no-ai-slop",
+      "kind": "output-policy",
+      "summary": "Apply editing and self-check rules to avoid generic output.",
+      "supports": [
+        "output-quality",
+        "editing",
+        "self-review"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "open-generative-ai:provider-neutral-ai",
+      "repository": "open-generative-ai",
+      "kind": "architecture",
+      "summary": "Support model-agnostic tooling and multi-provider integration.",
+      "supports": [
+        "multi-model-integration",
+        "provider-abstraction",
+        "generative-ai-app-development"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "open-notebook:citation-discipline",
+      "repository": "open-notebook",
+      "kind": "pattern",
+      "summary": "Separate source claims from AI interpretation and preserve citations.",
+      "supports": [
+        "source-management",
+        "citation",
+        "provenance"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "open-notebook:reusable-sources",
+      "repository": "open-notebook",
+      "kind": "architecture",
+      "summary": "Keep sources as reusable first-class assets for research workflows.",
+      "supports": [
+        "source-management",
+        "knowledge-organization",
+        "research-synthesis"
+      ],
+      "confidence": "direct",
+      "requires_inspection": false
+    },
+    {
+      "id": "open-seo:seo-research-workflow",
+      "repository": "open-seo",
+      "kind": "workflow",
+      "summary": "Combine keyword research, clustering, intent, and competitive analysis.",
+      "supports": [
+        "keyword-research",
+        "search-intent",
+        "keyword-clustering",
+        "competitive-analysis",
+        "gap-analysis",
+        "content-strategy",
+        "tool-orchestration"
+      ],
+      "confidence": "direct",
+      "requires_inspection": true
+    },
+    {
+      "id": "strix:validated-security-loop",
+      "repository": "strix",
+      "kind": "workflow",
+      "summary": "Use recon, discovery, validation, remediation, rescan, and reporting.",
+      "supports": [
+        "security-reconnaissance",
+        "vulnerability-discovery",
+        "finding-validation",
+        "remediation",
+        "re-scan-verification",
+        "security-reporting",
+        "sandboxing"
+      ],
+      "confidence": "direct",
+      "requires_inspection": true
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "action-first-communication",
+      "name": "Action First Communication",
+      "description": "Capability evidenced by repository research: action first communication.",
+      "domains": [
+        "communication",
+        "execution"
+      ],
+      "evidence": [
+        "i-have-adhd:action-first-communication"
+      ],
+      "source_repos": [
+        "i-have-adhd"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "citation",
+      "name": "Citation",
+      "description": "Capability evidenced by repository research: citation.",
+      "domains": [
+        "knowledge-management",
+        "research"
+      ],
+      "evidence": [
+        "open-notebook:citation-discipline"
+      ],
+      "source_repos": [
+        "open-notebook"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "competitive-analysis",
+      "name": "Competitive Analysis",
+      "description": "Capability evidenced by repository research: competitive analysis.",
+      "domains": [
+        "content",
+        "research"
+      ],
+      "evidence": [
+        "open-seo:seo-research-workflow"
+      ],
+      "source_repos": [
+        "open-seo"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "concise-output",
+      "name": "Concise Output",
+      "description": "Capability evidenced by repository research: concise output.",
+      "domains": [
+        "communication",
+        "execution"
+      ],
+      "evidence": [
+        "i-have-adhd:action-first-communication"
+      ],
+      "source_repos": [
+        "i-have-adhd"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "content-strategy",
+      "name": "Content Strategy",
+      "description": "Capability evidenced by repository research: content strategy.",
+      "domains": [
+        "content",
+        "research"
+      ],
+      "evidence": [
+        "open-seo:seo-research-workflow"
+      ],
+      "source_repos": [
+        "open-seo"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "distillation",
+      "name": "Distillation",
+      "description": "Capability evidenced by repository research: distillation.",
+      "domains": [
+        "documentation",
+        "knowledge"
+      ],
+      "evidence": [
+        "book-to-skill:structured-skill-extraction"
+      ],
+      "source_repos": [
+        "book-to-skill"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "editing",
+      "name": "Editing",
+      "description": "Capability evidenced by repository research: editing.",
+      "domains": [
+        "communication",
+        "quality"
+      ],
+      "evidence": [
+        "no-ai-slop:anti-generic-output"
+      ],
+      "source_repos": [
+        "no-ai-slop"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "evaluation",
+      "name": "Evaluation",
+      "description": "Capability evidenced by repository research: evaluation.",
+      "domains": [
+        "agents",
+        "orchestration"
+      ],
+      "evidence": [
+        "genai-agents:multi-agent-patterns"
+      ],
+      "source_repos": [
+        "genai-agents"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "finding-validation",
+      "name": "Finding Validation",
+      "description": "Capability evidenced by repository research: finding validation.",
+      "domains": [
+        "security",
+        "verification"
+      ],
+      "evidence": [
+        "strix:validated-security-loop"
+      ],
+      "source_repos": [
+        "strix"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "gap-analysis",
+      "name": "Gap Analysis",
+      "description": "Capability evidenced by repository research: gap analysis.",
+      "domains": [
+        "content",
+        "research"
+      ],
+      "evidence": [
+        "open-seo:seo-research-workflow"
+      ],
+      "source_repos": [
+        "open-seo"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "generative-ai-app-development",
+      "name": "Generative Ai App Development",
+      "description": "Capability evidenced by repository research: generative ai app development.",
+      "domains": [
+        "ai",
+        "engineering"
+      ],
+      "evidence": [
+        "open-generative-ai:provider-neutral-ai"
+      ],
+      "source_repos": [
+        "open-generative-ai"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "indexing",
+      "name": "Indexing",
+      "description": "Capability evidenced by repository research: indexing.",
+      "domains": [
+        "documentation",
+        "knowledge"
+      ],
+      "evidence": [
+        "book-to-skill:structured-skill-extraction"
+      ],
+      "source_repos": [
+        "book-to-skill"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "keyword-clustering",
+      "name": "Keyword Clustering",
+      "description": "Capability evidenced by repository research: keyword clustering.",
+      "domains": [
+        "content",
+        "research"
+      ],
+      "evidence": [
+        "open-seo:seo-research-workflow"
+      ],
+      "source_repos": [
+        "open-seo"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "keyword-research",
+      "name": "Keyword Research",
+      "description": "Capability evidenced by repository research: keyword research.",
+      "domains": [
+        "content",
+        "research"
+      ],
+      "evidence": [
+        "open-seo:seo-research-workflow"
+      ],
+      "source_repos": [
+        "open-seo"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "knowledge-extraction",
+      "name": "Knowledge Extraction",
+      "description": "Capability evidenced by repository research: knowledge extraction.",
+      "domains": [
+        "documentation",
+        "knowledge"
+      ],
+      "evidence": [
+        "book-to-skill:structured-skill-extraction"
+      ],
+      "source_repos": [
+        "book-to-skill"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "knowledge-organization",
+      "name": "Knowledge Organization",
+      "description": "Capability evidenced by repository research: knowledge organization.",
+      "domains": [
+        "knowledge-management",
+        "research"
+      ],
+      "evidence": [
+        "open-notebook:reusable-sources"
+      ],
+      "source_repos": [
+        "open-notebook"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "multi-agent-orchestration",
+      "name": "Multi Agent Orchestration",
+      "description": "Capability evidenced by repository research: multi agent orchestration.",
+      "domains": [
+        "agents",
+        "orchestration"
+      ],
+      "evidence": [
+        "genai-agents:multi-agent-patterns"
+      ],
+      "source_repos": [
+        "genai-agents"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "multi-model-integration",
+      "name": "Multi Model Integration",
+      "description": "Capability evidenced by repository research: multi model integration.",
+      "domains": [
+        "ai",
+        "engineering"
+      ],
+      "evidence": [
+        "open-generative-ai:provider-neutral-ai"
+      ],
+      "source_repos": [
+        "open-generative-ai"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "output-quality",
+      "name": "Output Quality",
+      "description": "Capability evidenced by repository research: output quality.",
+      "domains": [
+        "communication",
+        "quality"
+      ],
+      "evidence": [
+        "no-ai-slop:anti-generic-output"
+      ],
+      "source_repos": [
+        "no-ai-slop"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "provenance",
+      "name": "Provenance",
+      "description": "Capability evidenced by repository research: provenance.",
+      "domains": [
+        "documentation",
+        "knowledge",
+        "knowledge-management",
+        "research"
+      ],
+      "evidence": [
+        "book-to-skill:structured-skill-extraction",
+        "open-notebook:citation-discipline"
+      ],
+      "source_repos": [
+        "book-to-skill",
+        "open-notebook"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "provider-abstraction",
+      "name": "Provider Abstraction",
+      "description": "Capability evidenced by repository research: provider abstraction.",
+      "domains": [
+        "ai",
+        "engineering"
+      ],
+      "evidence": [
+        "open-generative-ai:provider-neutral-ai"
+      ],
+      "source_repos": [
+        "open-generative-ai"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "re-scan-verification",
+      "name": "Re Scan Verification",
+      "description": "Capability evidenced by repository research: re scan verification.",
+      "domains": [
+        "security",
+        "verification"
+      ],
+      "evidence": [
+        "strix:validated-security-loop"
+      ],
+      "source_repos": [
+        "strix"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "reflection",
+      "name": "Reflection",
+      "description": "Capability evidenced by repository research: reflection.",
+      "domains": [
+        "agents",
+        "orchestration"
+      ],
+      "evidence": [
+        "genai-agents:multi-agent-patterns"
+      ],
+      "source_repos": [
+        "genai-agents"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "remediation",
+      "name": "Remediation",
+      "description": "Capability evidenced by repository research: remediation.",
+      "domains": [
+        "security",
+        "verification"
+      ],
+      "evidence": [
+        "strix:validated-security-loop"
+      ],
+      "source_repos": [
+        "strix"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "research-synthesis",
+      "name": "Research Synthesis",
+      "description": "Capability evidenced by repository research: research synthesis.",
+      "domains": [
+        "knowledge-management",
+        "research"
+      ],
+      "evidence": [
+        "open-notebook:reusable-sources"
+      ],
+      "source_repos": [
+        "open-notebook"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "routing",
+      "name": "Routing",
+      "description": "Capability evidenced by repository research: routing.",
+      "domains": [
+        "agents",
+        "orchestration"
+      ],
+      "evidence": [
+        "genai-agents:multi-agent-patterns"
+      ],
+      "source_repos": [
+        "genai-agents"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "sandboxing",
+      "name": "Sandboxing",
+      "description": "Capability evidenced by repository research: sandboxing.",
+      "domains": [
+        "security",
+        "verification"
+      ],
+      "evidence": [
+        "strix:validated-security-loop"
+      ],
+      "source_repos": [
+        "strix"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "search-intent",
+      "name": "Search Intent",
+      "description": "Capability evidenced by repository research: search intent.",
+      "domains": [
+        "content",
+        "research"
+      ],
+      "evidence": [
+        "open-seo:seo-research-workflow"
+      ],
+      "source_repos": [
+        "open-seo"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "security-reconnaissance",
+      "name": "Security Reconnaissance",
+      "description": "Capability evidenced by repository research: security reconnaissance.",
+      "domains": [
+        "security",
+        "verification"
+      ],
+      "evidence": [
+        "strix:validated-security-loop"
+      ],
+      "source_repos": [
+        "strix"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "security-reporting",
+      "name": "Security Reporting",
+      "description": "Capability evidenced by repository research: security reporting.",
+      "domains": [
+        "security",
+        "verification"
+      ],
+      "evidence": [
+        "strix:validated-security-loop"
+      ],
+      "source_repos": [
+        "strix"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "self-review",
+      "name": "Self Review",
+      "description": "Capability evidenced by repository research: self review.",
+      "domains": [
+        "communication",
+        "quality"
+      ],
+      "evidence": [
+        "no-ai-slop:anti-generic-output"
+      ],
+      "source_repos": [
+        "no-ai-slop"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "skill-authoring",
+      "name": "Skill Authoring",
+      "description": "Capability evidenced by repository research: skill authoring.",
+      "domains": [
+        "documentation",
+        "knowledge"
+      ],
+      "evidence": [
+        "book-to-skill:structured-skill-extraction"
+      ],
+      "source_repos": [
+        "book-to-skill"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "source-management",
+      "name": "Source Management",
+      "description": "Capability evidenced by repository research: source management.",
+      "domains": [
+        "knowledge-management",
+        "research"
+      ],
+      "evidence": [
+        "open-notebook:citation-discipline",
+        "open-notebook:reusable-sources"
+      ],
+      "source_repos": [
+        "open-notebook"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "task-decomposition",
+      "name": "Task Decomposition",
+      "description": "Capability evidenced by repository research: task decomposition.",
+      "domains": [
+        "communication",
+        "execution"
+      ],
+      "evidence": [
+        "i-have-adhd:action-first-communication"
+      ],
+      "source_repos": [
+        "i-have-adhd"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "tool-orchestration",
+      "name": "Tool Orchestration",
+      "description": "Capability evidenced by repository research: tool orchestration.",
+      "domains": [
+        "content",
+        "research"
+      ],
+      "evidence": [
+        "open-seo:seo-research-workflow"
+      ],
+      "source_repos": [
+        "open-seo"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "vulnerability-discovery",
+      "name": "Vulnerability Discovery",
+      "description": "Capability evidenced by repository research: vulnerability discovery.",
+      "domains": [
+        "security",
+        "verification"
+      ],
+      "evidence": [
+        "strix:validated-security-loop"
+      ],
+      "source_repos": [
+        "strix"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    },
+    {
+      "id": "workflow-planning",
+      "name": "Workflow Planning",
+      "description": "Capability evidenced by repository research: workflow planning.",
+      "domains": [
+        "agents",
+        "orchestration"
+      ],
+      "evidence": [
+        "genai-agents:multi-agent-patterns"
+      ],
+      "source_repos": [
+        "genai-agents"
+      ],
+      "origin": "source-derived",
+      "license": "aggregated"
+    }
+  ],
+  "categories": [
+    {
+      "id": "agents",
+      "name": "Agents",
+      "capabilities": [
+        "evaluation",
+        "multi-agent-orchestration",
+        "reflection",
+        "routing",
+        "workflow-planning"
+      ]
+    },
+    {
+      "id": "ai",
+      "name": "Ai",
+      "capabilities": [
+        "generative-ai-app-development",
+        "multi-model-integration",
+        "provider-abstraction"
+      ]
+    },
+    {
+      "id": "communication",
+      "name": "Communication",
+      "capabilities": [
+        "action-first-communication",
+        "concise-output",
+        "editing",
+        "output-quality",
+        "self-review",
+        "task-decomposition"
+      ]
+    },
+    {
+      "id": "content",
+      "name": "Content",
+      "capabilities": [
+        "competitive-analysis",
+        "content-strategy",
+        "gap-analysis",
+        "keyword-clustering",
+        "keyword-research",
+        "search-intent",
+        "tool-orchestration"
+      ]
+    },
+    {
+      "id": "documentation",
+      "name": "Documentation",
+      "capabilities": [
+        "distillation",
+        "indexing",
+        "knowledge-extraction",
+        "provenance",
+        "skill-authoring"
+      ]
+    },
+    {
+      "id": "engineering",
+      "name": "Engineering",
+      "capabilities": [
+        "generative-ai-app-development",
+        "multi-model-integration",
+        "provider-abstraction"
+      ]
+    },
+    {
+      "id": "execution",
+      "name": "Execution",
+      "capabilities": [
+        "action-first-communication",
+        "concise-output",
+        "task-decomposition"
+      ]
+    },
+    {
+      "id": "knowledge",
+      "name": "Knowledge",
+      "capabilities": [
+        "distillation",
+        "indexing",
+        "knowledge-extraction",
+        "provenance",
+        "skill-authoring"
+      ]
+    },
+    {
+      "id": "knowledge-management",
+      "name": "Knowledge Management",
+      "capabilities": [
+        "citation",
+        "knowledge-organization",
+        "provenance",
+        "research-synthesis",
+        "source-management"
+      ]
+    },
+    {
+      "id": "orchestration",
+      "name": "Orchestration",
+      "capabilities": [
+        "evaluation",
+        "multi-agent-orchestration",
+        "reflection",
+        "routing",
+        "workflow-planning"
+      ]
+    },
+    {
+      "id": "quality",
+      "name": "Quality",
+      "capabilities": [
+        "editing",
+        "output-quality",
+        "self-review"
+      ]
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "capabilities": [
+        "citation",
+        "competitive-analysis",
+        "content-strategy",
+        "gap-analysis",
+        "keyword-clustering",
+        "keyword-research",
+        "knowledge-organization",
+        "provenance",
+        "research-synthesis",
+        "search-intent",
+        "source-management",
+        "tool-orchestration"
+      ]
+    },
+    {
+      "id": "security",
+      "name": "Security",
+      "capabilities": [
+        "finding-validation",
+        "re-scan-verification",
+        "remediation",
+        "sandboxing",
+        "security-reconnaissance",
+        "security-reporting",
+        "vulnerability-discovery"
+      ]
+    },
+    {
+      "id": "verification",
+      "name": "Verification",
+      "capabilities": [
+        "finding-validation",
+        "re-scan-verification",
+        "remediation",
+        "sandboxing",
+        "security-reconnaissance",
+        "security-reporting",
+        "vulnerability-discovery"
+      ]
+    }
+  ],
+  "role_edges": {
+    "ai-agent-engineer": {
+      "capabilities": [
+        "evaluation",
+        "multi-agent-orchestration"
+      ],
+      "category": "agents"
+    },
+    "ai-llm-engineer": {
+      "capabilities": [
+        "evaluation",
+        "multi-agent-orchestration"
+      ],
+      "category": "agents"
+    },
+    "code-reviewer": {
+      "capabilities": [
+        "editing",
+        "self-review"
+      ],
+      "category": "communication"
+    },
+    "devops-engineer": {
+      "capabilities": [
+        "multi-agent-orchestration"
+      ],
+      "category": "agents"
+    },
+    "fastapi-developer": {
+      "capabilities": [
+        "remediation"
+      ],
+      "category": "security"
+    },
+    "knowledge-engineer": {
+      "capabilities": [
+        "citation",
+        "distillation",
+        "knowledge-extraction",
+        "provenance",
+        "skill-authoring",
+        "source-management"
+      ],
+      "category": "documentation"
+    },
+    "python-developer": {
+      "capabilities": [
+        "remediation"
+      ],
+      "category": "security"
+    },
+    "qa-engineer": {
+      "capabilities": [
+        "remediation"
+      ],
+      "category": "security"
+    },
+    "researcher": {
+      "capabilities": [
+        "citation",
+        "competitive-analysis",
+        "gap-analysis",
+        "keyword-research",
+        "provenance",
+        "search-intent",
+        "source-management"
+      ],
+      "category": "content"
+    },
+    "security-engineer": {
+      "capabilities": [
+        "remediation"
+      ],
+      "category": "security"
+    },
+    "seo-researcher": {
+      "capabilities": [
+        "citation",
+        "competitive-analysis",
+        "editing",
+        "gap-analysis",
+        "keyword-research",
+        "provenance",
+        "search-intent",
+        "self-review",
+        "source-management"
+      ],
+      "category": "communication"
+    },
+    "seo-writer": {
+      "capabilities": [
+        "citation",
+        "concise-output",
+        "editing",
+        "provenance",
+        "self-review",
+        "source-management",
+        "task-decomposition"
+      ],
+      "category": "communication"
+    },
+    "software-architect": {
+      "capabilities": [
+        "multi-agent-orchestration"
+      ],
+      "category": "agents"
+    },
+    "technical-writer": {
+      "capabilities": [
+        "concise-output",
+        "editing",
+        "self-review",
+        "task-decomposition"
+      ],
+      "category": "communication"
+    }
+  },
+  "skill_edges": {
+    "action-first-communication": {
+      "capabilities": [
+        "concise-output",
+        "task-decomposition"
+      ]
+    },
+    "anti-slop-refinement": {
+      "capabilities": [
+        "editing",
+        "self-review"
+      ]
+    },
+    "competitive-analysis": {
+      "capabilities": [
+        "competitive-analysis",
+        "gap-analysis"
+      ]
+    },
+    "fix-verify-loop": {
+      "capabilities": [
+        "remediation"
+      ]
+    },
+    "knowledge-extraction": {
+      "capabilities": [
+        "distillation",
+        "knowledge-extraction",
+        "skill-authoring"
+      ]
+    },
+    "repository-analysis": {
+      "capabilities": []
+    },
+    "security-reconnaissance": {
+      "capabilities": []
+    },
+    "security-validation": {
+      "capabilities": []
+    },
+    "seo-research": {
+      "capabilities": [
+        "keyword-research",
+        "search-intent"
+      ]
+    },
+    "source-verification": {
+      "capabilities": [
+        "citation"
+      ]
+    },
+    "structured-research": {
+      "capabilities": [
+        "citation",
+        "provenance",
+        "source-management"
+      ]
+    },
+    "workflow-planning": {
+      "capabilities": [
+        "multi-agent-orchestration"
+      ]
+    }
+  },
+  "prompt_edges": {
+    "agent-workflow-planner": {
+      "capabilities": [
+        "multi-agent-orchestration"
+      ]
+    },
+    "ai-agent-engineer": {
+      "capabilities": [
+        "evaluation"
+      ]
+    },
+    "ai-engineer": {
+      "capabilities": [
+        "evaluation"
+      ]
+    },
+    "ai-llm-engineer": {
+      "capabilities": [
+        "evaluation"
+      ]
+    },
+    "architecture-reviewer": {
+      "capabilities": []
+    },
+    "cloud-architecture-reviewer": {
+      "capabilities": []
+    },
+    "cloud-azure": {
+      "capabilities": []
+    },
+    "cloud-engineer": {
+      "capabilities": []
+    },
+    "code-reviewer": {
+      "capabilities": []
+    },
+    "code-reviewer-performance": {
+      "capabilities": []
+    },
+    "code-reviewer-security": {
+      "capabilities": []
+    },
+    "communicator-action-first": {
+      "capabilities": [
+        "concise-output",
+        "task-decomposition"
+      ]
+    },
+    "data-etl-engineer": {
+      "capabilities": []
+    },
+    "data-pipeline-engineer": {
+      "capabilities": []
+    },
+    "data-quality-engineer": {
+      "capabilities": []
+    },
+    "debugger-adversarial": {
+      "capabilities": []
+    },
+    "debugger-incident": {
+      "capabilities": []
+    },
+    "debugger-root-cause": {
+      "capabilities": []
+    },
+    "devops-cicd": {
+      "capabilities": []
+    },
+    "devops-deployment": {
+      "capabilities": []
+    },
+    "devops-infrastructure": {
+      "capabilities": []
+    },
+    "distributed-systems-architect": {
+      "capabilities": []
+    },
+    "orchestrator-multi-agent": {
+      "capabilities": []
+    },
+    "orchestrator-task-decomposer": {
+      "capabilities": []
+    },
+    "orchestrator-workflow": {
+      "capabilities": []
+    },
+    "pm-delivery": {
+      "capabilities": []
+    },
+    "pm-risk": {
+      "capabilities": []
+    },
+    "pm-technical": {
+      "capabilities": []
+    },
+    "qa-e2e-engineer": {
+      "capabilities": []
+    },
+    "qa-test-engineer": {
+      "capabilities": []
+    },
+    "qa-test-strategy": {
+      "capabilities": []
+    },
+    "research-source-manager": {
+      "capabilities": [
+        "citation",
+        "provenance",
+        "source-management"
+      ]
+    },
+    "researcher-analyst": {
+      "capabilities": []
+    },
+    "researcher-literature": {
+      "capabilities": []
+    },
+    "researcher-technical": {
+      "capabilities": []
+    },
+    "security-appsec-engineer": {
+      "capabilities": []
+    },
+    "security-auditor": {
+      "capabilities": []
+    },
+    "security-pentest-validator": {
+      "capabilities": [
+        "remediation"
+      ]
+    },
+    "security-threat-modeler": {
+      "capabilities": []
+    },
+    "seo-competitive-analysis": {
+      "capabilities": [
+        "competitive-analysis",
+        "gap-analysis"
+      ]
+    },
+    "seo-keyword-research": {
+      "capabilities": [
+        "keyword-research",
+        "search-intent"
+      ]
+    },
+    "software-engineer": {
+      "capabilities": []
+    },
+    "software-engineer-expert": {
+      "capabilities": []
+    },
+    "software-engineer-production": {
+      "capabilities": []
+    },
+    "system-architect": {
+      "capabilities": []
+    },
+    "writer-anti-slop": {
+      "capabilities": [
+        "editing",
+        "self-review"
+      ]
+    },
+    "writer-docs-reviewer": {
+      "capabilities": []
+    },
+    "writer-documentation": {
+      "capabilities": []
+    },
+    "writer-readme": {
+      "capabilities": []
+    }
+  },
+  "role_skill_edges": {
+    "ai-agent-engineer": [
+      "workflow-planning",
+      "repository-analysis"
+    ],
+    "ai-llm-engineer": [
+      "repository-analysis",
+      "workflow-planning"
+    ],
+    "code-reviewer": [
+      "repository-analysis",
+      "anti-slop-refinement"
+    ],
+    "devops-engineer": [
+      "repository-analysis",
+      "workflow-planning"
+    ],
+    "fastapi-developer": [
+      "repository-analysis",
+      "fix-verify-loop"
+    ],
+    "knowledge-engineer": [
+      "knowledge-extraction",
+      "structured-research",
+      "source-verification"
+    ],
+    "python-developer": [
+      "repository-analysis",
+      "fix-verify-loop"
+    ],
+    "qa-engineer": [
+      "repository-analysis",
+      "fix-verify-loop"
+    ],
+    "researcher": [
+      "structured-research",
+      "source-verification"
+    ],
+    "security-engineer": [
+      "security-reconnaissance",
+      "security-validation"
+    ],
+    "seo-researcher": [
+      "structured-research",
+      "source-verification",
+      "anti-slop-refinement"
+    ],
+    "seo-writer": [
+      "structured-research",
+      "anti-slop-refinement",
+      "action-first-communication"
+    ],
+    "software-architect": [
+      "repository-analysis",
+      "workflow-planning"
+    ],
+    "technical-writer": [
+      "anti-slop-refinement",
+      "action-first-communication"
+    ]
+  },
+  "role_prompt_edges": {
+    "ai-agent-engineer": [
+      "agent-workflow-planner",
+      "ai-agent-engineer",
+      "ai-engineer",
+      "ai-llm-engineer"
+    ],
+    "ai-llm-engineer": [
+      "agent-workflow-planner",
+      "ai-agent-engineer",
+      "ai-engineer",
+      "ai-llm-engineer"
+    ],
+    "code-reviewer": [
+      "code-reviewer",
+      "code-reviewer-performance",
+      "code-reviewer-security"
+    ],
+    "devops-engineer": [
+      "devops-cicd",
+      "devops-deployment",
+      "devops-infrastructure"
+    ],
+    "fastapi-developer": [
+      "software-engineer",
+      "software-engineer-expert",
+      "software-engineer-production"
+    ],
+    "knowledge-engineer": [
+      "software-engineer",
+      "software-engineer-expert",
+      "software-engineer-production"
+    ],
+    "python-developer": [
+      "software-engineer",
+      "software-engineer-expert",
+      "software-engineer-production"
+    ],
+    "qa-engineer": [
+      "qa-e2e-engineer",
+      "qa-test-engineer",
+      "qa-test-strategy"
+    ],
+    "researcher": [
+      "research-source-manager",
+      "researcher-analyst",
+      "researcher-literature",
+      "researcher-technical",
+      "seo-competitive-analysis",
+      "seo-keyword-research"
+    ],
+    "security-engineer": [
+      "security-appsec-engineer",
+      "security-auditor",
+      "security-pentest-validator",
+      "security-threat-modeler"
+    ],
+    "seo-researcher": [
+      "research-source-manager",
+      "researcher-analyst",
+      "researcher-literature",
+      "researcher-technical",
+      "seo-competitive-analysis",
+      "seo-keyword-research"
+    ],
+    "seo-writer": [
+      "writer-anti-slop",
+      "writer-docs-reviewer",
+      "writer-documentation",
+      "writer-readme"
+    ],
+    "software-architect": [
+      "architecture-reviewer",
+      "distributed-systems-architect",
+      "system-architect"
+    ],
+    "technical-writer": [
+      "writer-anti-slop",
+      "writer-docs-reviewer",
+      "writer-documentation",
+      "writer-readme"
+    ]
+  },
+  "agent_assignments": {
+    "matthew": {
+      "capability_ids": [
+        "action-first-communication",
+        "editing",
+        "output-quality",
+        "remediation",
+        "security-reporting",
+        "self-review"
+      ],
+      "role_ids": [
+        "code-reviewer",
+        "python-developer"
+      ],
+      "skill_ids": [
+        "repository-analysis",
+        "anti-slop-refinement",
+        "fix-verify-loop"
+      ],
+      "prompt_profile_ids": [
+        "code-reviewer",
+        "code-reviewer-performance",
+        "code-reviewer-security",
+        "software-engineer",
+        "software-engineer-expert",
+        "software-engineer-production"
+      ]
+    },
+    "alex": {
+      "capability_ids": [
+        "finding-validation",
+        "multi-agent-orchestration",
+        "re-scan-verification",
+        "remediation",
+        "sandboxing",
+        "security-reconnaissance",
+        "vulnerability-discovery"
+      ],
+      "role_ids": [
+        "security-engineer",
+        "software-architect"
+      ],
+      "skill_ids": [
+        "security-reconnaissance",
+        "security-validation",
+        "repository-analysis",
+        "workflow-planning"
+      ],
+      "prompt_profile_ids": [
+        "security-appsec-engineer",
+        "security-auditor",
+        "security-pentest-validator",
+        "security-threat-modeler",
+        "architecture-reviewer",
+        "distributed-systems-architect",
+        "system-architect"
+      ]
+    },
+    "sarah": {
+      "capability_ids": [
+        "citation",
+        "competitive-analysis",
+        "gap-analysis",
+        "keyword-research",
+        "knowledge-organization",
+        "provenance",
+        "search-intent",
+        "source-management"
+      ],
+      "role_ids": [
+        "researcher"
+      ],
+      "skill_ids": [
+        "structured-research",
+        "source-verification"
+      ],
+      "prompt_profile_ids": [
+        "research-source-manager",
+        "researcher-analyst",
+        "researcher-literature",
+        "researcher-technical",
+        "seo-competitive-analysis",
+        "seo-keyword-research"
+      ]
+    },
+    "david": {
+      "capability_ids": [
+        "citation",
+        "content-strategy",
+        "distillation",
+        "indexing",
+        "knowledge-extraction",
+        "provenance",
+        "research-synthesis",
+        "skill-authoring",
+        "source-management"
+      ],
+      "role_ids": [
+        "knowledge-engineer"
+      ],
+      "skill_ids": [
+        "knowledge-extraction",
+        "structured-research",
+        "source-verification"
+      ],
+      "prompt_profile_ids": [
+        "software-engineer",
+        "software-engineer-expert",
+        "software-engineer-production"
+      ]
+    },
+    "elena": {
+      "capability_ids": [
+        "citation",
+        "concise-output",
+        "editing",
+        "keyword-clustering",
+        "provenance",
+        "self-review",
+        "source-management",
+        "task-decomposition",
+        "tool-orchestration"
+      ],
+      "role_ids": [
+        "seo-writer"
+      ],
+      "skill_ids": [
+        "structured-research",
+        "anti-slop-refinement",
+        "action-first-communication"
+      ],
+      "prompt_profile_ids": [
+        "writer-anti-slop",
+        "writer-docs-reviewer",
+        "writer-documentation",
+        "writer-readme"
+      ]
+    },
+    "max": {
+      "capability_ids": [
+        "evaluation",
+        "multi-agent-orchestration",
+        "reflection",
+        "routing",
+        "workflow-planning"
+      ],
+      "role_ids": [
+        "ai-agent-engineer"
+      ],
+      "skill_ids": [
+        "workflow-planning",
+        "repository-analysis"
+      ],
+      "prompt_profile_ids": [
+        "agent-workflow-planner",
+        "ai-agent-engineer",
+        "ai-engineer",
+        "ai-llm-engineer"
+      ]
+    },
+    "chloe": {
+      "capability_ids": [
+        "evaluation",
+        "generative-ai-app-development",
+        "multi-agent-orchestration",
+        "multi-model-integration",
+        "provider-abstraction"
+      ],
+      "role_ids": [
+        "ai-agent-engineer"
+      ],
+      "skill_ids": [
+        "workflow-planning",
+        "repository-analysis"
+      ],
+      "prompt_profile_ids": [
+        "agent-workflow-planner",
+        "ai-agent-engineer",
+        "ai-engineer",
+        "ai-llm-engineer"
+      ]
+    }
+  },
+  "coverage": {
+    "uncovered_agents": [],
+    "uncovered_capabilities": [],
+    "derived_assignments": [],
+    "fallback_assignments": [
+      "chloe",
+      "david",
+      "elena",
+      "max",
+      "sarah"
+    ],
+    "explicit_assignments": [
+      "alex",
+      "matthew"
+    ],
+    "assignment_sources": {
+      "matthew": "explicit",
+      "alex": "explicit",
+      "sarah": "fallback",
+      "david": "fallback",
+      "elena": "fallback",
+      "max": "fallback",
+      "chloe": "fallback"
+    }
+  }
+}

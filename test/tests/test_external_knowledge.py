@@ -114,6 +114,8 @@ SOURCE_RECORDS = {
     "i-have-adhd.md": "https://github.com/ayghri/i-have-adhd",
     "open-seo.md": "https://github.com/every-app/open-seo",
     "strix.md": "https://github.com/usestrix/strix",
+    "open-generative-ai.md": "https://github.com/Anil-matcha/Open-Generative-AI",
+    "book-to-skill.md": "https://github.com/virgiliojr94/book-to-skill",
     "book.md": "",  # unresolved source — no URL expected
 }
 
@@ -125,7 +127,9 @@ class TestSourceRegistry(unittest.TestCase):
         text = index.read_text(encoding="utf-8")
         for slug in ("NirDiamant/GenAI_Agents", "lfnovo/open-notebook",
                      "petergyang/no-ai-slop", "ayghri/i-have-adhd",
-                     "every-app/open-seo", "usestrix/strix"):
+                     "every-app/open-seo", "usestrix/strix",
+                     "Anil-matcha/Open-Generative-AI",
+                     "virgiliojr94/book-to-skill"):
             self.assertIn(slug, text, slug)
 
     def test_each_source_record_has_its_url(self):

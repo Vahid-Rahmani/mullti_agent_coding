@@ -23,7 +23,6 @@ Safety and design guarantees:
 from __future__ import annotations
 
 import json
-import os
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,7 +34,6 @@ from scripts.core.vault_bridge import (
     _find_node,
     _log,
     _now,
-    parse_frontmatter,
     read_node,
     resolve_task,
     validate_vault,
@@ -162,10 +160,8 @@ def resolve_context(vault: Path, task_path: Path,
     * ``unresolved`` lists link targets with no matching file in the vault.
     """
     validate_vault(vault)
-    if max_depth < 1:
-        max_depth = 1
-    if max_nodes < 1:
-        max_nodes = 1
+    max_depth = max(max_depth, 1)
+    max_nodes = max(max_nodes, 1)
     if not task_path.is_file():
         raise VaultError(f"task node not found: {task_path}")
 
@@ -290,10 +286,10 @@ __all__ = [
     "SNIPPET_LIMIT",
     "ContextPackage",
     "NodeRef",
-    "cmd_context",
-    "log_context",
-    "resolve_context",
     "_neighbors",
     "_node_type",
     "_snippet",
+    "cmd_context",
+    "log_context",
+    "resolve_context",
 ]

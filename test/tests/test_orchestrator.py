@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 from scripts.core import opencode_cfg
 from scripts.core import orchestrator as orch
+from scripts.core import vault_bridge as bridge
 
 TASK_TEXT = """---
 type: task
@@ -90,12 +91,12 @@ class TestTaskDiscovery(OrchestratorTestCase):
 
     def test_missing_vault_raises(self):
         with self.assertRaises(orch.VaultError):
-            orch.validate_vault(Path(self.tmp.name) / "nope")
+            bridge.validate_vault(Path(self.tmp.name) / "nope")
 
 
 class TestFrontmatter(OrchestratorTestCase):
     def test_parse_fields(self):
-        fields, err = orch.parse_frontmatter(TASK_TEXT)
+        fields, err = bridge.parse_frontmatter(TASK_TEXT)
         self.assertIsNone(err)
         self.assertEqual(fields["status"], "planned")
         self.assertEqual(fields["assigned_agent"], "Agent_Matthew")
@@ -103,7 +104,7 @@ class TestFrontmatter(OrchestratorTestCase):
 
     def test_malformed_frontmatter_reported_safely(self):
         bad = "# No frontmatter\njust body\n"
-        fields, err = orch.parse_frontmatter(bad)
+        fields, err = bridge.parse_frontmatter(bad)
         self.assertEqual(fields, {})
         self.assertIn("missing frontmatter", err)
 
@@ -224,8 +225,8 @@ class TestReport(OrchestratorTestCase):
 class TestAtomicWrite(OrchestratorTestCase):
     def test_atomic_write_roundtrip(self):
         raw = self.task_path.read_text(encoding="utf-8")
-        updated = orch._replace_frontmatter(raw, {"status": "ready", "updated": "2026-08-12"})
-        orch._atomic_write(self.task_path, updated)
+        updated = bridge._replace_frontmatter(raw, {"status": "ready", "updated": "2026-08-12"})
+        bridge._atomic_write(self.task_path, updated)
         fields, _b, _r = orch.read_task(self.task_path)
         self.assertEqual(fields["status"], "ready")
         self.assertEqual(fields["updated"], "2026-08-12")
@@ -285,7 +286,7 @@ class TestTaskRoleOverride(unittest.TestCase):
 
     def test_frontmatter_adds_new_role_field(self):
         raw = TASK_TEXT
-        updated = orch._replace_frontmatter(raw, {"role": "security-engineer"})
+        updated = bridge._replace_frontmatter(raw, {"role": "security-engineer"})
         self.assertIn("role: security-engineer", updated)
         self.assertIn("## Acceptance Criteria", updated)
 

@@ -14,8 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scripts.core.agents import PROJECT_ROOT
 from scripts.core import roles
+from scripts.core.agents import PROJECT_ROOT
 
 # Technology signal -> role ids. A repository exhibiting the signal gets the
 # corresponding role *suggested* (not assigned).
@@ -108,12 +108,12 @@ def analyze_repository(repo_root: Path | None = None) -> ProjectProfile:
             technologies.append("ci")
 
     # Source-tree signals (fastest wins, read-only).
-    if any((root / "scripts").rglob("*.py")) or any((root / "test").rglob("*.py")):
-        if "python" not in technologies:
-            technologies.append("python")
-    if any((root / "scripts").rglob("*.js")) or any((root / "test").rglob("*.js")):
-        if "javascript" not in technologies:
-            technologies.append("javascript")
+    if (any((root / "scripts").rglob("*.py"))
+            or any((root / "test").rglob("*.py"))) and "python" not in technologies:
+        technologies.append("python")
+    if (any((root / "scripts").rglob("*.js"))
+            or any((root / "test").rglob("*.js"))) and "javascript" not in technologies:
+        technologies.append("javascript")
 
     if "python" in technologies and _signal_for_fastapi(root, manifests):
         technologies.append("fastapi")

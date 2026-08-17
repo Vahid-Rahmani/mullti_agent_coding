@@ -3,8 +3,8 @@ type: architecture
 status: active
 owner: architect
 created: 2026-08-11
-updated: 2026-08-11
-related: [Architecture_Overview]
+updated: 2026-08-17
+related: [Architecture_Overview, System_Architecture]
 ---
 
 # Architecture_Home
@@ -30,6 +30,11 @@ models, and integration contracts.
   - [[Component_AgentSpecs]] — agent definition layer + registry
   - [[Component_StateTracker]] — state.md persistence
   - [[Component_Launchers]] — launchers + inbox workers
+  - [[Component_Orchestrator]] — controlled Vault task execution
+  - [[Component_VaultBridge]] — safe schema-aware Vault I/O
+  - [[Component_ContextResolver]] — bounded linked task context
+  - [[Component_ChangeDetector]] — detection-only snapshot and impact mapping
+  - [[Component_KnowledgeSync]] — docs/code reconciliation and drift reporting
 - ↔ Related: [[Documentation_Home]], [[Decisions_Home]]
 
 ## Rules

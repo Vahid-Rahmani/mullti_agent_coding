@@ -17,15 +17,39 @@ permanently couples them:
 2. **Role** — reusable expertise/behavior (responsibilities, tools, permissions,
    rules, expected outputs), defined in `roles.json` and assigned many-to-many
    to agents via `scripts/core/roles.py`.
-3. **Model / provider** — a runtime selection owned by `opencode.json` and the
+3. **Skill** — a reusable *operating procedure* (ordered steps + capabilities)
+   that sits between a role and the prompt/workflow layer
+   (`scripts/core/skills.py`). Model- and agent-independent, composable by id
+   from workflow nodes, provenance-aware where adapted from external research.
+4. **Model / provider** — a runtime selection owned by `opencode.json` and the
    Settings / BYOK layer (`scripts/core/opencode_cfg.resolve_model`).
-4. **Project / repository context** — a `ProjectProfile` derived read-only by
+5. **Evaluation** — a reusable output rubric (`scripts/core/evaluation.py`):
+   criteria dimensions, weighted scoring, and a pass/review/fail decision.
+6. **Project / repository context** — a `ProjectProfile` derived read-only by
    `scripts/core/project_profile.py` (technologies, manifests, instructions,
    suggested roles) and injected dynamically, never duplicated per agent.
+7. **Agent Catalog / Preset** — the deterministic template layer
+   (`scripts/core/agent_catalog.py`): hand-curated `AgentPreset`s grouped under
+   high-level categories, plus a special **Empty Agent** (zero configuration).
+   A preset pins one deliberate role + skills + prompt profile(s) and
+   references an existing agent key; it is never synthesized from roles ×
+   prompts, and the existing 7 agents are preserved as the runtime identities.
 
 So **any agent can run on any user-selected model**, and **any role can be
 assigned to one or many agents** (and an agent may hold many roles) without
-editing an agent's source module.
+editing an agent's source module. Categories and presets are **templates**,
+never runtime identities: selecting a preset populates role/skills/prompt
+profile deterministically, and the Empty Agent stays empty (raw request only).
+
+**Runtime context** — the decoupled concepts are *composed* into one
+**deterministic prompt** at dispatch time by `scripts/core/runtime_context.py`
+(identity → roles → skills → prompt profile/instruction → project → workflow →
+task → user request). Every execution path (terminal RunHub, task
+Orchestrator, workflow planner) uses the same builder, so an agent's configured
+roles/skills/prompt profiles actually reach its runtime prompt. Per-agent skill
+and prompt-profile assignments persist in `agent_context.json`
+(`$ZOVA_AGENT_CONTEXT` overrides) and are editable via the Settings API. The
+order is fixed so task/user text can never overwrite system-level identity.
 
 On top of that plain contract the repo ships an **Obsidian vault stack**
 (`scripts/core/vault_bridge.py`, `orchestrator.py`, `context_resolver.py`,
@@ -153,10 +177,15 @@ This repo ships a human-facing UI plus a 7-window launcher.
 - **Steps:** The web dashboard, the ZOVA terminal, and the inbox workers each
   drive their own agent runs; run one interface at a time.
 - **Obsidian vault stack** — `obsidian_vault/` is a live, schema-validated
-  vault (36 nodes). The Orchestrator (`python -m scripts.core.orchestrator`)
-  dispatches `ready` task nodes through the same `opencode run` command the
-  terminal uses, enforces status transitions + per-task locks, and requires an
-  explicit `--yes` to execute. `vault_validate.py`, `generate_dashboard.py
+  vault (40 nodes, including 4 seeded task nodes in `03-Tasks/`). The
+  Orchestrator (`python -m scripts.core.orchestrator`) dispatches `ready` task
+  nodes through the same `opencode run` command the terminal uses, enforces
+  status transitions + per-task locks, and requires an explicit `--yes` to
+  execute. A completed/failed run writes the outcome **and** a structured
+  `## Agent Report` back into the node (`GET /api/tasks/{name}` returns the
+  persisted result). Task statuses use the Orchestrator vocabulary
+  (`planned`/`ready`/`in_progress`/`blocked`/`completed`/`failed`), which the
+  vault validator now enforces. `vault_validate.py`, `generate_dashboard.py
   --check`, and `health_check.py` keep the vault schema-valid and drift-free.
 - **Settings / BYOK** — the Dashboard's Settings tab (Phase 25) manages
   provider connections (Simple: Gemini/OpenAI/Anthropic; Advanced: custom

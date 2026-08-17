@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 HEALTH_LOG = Path("_logs") / "health_report.jsonl"
 
 SECTIONS = ("00-System", "01-Architecture", "02-Agents", "03-Tasks",
@@ -89,6 +91,18 @@ class HealthReport:
 # ---------------------------------------------------------------- scan
 
 def _parse_frontmatter(text: str) -> dict[str, str]:
+    """Extract flat ``key: value`` pairs into a dict (tolerant, detection-only).
+
+    Intentionally DIFFERENT from the canonical parser
+    (``scripts.core.vault_bridge.parse_frontmatter``): that parser is strict —
+    it returns an ``(fields, error)`` tuple and treats a missing frontmatter
+    block or an unparseable line as an error. HealthCheck is a read-only
+    *detector* that must survive malformed nodes and still report on them, so
+    this helper stays permissive: a missing block yields ``{}``, and lines
+    without a ``key: value`` shape are skipped rather than fatal. Downstream
+    checks then report the *effect* (missing required fields) instead of the
+    parse error, which is the intended detection-only contract.
+    """
     m = FM_RE.match(text)
     if not m:
         return {}
@@ -101,8 +115,9 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
 
 
 def _is_legacy(rel: str) -> bool:
-    return rel == "Dashboard.md" or rel == "Roadmap.md" or rel.startswith("prompts/") \
-        or rel.startswith("agents_logs/")
+    return rel in {"Dashboard.md", "Roadmap.md"} or rel.startswith(
+        ("prompts/", "agents_logs/"),
+    )
 
 
 def scan_vault(vault: Path) -> list[Node]:

@@ -83,7 +83,7 @@ class ModelPreferences:
     cost: str = "medium"        # low | medium | high  (low = cheap)
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> "ModelPreferences":
+    def from_dict(cls, data: dict | None) -> ModelPreferences:
         data = data or {}
         return cls(
             reasoning=str(data.get("reasoning") or "medium"),
@@ -128,7 +128,7 @@ class PromptProfile:
     model_preferences: ModelPreferences | None = None  # optional override
 
     @classmethod
-    def from_dict(cls, data: dict) -> "PromptProfile":
+    def from_dict(cls, data: dict) -> PromptProfile:
         def _list(key: str) -> tuple[str, ...]:
             value = data.get(key) or []
             return tuple(str(x) for x in value)
@@ -237,10 +237,10 @@ _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 __all__ = [
-    "PromptProfile",
-    "ModelPreferences",
-    "PROMPT_ROLES",
     "CATEGORIES",
     "ORIGINS",
+    "PROMPT_ROLES",
+    "ModelPreferences",
+    "PromptProfile",
     "validate_profile",
 ]

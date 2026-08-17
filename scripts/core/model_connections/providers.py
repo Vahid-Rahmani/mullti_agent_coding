@@ -95,13 +95,13 @@ def requires_api_key(provider: str) -> bool:
 
 
 __all__ = [
-    "ProviderMeta",
-    "PROVIDERS",
     "LOCAL_PROVIDERS",
+    "PROVIDERS",
+    "ProviderMeta",
     "get_provider",
+    "is_local_provider",
+    "provider_for_model",
     "provider_known",
     "provider_meta",
-    "provider_for_model",
-    "is_local_provider",
     "requires_api_key",
 ]

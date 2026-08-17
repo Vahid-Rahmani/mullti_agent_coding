@@ -1,3 +1,19 @@
+---
+id: genai-agents
+source_url: https://github.com/NirDiamant/GenAI_Agents
+license: custom non-commercial
+source_type: concept reference
+extraction_mode: concepts
+code_reuse: no code reuse
+domains: [orchestration, agents]
+evidence:
+  - id: multi-agent-patterns
+    kind: architecture
+    summary: Provide concept-level planner, routing, reflection, memory, and evaluation patterns.
+    supports: [workflow-planning, multi-agent-orchestration, reflection, routing, evaluation]
+    confidence: inferred
+    requires_inspection: true
+---
 # NirDiamant/GenAI_Agents
 
 - **Repository:** `NirDiamant/GenAI_Agents`

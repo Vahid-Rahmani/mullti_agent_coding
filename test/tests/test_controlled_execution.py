@@ -227,7 +227,7 @@ class TestDispatchStatusWriteback(ControlledExecutionTestCase):
 
 class TestConcurrencyLock(ControlledExecutionTestCase):
     def test_lock_created_and_released(self):
-        lock = orch._lock_path("Task_Demo")
+        lock = orch._lock_path(self.vault, "Task_Demo")
         self.assertFalse(lock.exists())
         with mock.patch.object(orch, "_run_command_capture",
                                return_value=PASSING_REPORT):
@@ -235,7 +235,7 @@ class TestConcurrencyLock(ControlledExecutionTestCase):
         self.assertFalse(lock.exists())  # released in finally
 
     def test_second_dispatch_refused_while_locked(self):
-        lock = orch._acquire_lock("Task_Demo")
+        lock = orch._acquire_lock(self.vault, "Task_Demo")
         self.assertIsNotNone(lock)
         try:
             with self.assertRaises(orch.VaultError) as cm:

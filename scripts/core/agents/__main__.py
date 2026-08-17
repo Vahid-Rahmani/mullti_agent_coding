@@ -29,8 +29,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.core import opencode_cfg  # noqa: E402
-from scripts.core.agents import (  # noqa: E402
+from scripts.core import opencode_cfg
+from scripts.core.agents import (
     AGENT_SPEC_BY_AGENT,
     AGENT_SPEC_BY_TAG,
     AGENT_SPECS,

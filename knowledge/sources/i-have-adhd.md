@@ -1,3 +1,19 @@
+---
+id: i-have-adhd
+source_url: https://github.com/ayghri/i-have-adhd
+license: MIT
+source_type: open-source guidance
+extraction_mode: ideas
+code_reuse: concepts only
+domains: [communication, execution]
+evidence:
+  - id: action-first-communication
+    kind: output-policy
+    summary: Prefer concise numbered action-first communication without tangents.
+    supports: [action-first-communication, task-decomposition, concise-output]
+    confidence: direct
+    requires_inspection: false
+---
 # ayghri/i-have-adhd
 
 - **Repository:** `ayghri/i-have-adhd`

@@ -13,7 +13,9 @@ Models, roles, and providers are runtime concerns resolved from
 
 from __future__ import annotations
 
+from .alex import SPEC as ALEX
 from .base import AgentSpec
+from .chloe import SPEC as CHLOE
 from .constants import (
     PROJECT_ROOT,
     STATUS_ACTIVE,
@@ -21,46 +23,44 @@ from .constants import (
     STATUS_IDLE,
     STATUS_THINKING,
 )
-from .matthew import SPEC as MATTHEW
-from .alex import SPEC as ALEX
-from .sarah import SPEC as SARAH
 from .david import SPEC as DAVID
 from .elena import SPEC as ELENA
-from .max import SPEC as MAX
-from .chloe import SPEC as CHLOE
 from .master import SPEC as MASTER
+from .matthew import SPEC as MATTHEW
+from .max import SPEC as MAX
 from .registry import (
-    AGENT_SPECS,
+    _AGENT_TAGS,
     AGENT_SPEC_BY_AGENT,
     AGENT_SPEC_BY_TAG,
+    AGENT_SPECS,
     AGENTS,
     DEFAULT_ENABLED_AGENTS,
     MASTER_SPEC,
     TABS,
-    _AGENT_TAGS,
 )
+from .sarah import SPEC as SARAH
 
 __all__ = [
-    "AgentSpec",
+    "AGENTS",
+    "AGENT_SPECS",
+    "AGENT_SPEC_BY_AGENT",
+    "AGENT_SPEC_BY_TAG",
+    "ALEX",
+    "CHLOE",
+    "DAVID",
+    "DEFAULT_ENABLED_AGENTS",
+    "ELENA",
+    "MASTER",
+    "MASTER_SPEC",
+    "MATTHEW",
+    "MAX",
     "PROJECT_ROOT",
+    "SARAH",
     "STATUS_ACTIVE",
     "STATUS_ERROR",
     "STATUS_IDLE",
     "STATUS_THINKING",
-    "MATTHEW",
-    "ALEX",
-    "SARAH",
-    "DAVID",
-    "ELENA",
-    "MAX",
-    "CHLOE",
-    "MASTER",
-    "AGENT_SPECS",
-    "AGENT_SPEC_BY_AGENT",
-    "AGENT_SPEC_BY_TAG",
-    "AGENTS",
-    "DEFAULT_ENABLED_AGENTS",
-    "MASTER_SPEC",
     "TABS",
     "_AGENT_TAGS",
+    "AgentSpec",
 ]

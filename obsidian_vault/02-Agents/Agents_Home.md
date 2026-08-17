@@ -59,8 +59,8 @@ All 7 agents are **fully integrated** with the core components:
 
 ### Known gaps (reported, not invented)
 
-- **No task nodes exist yet** — `03-Tasks/` has only the hub, so agent nodes
-  link to `[[Tasks_Home]]` rather than individual tasks.
+- **Task nodes seeded** — `03-Tasks/` now carries real task nodes (see
+  [[Task_Backlog]]); agent nodes link to [[Tasks_Home]] for task discovery.
 - **MASTER has no node** — the MASTER coordinator has `agent=None` (no opencode
   agent key), so it is not represented as an `Agent_*.md` node by design.
 - **Future role agents** (Architect, Coding, Testing, Orchestrator) exist only

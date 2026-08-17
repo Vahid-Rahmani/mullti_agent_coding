@@ -85,17 +85,17 @@ class BridgeTestCase(unittest.TestCase):
 
 class TestVaultResolution(BridgeTestCase):
     def test_validate_ok(self):
-        orch.validate_vault(self.vault)  # must not raise
+        bridge.validate_vault(self.vault)  # must not raise
 
     def test_validate_missing_dir_raises(self):
         with self.assertRaises(orch.VaultError):
-            orch.validate_vault(Path(self.tmp.name) / "nope")
+            bridge.validate_vault(Path(self.tmp.name) / "nope")
 
     def test_validate_missing_tasks_dir_raises(self):
         empty = Path(self.tmp.name) / "empty"
         empty.mkdir()
         with self.assertRaises(orch.VaultError):
-            orch.validate_vault(empty)
+            bridge.validate_vault(empty)
 
     def test_list_tasks_scoped(self):
         # A stray markdown file outside 03-Tasks must never appear.
@@ -108,12 +108,12 @@ class TestFrontmatterSafety(BridgeTestCase):
     def test_malformed_frontmatter_reported_safely(self):
         bad = self.tasks / "Task_Bad.md"
         bad.write_text("# No frontmatter\njust body\n", encoding="utf-8")
-        fields, err = orch.parse_frontmatter(bad.read_text(encoding="utf-8"))
+        fields, err = bridge.parse_frontmatter(bad.read_text(encoding="utf-8"))
         self.assertEqual(fields, {})
         self.assertIn("missing frontmatter", err)
 
     def test_parse_frontmatter_fields(self):
-        fields, err = orch.parse_frontmatter(TASK_TEXT)
+        fields, err = bridge.parse_frontmatter(TASK_TEXT)
         self.assertIsNone(err)
         self.assertEqual(fields["assigned_agent"], "Agent_Matthew")
         self.assertEqual(fields["related_component"], "Component_RunHub")

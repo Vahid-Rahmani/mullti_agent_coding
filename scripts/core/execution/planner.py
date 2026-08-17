@@ -21,10 +21,12 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scripts.core import model_connections
-from scripts.core import opencode_cfg
-from scripts.core import prompt_library
-from scripts.core import roles
+from scripts.core import (
+    model_connections,
+    opencode_cfg,
+    prompt_library,
+    runtime_context,
+)
 from scripts.core.execution.errors import PlanError
 from scripts.core.execution.schema import ModelRequest
 from scripts.core.providers.base import (
@@ -32,7 +34,6 @@ from scripts.core.providers.base import (
     adapter_for,
 )
 from scripts.core.workflows import WorkflowNode
-
 
 # ---------------------------------------------------------------- prompt
 
@@ -55,35 +56,35 @@ def _effective_instruction(node: WorkflowNode) -> str:
 
 def build_node_prompt(node: WorkflowNode, state: dict,
                       repo_root: Path | None = None) -> str:
-    """Compose a node's runtime prompt: roles + instructions + workflow state.
+    """Compose a node's runtime prompt via the shared runtime-context builder.
 
-    This is the **canonical** prompt builder (Phase 5): it consolidates the
-    workflow-engine composition so every execution path produces identical
-    prompt meaning. A node's own ``roles`` override the agent's persistent
-    assignments for this run only (never mutating ``roles.json``); the
-    instruction is the node's final instruction (its own ``instructions``, or
-    the selected Prompt Profile's text when ``instructions`` is empty).
+    This is the **canonical** prompt builder (Phase 5): it now delegates to
+    :func:`scripts.core.runtime_context.build_runtime_prompt` so the workflow
+    path produces the same ordered context (identity → roles → skills →
+    instruction → workflow state → request) as terminal/orchestrator dispatch.
+    A node's own ``roles`` override the agent's persistent assignments for this
+    run only; its ``skills`` override the agent's assigned skills (inheriting
+    them when unset). The instruction is the node's final instruction (its own
+    ``instructions``, or the selected Prompt Profile's text when ``instructions``
+    is empty).
     """
-    parts: list[str] = []
     # A Home-dispatched command arrives as the run's ``user_prompt`` and is the
     # primary task for every node (the workflow graph, not a single agent,
     # is then the authoritative execution structure).
     user_prompt = (state or {}).get("user_prompt")
-    if isinstance(user_prompt, str) and user_prompt.strip():
-        parts.append(user_prompt.strip())
-    if node.roles:
-        role_ctx = roles.render_role_context(
-            node.agent, role_ids=list(node.roles), repo_root=repo_root)
-    else:
-        role_ctx = roles.agent_context(node.agent, repo_root=repo_root)
-    if role_ctx:
-        parts.append(role_ctx.strip())
-    instruction = _effective_instruction(node)
-    if instruction:
-        parts.append(instruction)
+    user_request = user_prompt.strip() if isinstance(user_prompt, str) else ""
+    workflow = ""
     if state:
-        parts.append("## Workflow state\n```json\n" + json.dumps(state, indent=2) + "\n```")
-    return "\n\n".join(parts)
+        workflow = "## Workflow state\n```json\n" + json.dumps(state, indent=2) + "\n```"
+    return runtime_context.build_runtime_prompt(
+        node.agent,
+        role_ids=list(node.roles) if node.roles else None,
+        skill_ids=list(node.skills) if node.skills else None,
+        instruction=_effective_instruction(node),
+        workflow_context=workflow,
+        user_request=user_request,
+        repo_root=repo_root,
+    )
 
 
 # ---------------------------------------------------------------- plan

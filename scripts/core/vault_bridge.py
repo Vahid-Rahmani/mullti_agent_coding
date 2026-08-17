@@ -57,7 +57,7 @@ class VaultError(Exception):
 # ------------------------------------------------------------------ logging
 
 def _now() -> str:
-    return _dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    return _dt.datetime.now(tz=_dt.timezone.utc).astimezone().strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def _log(message: str) -> None:
@@ -135,7 +135,7 @@ def read_task(path: Path) -> tuple[dict[str, str], str, str]:
 
 
 def resolve_child(base: Path, name: str) -> Path | None:
-    """Resolve ``name`` to ``base / '<name>.md'`` only when it is a safe,
+    r"""Resolve ``name`` to ``base / '<name>.md'`` only when it is a safe,
     direct child of ``base`` — never a traversal or an escape.
 
     The security boundary is the *resolved* filesystem path: the candidate's

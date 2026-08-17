@@ -34,10 +34,15 @@ TASK_SECTIONS = ("00-System", "01-Architecture", "02-Agents", "03-Tasks",
 
 TASK_STATUSES = ("planned", "ready", "in_progress", "blocked", "completed", "failed")
 
-# Modules added in Phases 11-16 that have no Component_* node (known gap).
-_KNOWN_UNMAPPED_MODULES = (
-    "orchestrator.py", "vault_bridge.py", "context_resolver.py",
-    "change_detector.py", "knowledge_sync.py",
+# Exact O2 scope.  This deliberately does not absorb KnowledgeSync's broader
+# module-per-file heuristic: deferred taxonomy/workflow modules remain visible
+# to Health Check without becoming Dashboard O2 gaps.
+O2_COMPONENTS = (
+    ("orchestrator.py", "Component_Orchestrator"),
+    ("vault_bridge.py", "Component_VaultBridge"),
+    ("context_resolver.py", "Component_ContextResolver"),
+    ("change_detector.py", "Component_ChangeDetector"),
+    ("knowledge_sync.py", "Component_KnowledgeSync"),
 )
 
 FM = ("---\ntype: system\nstatus: active\nowner: all\ncreated: 2026-08-11\n"
@@ -94,7 +99,7 @@ def _status_summary(vault: Path, node_names: set[str]) -> str:
         counts[status] = counts.get(status, 0) + 1
         link = f"[[{p.stem}]]" if p.stem in node_names else p.stem
         rows.append(f"| {link} | {status} |")
-    out = [f"| Task | Status |", "|---|---|"] + rows
+    out = ["| Task | Status |", "|---|---|"] + rows
     out.append(f"\n**Counts:** {', '.join(f'{s}={counts[s]}' for s in TASK_STATUSES)}")
     if not rows:
         out.append("\n_No task nodes yet — see [[Task_Backlog]]._")
@@ -142,9 +147,22 @@ def _recent_changes() -> str:
     return "\n".join(lines)
 
 
-def _architecture_gaps() -> str:
-    # Known genuine drift reported by Phase 16's check-conflicts.
-    lines = [f"- `{m}` — real module with no `Component_*` node yet" for m in _KNOWN_UNMAPPED_MODULES]
+def _architecture_status(node_names: set[str]) -> str:
+    present = [node for _module, node in O2_COMPONENTS if node in node_names]
+    missing = [(module, node) for module, node in O2_COMPONENTS
+               if node not in node_names]
+    lines: list[str] = []
+    if present:
+        lines.append("- **O2 components:** " + " · ".join(
+            f"[[{node}]]" for node in present))
+    if missing:
+        lines.append("- **Unresolved O2 component gaps:**")
+        lines.extend(
+            f"  - `{module}` — missing [[{node}]]"
+            for module, node in missing
+        )
+    else:
+        lines.append("- **O2 component gaps:** _None — all five nodes are mapped._")
     return "\n".join(lines)
 
 
@@ -173,8 +191,7 @@ def build_generated(vault: Path, node_names: set[str]) -> str:
 
 ## Architecture Status
 - Map: [[System_Architecture]]
-- **Known gaps (reported by `knowledge_sync check-conflicts`, not auto-fixed):**
-{_architecture_gaps()}
+{_architecture_status(node_names)}
 
 ## Blocked / Needs Attention
 - _None currently — see [[Task_Backlog]] for full status._

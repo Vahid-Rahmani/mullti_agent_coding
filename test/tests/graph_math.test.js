@@ -251,4 +251,54 @@ ok(!core.edges.some((p) => (p[0] === "Docs" && p[1] === "D1") || (p[0] === "D1" 
 ok(!core.edges.some((p) => (p[0] === "Arch2" && p[1] === "A1") || (p[0] === "A1" && p[1] === "Arch2")),
   "core drops cross-section member edges");
 
+/* ── layout stability (incremental re-layout) ─────────────────── */
+// Laying out the SAME node set twice is deterministic (asserted above). The
+// stronger guarantee is incremental: a re-layout over a *changed* node set
+// must not move the nodes that already had a settled position — only
+// newly-appeared nodes may relax. This is what keeps the graph from jumping
+// when visibility/topology changes (opts.seed + opts.fixed).
+const stabNodes = [
+  { name: "Core", folder: "00-System", degree: 12 },
+  { name: "SysA", folder: "00-System", degree: 3 },
+  { name: "SysB", folder: "00-System", degree: 3 },
+  { name: "Agents", folder: "02-Agents", degree: 8 },
+  { name: "A1", folder: "02-Agents", degree: 2 },
+  { name: "Docs", folder: "05-Documentation", degree: 5 },
+  { name: "D1", folder: "05-Documentation", degree: 2 },
+];
+const stabEdges = [["Core", "SysA"], ["Core", "SysB"], ["Core", "Agents"],
+                   ["Agents", "A1"], ["Core", "Docs"], ["Docs", "D1"]];
+
+const settled = copy(stabNodes);
+M.runLayout(settled, stabEdges, { iterations: 400 });
+const settledPos = {};
+settled.forEach((nd) => (settledPos[nd.name] = { x: nd.x, y: nd.y }));
+
+// visibility change: one leaf disappears — every remaining node stays put
+const hidden = copy(stabNodes).filter((nd) => nd.name !== "D1");
+const hiddenEdges = stabEdges.filter((p) => p[0] !== "D1" && p[1] !== "D1");
+const hiddenFixed = {};
+hidden.forEach((nd) => (hiddenFixed[nd.name] = true));
+M.runLayout(hidden, hiddenEdges, { iterations: 400, seed: settledPos, fixed: hiddenFixed });
+hidden.forEach((nd) => {
+  approx(nd.x, settledPos[nd.name].x, "visibility change keeps x stable (" + nd.name + ")", 1e-6);
+  approx(nd.y, settledPos[nd.name].y, "visibility change keeps y stable (" + nd.name + ")", 1e-6);
+});
+
+// legitimate change: a new node appears — existing nodes stay, new one settles
+const grown = copy(stabNodes).concat([{ name: "D2", folder: "05-Documentation", degree: 1 }]);
+const grownEdges = stabEdges.concat([["Docs", "D2"]]);
+const grownFixed = {};
+grown.forEach((nd) => { if (settledPos[nd.name]) grownFixed[nd.name] = true; });
+M.runLayout(grown, grownEdges, { iterations: 400, seed: settledPos, fixed: grownFixed });
+grown.forEach((nd) => {
+  const p = settledPos[nd.name];
+  if (!p) {
+    ok(Number.isFinite(nd.x) && Number.isFinite(nd.y), "new node receives a finite position");
+    return;
+  }
+  approx(nd.x, p.x, "added node keeps x stable (" + nd.name + ")", 1e-6);
+  approx(nd.y, p.y, "added node keeps y stable (" + nd.name + ")", 1e-6);
+});
+
 console.log("graph-math tests passed:", count);

@@ -36,7 +36,7 @@ class ModelCapabilityProfile:
     structured_output: str = "medium"   # low | medium | high
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ModelCapabilityProfile":
+    def from_dict(cls, data: dict) -> ModelCapabilityProfile:
         return cls(
             id=str(data.get("id") or data.get("model_id") or ""),
             name=str(data.get("name") or data.get("id") or ""),
@@ -167,11 +167,11 @@ def model_archetypes() -> list[ModelCapabilityProfile]:
 
 
 __all__ = [
-    "ModelCapabilityProfile",
     "BUILTIN_MODEL_ARCHETYPES",
-    "LEVELS",
     "CONTEXT_LEVELS",
-    "role_model_preferences",
-    "preferences_for_profile",
+    "LEVELS",
+    "ModelCapabilityProfile",
     "model_archetypes",
+    "preferences_for_profile",
+    "role_model_preferences",
 ]

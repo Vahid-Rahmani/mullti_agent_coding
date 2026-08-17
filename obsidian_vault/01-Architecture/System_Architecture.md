@@ -3,8 +3,8 @@ type: architecture
 status: active
 owner: architect
 created: 2026-08-11
-updated: 2026-08-11
-related: [Architecture_Overview, Agents_Home, Component_Terminal, Component_RunHub, Component_AgentSpecs, Component_StateTracker, Component_Launchers]
+updated: 2026-08-17
+related: [Architecture_Overview, Agents_Home, Component_Terminal, Component_RunHub, Component_AgentSpecs, Component_StateTracker, Component_Launchers, Component_Orchestrator, Component_VaultBridge, Component_ContextResolver, Component_ChangeDetector, Component_KnowledgeSync]
 ---
 
 # System_Architecture
@@ -34,6 +34,11 @@ flowchart TD
     SPECS["[E] Component_AgentSpecs"]
     STATE["[E] Component_StateTracker"]
     LAUNCH["[E] Component_Launchers"]
+    ORCH["[E] Component_Orchestrator"]
+    BRIDGE["[E] Component_VaultBridge"]
+    CONTEXT["[E] Component_ContextResolver"]
+    CHANGES["[E] Component_ChangeDetector"]
+    SYNC["[E] Component_KnowledgeSync"]
     AGENTS["Agents (M1-M7)"]
     TASKS["03-Tasks"]
     TESTS["06-Testing"]
@@ -45,6 +50,11 @@ flowchart TD
     CORE --> SPECS
     CORE --> STATE
     CORE --> LAUNCH
+    CORE --> ORCH
+    CORE --> BRIDGE
+    CORE --> CONTEXT
+    CORE --> CHANGES
+    CORE --> SYNC
     CORE --> AGENTS
     CORE --> TASKS
     CORE --> TESTS
@@ -60,6 +70,11 @@ flowchart TD
 | [E] | [[Component_AgentSpecs]] | `scripts/core/agents/` | Agent definitions (`AgentSpec`) + registry + `__main__.py` CLI |
 | [E] | [[Component_StateTracker]] | `scripts/core/state_tracker.py` | Atomic read/write of `state.md` session checkpoint |
 | [E] | [[Component_Launchers]] | `launch_agents.bat`, `launch_terminal.bat`, `scripts/run_agent_worker.ps1/.sh` | 7-window inbox launcher, terminal launcher, inbox-polling workers |
+| [E] | [[Component_Orchestrator]] | `scripts/core/orchestrator.py` | Controlled Vault task lifecycle, dispatch, locking, and result persistence |
+| [E] | [[Component_VaultBridge]] | `scripts/core/vault_bridge.py` | Safe scoped Vault I/O, atomic updates, backups, and relationship resolution |
+| [E] | [[Component_ContextResolver]] | `scripts/core/context_resolver.py` | Deterministic bounded linked-context packages for tasks |
+| [E] | [[Component_ChangeDetector]] | `scripts/core/change_detector.py` | Detection-only snapshots, classification, and impact mapping |
+| [E] | [[Component_KnowledgeSync]] | `scripts/core/knowledge_sync.py` | Dry-run-first documentation/code reconciliation and conflict reporting |
 
 ## Agents
 
@@ -70,8 +85,6 @@ The roster is documented under [[Agents_Home]] with one node per agent
 
 ## Planned / Future
 
-- `[P]` Vault bridge (`scripts/vault_bridge.py`) — planned programmatic
-  read/write of vault notes (see project plan Phase 02).
 - `[P]` `/vault` terminal command — planned ZOVA terminal command to open the
   vault / notes via the Obsidian URI scheme.
 - `[F]` Role-based agents (Architect, Coding, Testing, Orchestrator) — future;

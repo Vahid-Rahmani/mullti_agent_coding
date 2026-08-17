@@ -7,7 +7,7 @@ Agent contract: agents are plain (identity only), dispatch is plain, and
 models/roles are runtime concerns (opencode.json / roles.json).
 """
 
-from .agents import (  # noqa: F401
+from .agents import (
     AGENT_SPECS,
     AGENTS,
     DEFAULT_ENABLED_AGENTS,
@@ -24,12 +24,12 @@ from .command_parser import (
     parse_command,
 )
 from .progress import (
+    _PROGRESS_BAR_WIDTH,
     DEFAULT_PROGRESS_WEIGHTS,
     TOKEN_CONTEXT_WINDOW,
     WORKING_LABEL,
     _estimate_token_percent,
     _weighted_progress,
-    _PROGRESS_BAR_WIDTH,
 )
 from .run_hub import (
     HUB,
@@ -42,3 +42,31 @@ from .run_hub import (
 from .state_tracker import (
     STATE,
 )
+
+__all__ = [
+    "AGENTS",
+    "AGENT_SPECS",
+    "DEFAULT_ENABLED_AGENTS",
+    "DEFAULT_PROGRESS_WEIGHTS",
+    "HUB",
+    "MASTER_SPEC",
+    "PROJECT_ROOT",
+    "STATE",
+    "STATUS_ACTIVE",
+    "STATUS_ERROR",
+    "STATUS_IDLE",
+    "STATUS_THINKING",
+    "TABS",
+    "TOKEN_CONTEXT_WINDOW",
+    "WORKING_LABEL",
+    "_PROGRESS_BAR_WIDTH",
+    "_build_run_command",
+    "_estimate_token_percent",
+    "_opencode_command",
+    "_sanitize_prompt",
+    "_strip_ansi",
+    "_weighted_progress",
+    "build_help_text",
+    "parse_command",
+    "prune_prompt",
+]

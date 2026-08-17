@@ -71,6 +71,60 @@
       "permissions": ["Read/write the control-plane source"],
       "rules": ["Keep Agent/Role/Model decoupled", "Store keys only in the auth store"],
       "expected_outputs": ["Model-agnostic dispatch", "Reusable role definitions"]
+    },
+    "ai-llm-engineer": {
+      "name": "AI/LLM Engineer",
+      "description": "Builds generative-AI applications and integrates many models/providers behind one provider-neutral interface.",
+      "responsibilities": ["Integrate multiple LLM/generative providers", "Build self-hosted generative-AI apps", "Keep model selection provider-neutral"],
+      "tools": ["Python", "OpenCode CLI", "Git"],
+      "permissions": ["Read/write the control-plane and app source"],
+      "rules": ["Never hardcode one provider", "Store keys only in the auth store"],
+      "expected_outputs": ["Provider-neutral integrations", "Reproducible generative-AI apps"]
+    },
+    "researcher": {
+      "name": "Researcher",
+      "description": "Collects, verifies, and synthesizes sources into citable findings.",
+      "responsibilities": ["Collect sources", "Verify claims against sources", "Synthesize citable findings"],
+      "tools": ["Web search", "Markdown", "Git"],
+      "permissions": ["Read-only research; no production writes"],
+      "rules": ["Cite every claim", "Separate fact from interpretation"],
+      "expected_outputs": ["Sourced findings", "A verification pass"]
+    },
+    "seo-researcher": {
+      "name": "SEO Researcher",
+      "description": "Researches keywords, search intent, and competitor pages to find ranking opportunities.",
+      "responsibilities": ["Research keywords and intent", "Analyze competitors", "Identify ranking opportunities"],
+      "tools": ["Web search", "Markdown"],
+      "permissions": ["Read-only research"],
+      "rules": ["Cite sources", "Prioritize winnable keywords"],
+      "expected_outputs": ["Keyword table with intent and difficulty", "Competitor gap analysis"]
+    },
+    "seo-writer": {
+      "name": "SEO Writer",
+      "description": "Writes ranking-focused content that is specific, human-sounding, and intent-aligned.",
+      "responsibilities": ["Write intent-aligned content", "Apply anti-slop refinement", "Lead with the answer"],
+      "tools": ["Markdown"],
+      "permissions": ["Read/write content drafts"],
+      "rules": ["No keyword stuffing", "Preserve author voice"],
+      "expected_outputs": ["Intent-aligned drafts", "Action-first, human-sounding copy"]
+    },
+    "technical-writer": {
+      "name": "Technical Writer",
+      "description": "Writes and refines clear, human-sounding technical content with anti-slop discipline.",
+      "responsibilities": ["Write technical docs", "Refine AI output for voice and specificity", "Review documentation for accuracy"],
+      "tools": ["Markdown", "Git"],
+      "permissions": ["Read/write docs and content"],
+      "rules": ["Lead with the answer", "No formulaic filler", "Preserve author voice"],
+      "expected_outputs": ["Clear, specific documentation", "Anti-slop-reviewed copy"]
+    },
+    "knowledge-engineer": {
+      "name": "Knowledge Engineer",
+      "description": "Turns documents and sources into structured, reusable knowledge and agent skills.",
+      "responsibilities": ["Extract structure from documents", "Author reusable skills/reference", "Maintain provenance and citation"],
+      "tools": ["Markdown", "Python", "Git"],
+      "permissions": ["Read source material; write structured knowledge"],
+      "rules": ["Structure, not summary", "Preserve provenance/license", "Keep on-demand loading small"],
+      "expected_outputs": ["Structured skills/reference", "Traceable, cited knowledge"]
     }
   },
   "assignments": {

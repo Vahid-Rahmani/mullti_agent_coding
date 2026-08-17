@@ -31,6 +31,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.core.vault_bridge import parse_frontmatter
+
 DEFAULT_VAULT = REPO_ROOT / "obsidian_vault"
 
 TYPE_SECTIONS = {
@@ -47,8 +52,13 @@ ALLOWED_STATUS = {
     "system": {"active", "draft"},
     "architecture": {"active", "draft", "superseded"},
     "agent": {"active", "retired"},
-    # Hub/container nodes use active/draft; leaf task nodes use the rest.
-    "task": {"active", "draft", "todo", "in_progress", "done", "blocked"},
+    # Hub/index nodes use active/draft; leaf task nodes use the orchestrator's
+    # execution vocabulary (the same set scripts/core/vault_bridge.py and the
+    # Orchestrator's TRANSITIONS enforce). planned/ready → in_progress →
+    # completed|blocked|failed. The legacy todo/done aliases were removed to
+    # keep one source of truth for task state.
+    "task": {"active", "draft", "planned", "ready", "in_progress", "blocked",
+            "completed", "failed"},
     "decision": {"active", "draft", "proposed", "accepted", "superseded"},
     "documentation": {"active", "draft"},
     "test": {"active", "draft", "passed", "failed", "blocked"},
@@ -71,40 +81,22 @@ ROOT_NODE = "System_Core"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 LINK_RE = re.compile(r"\[\[([^|\]]+)(?:\|[^\]]+)?\]\]")
-FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+# Frontmatter keys the vault schema recognizes. Parsing itself is delegated to
+# the canonical ``scripts.core.vault_bridge.parse_frontmatter`` (which accepts
+# any flat ``key: value`` line); this allowlist is the validator's schema
+# check, kept separate from the shared parser.
+KNOWN_FRONTMATTER_KEYS = {
+    "type", "status", "owner", "created", "updated", "related",
+    "priority", "assigned_agent", "related_component", "dependencies",
+    "related_agent", "related_task", "test_command", "role",
+}
 
 
 def _strip_code(text: str) -> str:
     """Remove fenced + inline code so example links are not counted."""
     text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
     return re.sub(r"`[^`]*`", "", text)
-
-
-def parse_frontmatter(text: str) -> tuple[dict[str, str], str | None]:
-    """Parse a minimal YAML frontmatter block into a dict of string values.
-
-    Returns (fields, error). Only flat ``key: value`` lines are supported;
-    anything fancier is reported as an error to keep the schema simple.
-    """
-    m = FRONTMATTER_RE.match(text)
-    if not m:
-        return {}, "missing frontmatter block"
-    fields: dict[str, str] = {}
-    for lineno, line in enumerate(m.group(1).splitlines(), start=2):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if ":" not in stripped:
-            return {}, f"unparseable frontmatter line {lineno}: {line!r}"
-        key, _, value = stripped.partition(":")
-        key = key.strip()
-        value = value.strip()
-        if key not in {"type", "status", "owner", "created", "updated", "related",
-                       "priority", "assigned_agent", "related_component", "dependencies",
-                       "related_agent", "related_task", "test_command"}:
-            return {}, f"unknown frontmatter key on line {lineno}: {key!r}"
-        fields[key] = value
-    return fields, None
 
 
 def list_nodes(vault: Path) -> list[Path]:
@@ -164,6 +156,11 @@ def main(argv: list[str] | None = None) -> int:
             fields, err = parse_frontmatter(text)
             if err:
                 violations.append(f"{path}: {err}")
+                continue
+
+            unknown = sorted(k for k in fields if k not in KNOWN_FRONTMATTER_KEYS)
+            if unknown:
+                violations.append(f"{path}: unknown frontmatter key(s): {', '.join(unknown)}")
                 continue
 
             missing = [k for k in ("type", "status", "owner", "created", "updated") if k not in fields]

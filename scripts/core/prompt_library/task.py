@@ -58,7 +58,7 @@ class TaskProfile:
         }
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> "TaskProfile":
+    def from_dict(cls, data: dict | None) -> TaskProfile:
         data = data or {}
         return cls(
             category=str(data.get("category") or "general"),
@@ -258,9 +258,7 @@ def _classify_category(norm: str) -> str:
 
 
 def _classify_capabilities(norm: str, category: str) -> list[str]:
-    caps: list[str] = []
-    for cap in _CATEGORY_CAPABILITIES.get(category, ()):
-        caps.append(cap)
+    caps = list(_CATEGORY_CAPABILITIES.get(category, ()))
     for cap, keywords in _CAPABILITY_KEYWORDS:
         if any(kw in norm for kw in keywords) and cap not in caps:
             caps.append(cap)
@@ -327,12 +325,12 @@ def task_keyword_prompt_ids(text: str) -> list[tuple[str, str]]:
 
 
 __all__ = [
-    "TaskProfile",
-    "TASK_CATEGORIES",
     "LEVELS",
-    "normalize",
-    "classify_task",
-    "suggest_roles_for_task",
+    "TASK_CATEGORIES",
+    "TaskProfile",
     "category_primary_role",
+    "classify_task",
+    "normalize",
+    "suggest_roles_for_task",
     "task_keyword_prompt_ids",
 ]

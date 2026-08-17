@@ -44,6 +44,9 @@ class DashboardTestCase(unittest.TestCase):
             NODE.format(t="architecture", name="Architecture_Home"), encoding="utf-8")
         self.vault.joinpath("01-Architecture/System_Architecture.md").write_text(
             NODE.format(t="architecture", name="System_Architecture"), encoding="utf-8")
+        for _module, component in gd.O2_COMPONENTS:
+            self.vault.joinpath(f"01-Architecture/{component}.md").write_text(
+                NODE.format(t="architecture", name=component), encoding="utf-8")
         self.vault.joinpath("04-Decisions/Decisions_Home.md").write_text(
             NODE.format(t="decision", name="Decisions_Home"), encoding="utf-8")
         self.vault.joinpath("05-Documentation/Documentation_Home.md").write_text(
@@ -76,6 +79,20 @@ class TestGeneration(DashboardTestCase):
     def test_agent_link_appears(self):
         content = gd.render_dashboard(self.vault)
         self.assertIn("[[Agent_Matthew]]", content)
+
+    def test_complete_o2_component_map_has_no_gap(self):
+        content = gd.render_dashboard(self.vault)
+        self.assertIn("O2 component gaps:** _None", content)
+        for module, component in gd.O2_COMPONENTS:
+            self.assertIn(f"[[{component}]]", content)
+            self.assertNotIn(f"`{module}` — missing", content)
+
+    def test_missing_o2_component_is_reported(self):
+        module, component = gd.O2_COMPONENTS[0]
+        self.vault.joinpath(f"01-Architecture/{component}.md").unlink()
+        content = gd.render_dashboard(self.vault)
+        self.assertIn("Unresolved O2 component gaps", content)
+        self.assertIn(f"`{module}` — missing [[{component}]]", content)
 
 
 class TestWikiLinksResolve(DashboardTestCase):

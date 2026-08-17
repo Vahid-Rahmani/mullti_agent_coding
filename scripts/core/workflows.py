@@ -25,9 +25,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scripts.core import opencode_cfg
-from scripts.core import prompt_library
-from scripts.core import roles
+from scripts.core import evaluation, opencode_cfg, prompt_library, roles, skills
 from scripts.core.agents import AGENT_SPEC_BY_AGENT, AGENTS, PROJECT_ROOT
 
 # Valid edge conditions. "" (empty) == unconditional forward flow.
@@ -68,13 +66,14 @@ class WorkflowNode:
     instructions: str = ""
     prompt_profile: str = ""      # optional prompt-library id (source of instruction)
     task: dict = field(default_factory=dict)  # optional Task classification metadata
+    skills: tuple[str, ...] = ()   # optional reusable skill ids (operating procedures)
     tools: tuple[str, ...] = ()
     enabled: bool = True
     x: float = 0.0
     y: float = 0.0
 
     @classmethod
-    def from_dict(cls, data: dict) -> "WorkflowNode":
+    def from_dict(cls, data: dict) -> WorkflowNode:
         def _tup(key: str) -> tuple[str, ...]:
             # Normalize legacy/stale lists: drop empty entries (e.g. an "end"
             # node persisted with roles: [""]) so validation never trips on
@@ -94,6 +93,7 @@ class WorkflowNode:
             instructions=str(data.get("instructions") or ""),
             prompt_profile=str(data.get("prompt_profile") or ""),
             task=dict(data.get("task") or {}),
+            skills=_tup("skills"),
             tools=_tup("tools"),
             enabled=bool(data.get("enabled", True)),
             x=float(data.get("x") or 0.0),
@@ -113,6 +113,7 @@ class WorkflowNode:
             "instructions": self.instructions,
             "prompt_profile": self.prompt_profile,
             "task": self.task,
+            "skills": list(self.skills),
             "tools": list(self.tools),
             "enabled": self.enabled,
             "x": self.x,
@@ -129,7 +130,7 @@ class WorkflowEdge:
     condition: str = ""
 
     @classmethod
-    def from_dict(cls, data: dict) -> "WorkflowEdge":
+    def from_dict(cls, data: dict) -> WorkflowEdge:
         return cls(
             source=str(data.get("source") or ""),
             target=str(data.get("target") or ""),
@@ -152,9 +153,10 @@ class Workflow:
     entry: list[str] = field(default_factory=list)
     state: dict = field(default_factory=dict)
     settings: dict = field(default_factory=dict)
+    evaluation: str = ""            # optional evaluation-definition id (output rubric)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Workflow":
+    def from_dict(cls, data: dict) -> Workflow:
         return cls(
             id=str(data.get("id") or ""),
             name=str(data.get("name") or ""),
@@ -164,6 +166,7 @@ class Workflow:
             entry=[str(x) for x in (data.get("entry") or [])],
             state=dict(data.get("state") or {}),
             settings=dict(data.get("settings") or {}),
+            evaluation=str(data.get("evaluation") or ""),
         )
 
     def to_dict(self) -> dict:
@@ -176,6 +179,7 @@ class Workflow:
             "entry": list(self.entry),
             "state": self.state,
             "settings": self.settings,
+            "evaluation": self.evaluation,
         }
 
     def node_ids(self) -> set[str]:
@@ -349,19 +353,26 @@ def validate_workflow(workflow: Workflow, repo_root: Path | None = None) -> list
             except prompt_library.PromptError:
                 errors.append({"node": node.id,
                                "message": f"Prompt profile {node.prompt_profile!r} does not exist"})
+        for sid in node.skills:
+            if not sid.strip():
+                continue  # placeholder/empty entries are normalized away
+            try:
+                skills.get_skill(sid)
+            except skills.SkillError:
+                errors.append({"node": node.id,
+                               "message": f"Skill {sid!r} does not exist"})
         if node.model:
             try:
                 opencode_cfg.validate_model_id(node.model)
             except opencode_cfg.ConfigError as exc:
                 errors.append({"node": node.id, "message": f"Model {node.model!r} is invalid ({exc})"})
-        if node.connection_id:
-            # Format-only here: existence is enforced by the connection
-            # resolver at dispatch time (connections are user-level state,
-            # not workflow data, and never contain secrets).
-            if not node.connection_id.strip() or any(
-                    ch.isspace() for ch in node.connection_id):
-                errors.append({"node": node.id,
-                               "message": f"connection id {node.connection_id!r} is invalid"})
+        # Format-only here: existence is enforced by the connection resolver
+        # at dispatch time (connections are user-level state, not workflow
+        # data, and never contain secrets).
+        if node.connection_id and (not node.connection_id.strip() or any(
+                ch.isspace() for ch in node.connection_id)):
+            errors.append({"node": node.id,
+                           "message": f"connection id {node.connection_id!r} is invalid"})
 
     # edges
     for edge in workflow.edges:
@@ -374,6 +385,14 @@ def validate_workflow(workflow: Workflow, repo_root: Path | None = None) -> list
         if edge.condition not in EDGE_CONDITIONS:
             errors.append({"node": edge.source, "message":
                            f"invalid routing condition {edge.condition!r} (use success/failure)"})
+
+    # optional output-rubric reference (validated when present)
+    if workflow.evaluation:
+        try:
+            evaluation.get_evaluation(workflow.evaluation)
+        except evaluation.EvaluationError:
+            errors.append({"node": None,
+                           "message": f"Evaluation {workflow.evaluation!r} does not exist"})
 
     if not workflow.nodes:
         return [{"node": None, "message": "workflow has no nodes"}]
@@ -448,9 +467,8 @@ def _unconditional_cycle(workflow: Workflow) -> bool:
         return False
 
     for node in workflow.nodes:
-        if color.get(node.id, WHITE) == WHITE:
-            if visit(node.id):
-                return True
+        if color.get(node.id, WHITE) == WHITE and visit(node.id):
+            return True
     return False
 
 
@@ -735,9 +753,7 @@ def recommend_workflow(repo_root: Path | None = None, n_agents: int = 4) -> dict
 
     # Composition: architect + developers (from suggested tech roles) + QA + security.
     tech_roles = [r for r in suggested if r not in ("code-reviewer", "software-architect")]
-    composition: list[str] = ["software-architect"]
-    for rid in tech_roles[: max(0, n - 3)]:
-        composition.append(rid)
+    composition = ["software-architect", *tech_roles[: max(0, n - 3)]]
     if "qa-engineer" in suggested:
         composition.append("qa-engineer")
     composition.append("code-reviewer")

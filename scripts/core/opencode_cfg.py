@@ -208,7 +208,10 @@ def apply_agent_config(
         [sys.executable, "-m", "scripts.core.agents", "verify"]
     root = Path(repo_root) if repo_root is not None else PROJECT_ROOT
     try:
-        proc = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(
+            cmd, cwd=str(root), capture_output=True, text=True, timeout=60,
+            check=False,
+        )
         ok = proc.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         ok = False

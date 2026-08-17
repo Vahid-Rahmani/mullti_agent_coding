@@ -14,26 +14,31 @@ import argparse
 import asyncio
 import os
 import shutil
-import sys
 import time
 from pathlib import Path
 
-from .palette import (
-    BANNER, BLACK, GREY, WHITE, ORANGE, GREY_BG, NEON, INPUT_MAX_LINES,
-)
-from .theme import Theme, THEMES, get_active, set_active, available_themes
-from .rendering import (
-    _banner_fragments, _dir_line, _model_bar, _model_bar_fragments,
-    _dashboard_fragments, _loading_bar_fragments, _run_header,
-    _console_fragments, _block_states, _available_columns, _panel_width,
-    STATUS_SYMBOL,
-)
 from ..core.agents import (
-    AGENTS, TABS, PROJECT_ROOT, STATUS_IDLE,
-    STATUS_THINKING, STATUS_ACTIVE, STATUS_ERROR,
+    AGENTS,
+    STATUS_IDLE,
+    TABS,
 )
-from ..core.command_parser import parse_command, build_help_text
-from ..core.run_hub import HUB, _sanitize_prompt
+from ..core.command_parser import build_help_text, parse_command
+from ..core.run_hub import HUB
+from .palette import (
+    BANNER,
+)
+from .rendering import (
+    _available_columns,
+    _banner_fragments,
+    _block_states,
+    _console_fragments,
+    _dashboard_fragments,
+    _dir_line,
+    _loading_bar_fragments,
+    _model_bar_fragments,
+    _run_header,
+)
+from .theme import THEMES, Theme, available_themes, get_active, set_active
 
 
 def build_rounded_box(body, title_fragments=None, width=None):
@@ -115,7 +120,7 @@ class RetroTerminalApp:
                     self.hub.token_usage[tag] = 0
         if workspace is not None:
             self.hub.workspace = Path(workspace).expanduser().resolve()
-        self.enabled_agents: set[str] = set(tag for tag, _, _ in AGENTS)
+        self.enabled_agents: set[str] = {tag for tag, _, _ in AGENTS}
         self.console_lines: list[tuple[str, str]] = []
         self.current_tab: str = "master"
         self.tab_lines: dict[str, list[tuple[str, str]]] = {tag: [] for tag, _, _ in TABS}
@@ -253,7 +258,11 @@ class RetroTerminalApp:
     def _build_layout(self) -> None:
         """Construct (or rebuild) every layout window/float from live state."""
         from prompt_toolkit.layout import (
-            BufferControl, Dimension, FormattedTextControl, HSplit, Window,
+            BufferControl,
+            Dimension,
+            FormattedTextControl,
+            HSplit,
+            Window,
         )
 
         banner_window = Window(
@@ -299,7 +308,7 @@ class RetroTerminalApp:
             try:
                 from prompt_toolkit.application.current import get_app
                 columns = get_app().output.get_size().columns
-            except Exception:
+            except (AttributeError, RuntimeError):
                 try:
                     columns = os.get_terminal_size().columns
                 except OSError:
@@ -342,7 +351,7 @@ class RetroTerminalApp:
             from prompt_toolkit.application.current import get_app
             size = get_app().output.get_size()
             return max(1, size.columns), max(1, size.rows)
-        except Exception:
+        except (AttributeError, RuntimeError):
             try:
                 size = shutil.get_terminal_size((100, 30))
                 return max(1, size.columns), max(1, size.lines)
@@ -353,8 +362,8 @@ class RetroTerminalApp:
         try:
             from prompt_toolkit.application.current import get_app
             get_app().invalidate()
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError):
+            return
 
     def _handle_esc(self) -> None:
         if self.hub.running == 0:
@@ -528,7 +537,7 @@ class RetroTerminalApp:
             return
         try:
             reply = handler(arg)
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             reply = f"ERROR: {exc}"
         if reply:
             for line in reply.splitlines():
@@ -568,10 +577,10 @@ class RetroTerminalApp:
         model, _mode = self.hub.resolve(self.current_tab)
         return "\n".join([
             f"DIR: {self.hub.workspace}",
-            f"TAB: {self.current_tab} "
-            f"MODEL: {model or 'auto'} "
-            f"RUN: {self.hub.running}/{len(AGENTS)} "
-            f"TARGET: {self.current_tab if self.current_tab != 'master' else 'all'}",
+            (f"TAB: {self.current_tab} "
+             f"MODEL: {model or 'auto'} "
+             f"RUN: {self.hub.running}/{len(AGENTS)} "
+             f"TARGET: {self.current_tab if self.current_tab != 'master' else 'all'}"),
             statuses,
         ])
 
@@ -647,7 +656,7 @@ def main(argv: list[str] | None = None) -> int:
 
     app = RetroTerminalApp(workspace=Path(args.workspace) if args.workspace else None)
     if args.smoke:
-        print("SMOKE-OK: retro terminal app constructed (banner rows=%d)" % len(BANNER))
+        print(f"SMOKE-OK: retro terminal app constructed (banner rows={len(BANNER)})")
         return 0
     return app.run()
 

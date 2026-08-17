@@ -24,15 +24,15 @@ from scripts.core.providers.opencode import (
 )
 
 __all__ = [
+    "OpenCodeAdapter",
     "ProviderAdapter",
     "ResolvedConnection",
     "adapter_for",
-    "register_adapter",
-    "resolve_credential_for",
-    "OpenCodeAdapter",
     "build_run_command",
     "insecure_tls_env",
     "opencode_command",
+    "register_adapter",
+    "resolve_credential_for",
     "sanitize_prompt",
     "strip_ansi",
 ]

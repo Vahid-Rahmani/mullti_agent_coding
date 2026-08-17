@@ -40,6 +40,7 @@ from scripts.core.execution.planner import build_node_prompt  # canonical builde
 from scripts.core.execution.schema import utc_now_iso
 from scripts.core.workflows import Workflow, WorkflowNode, effective_entry
 
+
 @dataclass
 class DispatchResult:
     """Outcome of one node's dispatch. ``outcome`` is success | failure."""
@@ -364,7 +365,7 @@ def simulate_workflow(workflow: Workflow, initial_state: dict | None = None,
 # these thin delegators keep the previous public API (and any module-level
 # patching of ``workflow_engine.start_run`` in tests/routes) working unchanged.
 
-from scripts.core.execution import runtime as _execution_runtime  # noqa: E402
+from scripts.core.execution import runtime as _execution_runtime
 
 
 def start_run(workflow: Workflow, initial_state: dict | None = None,

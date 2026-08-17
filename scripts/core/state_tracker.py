@@ -167,7 +167,7 @@ class StateTracker:
             lines += [
                 "## Last Run",
                 f"prompt: {_state_escape(str(last_run.get('prompt', '')))}",
-                f"started: {str(last_run.get('started', ''))}",
+                f"started: {last_run.get('started', '')!s}",
                 "",
             ]
         for key, heading in (

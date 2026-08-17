@@ -25,6 +25,10 @@ owner, and dependencies.
 - ↓ Children:
   - [[Task_Backlog]] — index of all task nodes
   - [[_TASK_TEMPLATE]] — standard task template
+  - [[Task_Vault_Health_Check]] — ready
+  - [[Task_WebUI_Smoke_Test]] — ready
+  - [[Task_Docs_Audit]] — planned
+  - [[Task_Skill_Evaluation_Extraction]] — completed
 - ↔ Related: [[Decisions_Home]], [[Testing_Home]], [[System_Architecture]], [[Agents_Home]]
 
 ## Task Statuses

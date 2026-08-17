@@ -28,11 +28,11 @@ from scripts.core.model_registry.selection import (
 )
 
 __all__ = [
-    "ModelSpec",
-    "ModelError",
-    "ModelSelection",
     "PROVIDERS",
     "STATUSES",
+    "ModelError",
+    "ModelSelection",
+    "ModelSpec",
     "get_model",
     "list_models",
     "list_models_by_capability",

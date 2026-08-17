@@ -47,7 +47,7 @@ class ModelSpec:
     status: str = "available"     # available | preview | deprecated
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ModelSpec":
+    def from_dict(cls, data: dict) -> ModelSpec:
         caps_data = data.get("capabilities")
         if not isinstance(caps_data, dict):
             # flat capability keys may live at the top level
@@ -96,4 +96,4 @@ def validate_spec(spec: ModelSpec) -> None:
             f"allowed: {', '.join(STATUSES)}")
 
 
-__all__ = ["ModelSpec", "PROVIDERS", "STATUSES", "validate_spec"]
+__all__ = ["PROVIDERS", "STATUSES", "ModelSpec", "validate_spec"]

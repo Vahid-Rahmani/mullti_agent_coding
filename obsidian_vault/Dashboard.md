@@ -3,7 +3,7 @@ type: system
 status: active
 owner: all
 created: 2026-08-11
-updated: 2026-08-11
+updated: 2026-08-17
 related: [System_Core, Architecture_Home, Agents_Home, Tasks_Home, Testing_Home]
 ---
 
@@ -20,60 +20,58 @@ related: [System_Core, Architecture_Home, Agents_Home, Tasks_Home, Testing_Home]
 
 <!-- GENERATED: dashboard -->
 ## Project Status
-- **Vault:** 36 managed nodes · schema validated
+- **Vault:** 45 managed nodes · schema validated
 - **Task lifecycle:** [[Tasks_Home]] · [[Task_Backlog]]
 - **Agents:** [[Agents_Home]] · **Architecture:** [[System_Architecture]]
 
 ## Active / In-Progress Tasks
 | Task | Status |
 |---|---|
+| [[Task_Docs_Audit]] | planned |
+| [[Task_Skill_Evaluation_Extraction]] | completed |
+| [[Task_Vault_Health_Check]] | ready |
+| [[Task_WebUI_Smoke_Test]] | ready |
 
-**Counts:** planned=0, ready=0, in_progress=0, blocked=0, completed=0, failed=0
-
-_No task nodes yet — see [[Task_Backlog]]._
+**Counts:** planned=1, ready=2, in_progress=0, blocked=0, completed=1, failed=0
 
 ## Active Agents
-- [[Agent_Alex]] — opencode/deepseek-v4-flash-free
+- [[Agent_Alex]] — google/gemini-3.6-flash
 - [[Agent_Chloe]] — opencode/ling-3.0-tiny-free
 - [[Agent_David]] — opencode/big-pickle
 - [[Agent_Elena]] — opencode/ling-3.0-tiny-free
 - [[Agent_Matthew]] — opencode/deepseek-v4-flash-free
-- [[Agent_Max]] — opencode/deepseek-v4-flash-free
+- [[Agent_Max]] — google/gemini-3.1-flash-lite
 - [[Agent_Sarah]] — opencode/deepseek-v4-flash-free
 
 ## Recent Executions
 **Orchestrator log (last 5):**
 
-- `[2026-08-11T19:49:15] set-status Task_Demo: ready -> in_progress`
-- `[2026-08-11T19:49:15] set-status Task_Demo: planned -> ready`
-- `[2026-08-11T19:49:15] set-status Task_Demo: ready -> in_progress`
-- `[2026-08-11T19:49:15] report Task_Demo: recorded failed`
-- `[2026-08-11T19:49:15] set-status Task_Demo: planned -> ready`
+- `[2026-08-17T09:43:16] set-status Task_Demo: ready -> in_progress`
+- `[2026-08-17T09:43:16] set-status Task_Demo: planned -> ready`
+- `[2026-08-17T09:43:16] set-status Task_Demo: ready -> in_progress`
+- `[2026-08-17T09:43:16] report Task_Demo: recorded failed`
+- `[2026-08-17T09:43:16] set-status Task_Demo: planned -> ready`
 
 **Sync log (last 3):**
 
-- `{"ts": "2026-08-11T19:48:49", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
-- `{"ts": "2026-08-11T19:49:02", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
-- `{"ts": "2026-08-11T19:49:13", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
+- `{"ts": "2026-08-17T09:41:18", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
+- `{"ts": "2026-08-17T09:42:24", "mode": "check-conflicts", "dry_run": true, "actions": [], "conflicts": ["agent_catalog.py`
+- `{"ts": "2026-08-17T09:43:07", "mode": "sync", "dry_run": true, "actions": [], "conflicts": []}`
 
 ## Recent Changes
 **Vault changes (last 3):**
 
-- `{"ts": "2026-08-11T19:49:15", "caller": "test", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmp99c9hc6y\\vault\\03-`
-- `{"ts": "2026-08-11T19:49:15", "caller": "test-caller", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmp8yx47ayq\\vau`
-- `{"ts": "2026-08-11T19:49:15", "caller": "test", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpurgyzn2a\\vault\\03-`
+- `{"ts": "2026-08-17T09:43:21", "caller": "set-status", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpi6lap5wm\\vaul`
+- `{"ts": "2026-08-17T09:43:21", "caller": "web-ui-role-override", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpshwf`
+- `{"ts": "2026-08-17T09:43:21", "caller": "web-ui-role-override", "node": "C:\\Users\\meins\\AppData\\Local\\Temp\\tmpshwf`
 
 ## Testing Status
 - See [[Testing_Home]] and [[Test_Report_Suite]] — current suite: `python -m unittest discover -s test/tests`
 
 ## Architecture Status
 - Map: [[System_Architecture]]
-- **Known gaps (reported by `knowledge_sync check-conflicts`, not auto-fixed):**
-- `orchestrator.py` — real module with no `Component_*` node yet
-- `vault_bridge.py` — real module with no `Component_*` node yet
-- `context_resolver.py` — real module with no `Component_*` node yet
-- `change_detector.py` — real module with no `Component_*` node yet
-- `knowledge_sync.py` — real module with no `Component_*` node yet
+- **O2 components:** [[Component_Orchestrator]] · [[Component_VaultBridge]] · [[Component_ContextResolver]] · [[Component_ChangeDetector]] · [[Component_KnowledgeSync]]
+- **O2 component gaps:** _None — all five nodes are mapped._
 
 ## Blocked / Needs Attention
 - _None currently — see [[Task_Backlog]] for full status._

@@ -1,3 +1,19 @@
+---
+id: no-ai-slop
+source_url: https://github.com/petergyang/no-ai-slop
+license: MIT
+source_type: open-source guidance
+extraction_mode: ideas
+code_reuse: concepts only
+domains: [communication, quality]
+evidence:
+  - id: anti-generic-output
+    kind: output-policy
+    summary: Apply editing and self-check rules to avoid generic output.
+    supports: [output-quality, editing, self-review]
+    confidence: direct
+    requires_inspection: false
+---
 # petergyang/no-ai-slop
 
 - **Repository:** `petergyang/no-ai-slop`

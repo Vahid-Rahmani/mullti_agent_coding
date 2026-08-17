@@ -32,9 +32,15 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from scripts.core import opencode_cfg
-from scripts.core import roles
-from scripts.core.agents import AGENT_SPECS, PROJECT_ROOT
+from scripts.core import (
+    agent_catalog,
+    opencode_cfg,
+    prompt_library,
+    roles,
+    runtime_context,
+    skills,
+)
+from scripts.core.agents import AGENT_SPECS
 
 TIMEOUT_SECONDS = 12
 
@@ -108,7 +114,9 @@ def _auth_login_cli(provider_id: str, key: str) -> bool:
     try:
         proc = subprocess.run(
             [exe, "auth", "login", provider_id],
-            input=(key + "\n"), capture_output=True, text=True, timeout=30)
+            input=(key + "\n"), capture_output=True, text=True, timeout=30,
+            check=False,
+        )
         return proc.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -274,7 +282,8 @@ def _cli_models(provider_id: str) -> list[str]:
         return []
     try:
         proc = subprocess.run([exe, "models", provider_id],
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=60,
+                              check=False)
     except (OSError, subprocess.TimeoutExpired):
         return []
     if proc.returncode != 0:
@@ -696,3 +705,113 @@ def create_role(role_id: str, *, name: str | None = None, description: str = "",
         permissions=permissions or [], rules=rules or [],
         expected_outputs=expected_outputs or [], repo_root=repo_root)
     return {"id": role.id, **role.to_dict()}
+
+
+# ------------------------------------------- agent context (skills / profiles)
+
+
+def list_skills(repo_root: Path | None = None) -> list[dict]:
+    """All built-in skills as dicts (id + procedure metadata, no prompt text)."""
+    return [{"id": s.id, "name": s.name, "category": s.category,
+             "description": s.description, "source": s.source,
+             "license": s.license, "origin": s.origin} for s in skills.list_skills()]
+
+
+def list_prompt_profiles(repo_root: Path | None = None) -> list[dict]:
+    """Prompt-profile metadata (id/name/role only — never the prompt text)."""
+    return [{"id": p.id, "name": p.name, "role": p.role,
+             "category": p.category, "origin": p.origin}
+            for p in prompt_library.list_prompts()]
+
+
+def skill_assignments(repo_root: Path | None = None) -> dict:
+    """Agent key -> ordered skill ids."""
+    return {spec.agent: runtime_context.skills_for_agent(spec.agent, repo_root)
+            for spec in AGENT_SPECS}
+
+
+def prompt_assignments(repo_root: Path | None = None) -> dict:
+    """Agent key -> ordered prompt-profile ids."""
+    return {spec.agent: runtime_context.prompt_profiles_for_agent(spec.agent, repo_root)
+            for spec in AGENT_SPECS}
+
+
+def role_derived_skills(agent: str, repo_root: Path | None = None) -> list[str]:
+    """Skill ids automatically implied by the agent's assigned roles."""
+    return runtime_context.role_derived_skill_ids_for_agent(agent, repo_root)
+
+
+def role_derived_prompt_profiles(agent: str,
+                                 repo_root: Path | None = None) -> list[str]:
+    """Prompt-profile ids automatically implied by the agent's assigned roles."""
+    return runtime_context.role_derived_profile_ids_for_agent(agent, repo_root)
+
+
+def assign_skills(agent: str, skill_ids: list[str],
+                  repo_root: Path | None = None) -> list[str]:
+    """Set an agent's skill list. Raises SkillError for unknown ids."""
+    return runtime_context.assign_skills(agent, skill_ids, repo_root)
+
+
+def assign_prompt_profiles(agent: str, profile_ids: list[str],
+                           repo_root: Path | None = None) -> list[str]:
+    """Set an agent's prompt-profile list. Raises PromptError for unknown ids."""
+    return runtime_context.assign_prompt_profiles(agent, profile_ids, repo_root)
+
+
+# ------------------------------------------- agent catalog (categories/presets)
+
+
+def agent_catalog_data(repo_root: Path | None = None) -> dict:
+    """The Agent Catalog for the sidebar: Empty Agent + categories → presets.
+
+    Each preset is fully resolved (model/mode/role/skills/prompt profiles), so
+    selecting a preset populates the complete configuration deterministically.
+    """
+    empty = agent_catalog.resolve_preset_config(agent_catalog.empty_agent())
+    categories: list[dict] = []
+    for cat in agent_catalog.list_categories():
+        presets = [agent_catalog.resolve_preset_config(p, repo_root)
+                   for p in agent_catalog.presets_for_category(cat.id)]
+        categories.append({**cat.to_dict(), "presets": presets})
+    return {"empty_agent": empty, "categories": categories}
+
+
+def role_categories(repo_root: Path | None = None) -> list[dict]:
+    """Role categories (two-level selector): category → roles.
+
+    Derived from the catalog's role → category taxonomy over the live role
+    registry; custom roles not in the taxonomy appear under ``Uncategorized``.
+    """
+    known = set(agent_catalog.ROLE_CATEGORY_MAP)
+    roles_by_id = {r.id: r for r in roles.list_roles(repo_root)}
+    out: list[dict] = []
+    for cat in agent_catalog.role_categories():
+        items = []
+        for rid in agent_catalog.roles_in_category(cat.id):
+            r = roles_by_id.get(rid)
+            if r:
+                items.append({"id": r.id, "name": r.name})
+        out.append({"id": cat.id, "name": cat.name, "roles": items})
+    uncategorized = [{"id": r.id, "name": r.name}
+                     for r in roles.list_roles(repo_root) if r.id not in known]
+    if uncategorized:
+        out.append({"id": "", "name": "Uncategorized", "roles": uncategorized})
+    return out
+
+
+def prompt_categories() -> list[dict]:
+    """Prompt categories (two-level selector): category → prompt profiles.
+
+    Only profiles belonging to a category appear under it; the full flat list
+    is never returned by this facade.
+    """
+    out: list[dict] = []
+    for cat in prompt_library.CATEGORIES:
+        profiles = prompt_library.list_prompts_by_category(cat)
+        out.append({
+            "id": cat,
+            "name": cat.replace("_", " ").title(),
+            "profiles": [{"id": p.id, "name": p.name} for p in profiles],
+        })
+    return out

@@ -38,10 +38,8 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SYNC_LOG = Path("_logs") / "sync_log.jsonl"
 
-from scripts.core.vault_bridge import (  # noqa: E402
-    FRONTMATTER_RE,
+from scripts.core.vault_bridge import (
     VaultError,
-    _find_node,
     _log,
     _now,
     read_node,

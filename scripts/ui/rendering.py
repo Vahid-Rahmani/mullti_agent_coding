@@ -16,25 +16,29 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .theme import Theme
 
+from ..core.agents import (
+    AGENTS,
+    STATUS_ACTIVE,
+    STATUS_IDLE,
+    STATUS_THINKING,
+    TABS,
+)
+from ..core.progress import (
+    _PROGRESS_BAR_WIDTH,
+    WORKING_LABEL,
+    _weighted_progress,
+)
+from ..core.run_hub import HUB, _sanitize_prompt
 from .palette import (
-    BANNER, GREY, WHITE, ORANGE, NEON, GREY_BG,
-    DIFF_ADD, DIFF_REMOVE, DIFF_HEADER, DIFF_HUNK,
-    INPUT_MIN_LINES, INPUT_MAX_LINES, CONSOLE_MIN_LINES, CONSOLE_PREFERRED_LINES,
+    BANNER,
+    GREY,
+    WHITE,
     _init_status_symbol,
 )
 
-from ..core.agents import (
-    AGENTS, TABS, STATUS_IDLE, STATUS_THINKING,
-    STATUS_ACTIVE, STATUS_ERROR,
-)
-from ..core.progress import (
-    _estimate_token_percent, _weighted_progress, _PROGRESS_BAR_WIDTH, WORKING_LABEL,
-)
-from ..core.run_hub import HUB, _sanitize_prompt
-
 # Ensure status symbols are initialized before any rendering that uses them.
 _init_status_symbol()
-from .palette import STATUS_SYMBOL  # noqa: E402 — populated by _init_status_symbol
+from .palette import STATUS_SYMBOL
 
 # -------------------------------------------------------------------- banner, dir, tag style
 
@@ -324,7 +328,7 @@ def _available_columns(fallback: tuple[int, int] = (100, 30)) -> int:
     try:
         from prompt_toolkit.application.current import get_app
         return max(1, get_app().output.get_size().columns)
-    except Exception:
+    except (AttributeError, RuntimeError):
         try:
             return max(1, shutil.get_terminal_size(fallback).columns)
         except OSError:

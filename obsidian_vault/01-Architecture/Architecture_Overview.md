@@ -3,8 +3,8 @@ type: architecture
 status: active
 owner: architect
 created: 2026-08-11
-updated: 2026-08-11
-related: [Architecture_Home]
+updated: 2026-08-17
+related: [Architecture_Home, System_Architecture, Component_Orchestrator, Component_VaultBridge, Component_ContextResolver, Component_ChangeDetector, Component_KnowledgeSync]
 ---
 
 # Architecture_Overview
@@ -33,6 +33,15 @@ permanently coupled.
 | State Tracker | `scripts/core/state_tracker.py` | Atomic read/write of `state.md` |
 | Inbox Workers | `scripts/run_agent_worker.ps1/.sh` | Poll `_inbox/<agent>.task`, run, log, archive to `_inbox/done/` |
 | Launchers | `launch_agents.bat`, `launch_terminal.bat` | 7-window inbox launcher + terminal launcher |
+| Task Orchestrator | `scripts/core/orchestrator.py` | Ready-gated, authorized Vault task execution and result persistence |
+| Vault Bridge | `scripts/core/vault_bridge.py` | Safe scoped Vault I/O, atomic writes, backups, and relationships |
+| Context Resolver | `scripts/core/context_resolver.py` | Deterministic bounded WikiLink context for task dispatch |
+| Change Detector | `scripts/core/change_detector.py` | Detection-only snapshots and component impact mapping |
+| Knowledge Sync | `scripts/core/knowledge_sync.py` | Dry-run-first docs/code reconciliation and conflict reporting |
+
+The task [[Component_Orchestrator]] is distinct from the workflow graph
+scheduler: it executes lifecycle-controlled Vault task nodes rather than
+workflow waves and conditional edges.
 
 ## Agent Roster (M1–M7)
 
@@ -52,10 +61,10 @@ permanently coupled.
 ## References
 
 - ↑ Parent: [[Architecture_Home]]
-- ↔ Related: [[Agents_Home]], [[Documentation_Home]]
+- ↔ Related: [[System_Architecture]], [[Agents_Home]], [[Documentation_Home]], [[Component_Orchestrator]], [[Component_VaultBridge]], [[Component_ContextResolver]], [[Component_ChangeDetector]], [[Component_KnowledgeSync]]
 - Repo: `docs/architecture/Architecture.md`, `AGENTS.md`, `README.md`
 
 ## Future Work
 
-Detailed component designs, data flows, and integration contracts will be added
-here as the system evolves past baseline-zero.
+Additional component designs remain future architecture work; this overview
+records only implemented component boundaries.

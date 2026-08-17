@@ -39,34 +39,32 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.core import opencode_cfg  # noqa: E402
-from scripts.core import roles  # noqa: E402
-from scripts.core.agents import AGENT_SPEC_BY_AGENT  # noqa: E402
-from scripts.core.context_resolver import (  # noqa: E402
+from scripts.core import (
+    opencode_cfg,
+    roles,
+    runtime_context,
+)
+from scripts.core.agents import AGENT_SPEC_BY_AGENT
+from scripts.core.context_resolver import (
     DEFAULT_MAX_DEPTH,
     DEFAULT_MAX_NODES,
     cmd_context,
     resolve_context,
 )
-from scripts.core.run_hub import _build_run_command, _opencode_command  # noqa: E402
-from scripts.core.vault_bridge import (  # noqa: E402
+from scripts.core.run_hub import _build_run_command, _opencode_command
+from scripts.core.vault_bridge import (
     FRONTMATTER_RE,
-    KEY_LINE_RE,
     LINK_RE,
     VALID_STATUSES,
     VaultError,
-    _atomic_write,
     _find_node,
     _log,
     _now,
-    _replace_frontmatter,
     is_dispatchable,
     list_tasks,
-    parse_frontmatter,
     read_task,
     resolve_task,
     update_task,
-    validate_vault,
 )
 
 # ---------------------------------------------------------------- constants
@@ -85,7 +83,8 @@ TRANSITIONS: dict[str, set[str]] = {
 
 MAX_CONTEXT_NODES = 5  # extra linked nodes read beyond the task node itself
 
-# Concurrency locks: _logs/locks/<sha1-of-task-name>.lock (atomic O_EXCL).
+# Concurrency locks, scoped to the dispatched vault:
+# <vault>/_logs/locks/<sha1-of-task-name>.lock (atomic O_EXCL).
 LOCK_DIR = Path("_logs") / "locks"
 
 
@@ -130,33 +129,90 @@ def _append_execution_log(body: str, outcome: str, detail: str = "") -> str:
     insert_at = idx + 1
     while insert_at < len(lines) and not lines[insert_at].strip():
         insert_at += 1
-    indent = "\n" if insert_at >= len(lines) or lines[insert_at].strip() else "\n"
-    lines.insert(insert_at, indent + entry)
+    lines.insert(insert_at, "\n" + entry)
     return "\n".join(lines) + ("\n" if not body.endswith("\n") else "")
+
+
+REPORT_HEADING = "## Agent Report"
+
+
+def _append_agent_report(body: str, report: dict[str, str]) -> str:
+    """Persist a structured '## Agent Report' section into the task body.
+
+    Only populated ``REPORT_FIELDS`` are written. An existing Agent Report
+    block is replaced in place (idempotent); otherwise the block is appended
+    after the execution log. An empty report leaves the body unchanged, so a
+    failed run with no parsed output never fabricates a report.
+    """
+    populated = [f for f in REPORT_FIELDS if report.get(f)]
+    if not populated:
+        return body
+    block = [REPORT_HEADING, ""] + [f"- {f}: {report[f]}" for f in populated]
+    body_lines = body.splitlines()
+    idx = next((i for i, ln in enumerate(body_lines) if ln.strip() == REPORT_HEADING),
+               None)
+    if idx is not None:
+        end = idx + 1
+        while end < len(body_lines) and not body_lines[end].strip().startswith("## "):
+            end += 1
+        body_lines = body_lines[:idx] + body_lines[end:]
+    while body_lines and not body_lines[-1].strip():
+        body_lines.pop()
+    return "\n".join(body_lines) + "\n\n" + "\n".join(block) + "\n"
+
+
+def _read_execution_log(body: str) -> list[str]:
+    """The timestamped bullet entries under a task's '## Execution Log'."""
+    heading = "## Execution Log"
+    lines = body.splitlines()
+    idx = next((i for i, ln in enumerate(lines) if ln.strip() == heading), None)
+    if idx is None:
+        return []
+    entries: list[str] = []
+    for ln in lines[idx + 1:]:
+        s = ln.strip()
+        if s.startswith("## "):
+            break
+        if s.startswith("- "):
+            entries.append(s[2:].strip())
+    return entries
 
 
 # ---------------------------------------------------------------- controlled execution
 
 
-def _lock_path(name: str) -> Path:
-    """Stable per-task lock path: _logs/locks/<sha1>.lock."""
+def _lock_path(vault: Path, name: str) -> Path:
+    """Stable per-task lock path, scoped to the dispatched vault.
+
+    ``<vault>/_logs/locks/<sha1>.lock`` — so two independent vaults can run
+    the same task name concurrently; only a second dispatch inside the SAME
+    vault collides on the lock.
+    """
     digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:16]
-    return _REPO_ROOT / LOCK_DIR / f"{digest}.lock"
+    return vault / LOCK_DIR / f"{digest}.lock"
 
 
-def _acquire_lock(name: str) -> Path | None:
-    """Atomically claim the per-task lock; None if already held."""
-    lock = _lock_path(name)
+def _acquire_lock(vault: Path, name: str) -> Path | None:
+    """Atomically claim the per-task lock for ``vault``; None if already held.
+
+    Returns None **only** for ``FileExistsError`` (the lock file already
+    exists). Any other I/O or permission failure raises ``VaultError`` so a
+    broken lock directory is never misreported as a held lock.
+    """
+    lock = _lock_path(vault, name)
     try:
         lock.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise VaultError(f"cannot create task lock directory {lock.parent}: {exc}") from exc
+    try:
         fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, f"[{_now()}] dispatch {name}\n".encode("utf-8"))
-        os.close(fd)
-        return lock
     except FileExistsError:
         return None
-    except OSError:
-        return None  # lock failure is non-fatal; logging still records it
+    except OSError as exc:
+        raise VaultError(f"cannot create task lock {lock}: {exc}") from exc
+    os.write(fd, f"[{_now()}] dispatch {name}\n".encode())
+    os.close(fd)
+    return lock
 
 
 def _release_lock(lock: Path | None) -> None:
@@ -246,6 +302,7 @@ def _git_changed_files() -> list[str]:
         proc = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=15,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -408,7 +465,7 @@ Done. Everything is implemented.
 
 def cmd_dispatch(vault: Path, name: str, yes: bool = False, mock: bool = False) -> int:
     path = _task_file(vault, name)
-    fields, body, raw = read_task(path)
+    fields, body, _raw = read_task(path)
     status = fields.get("status", "")
 
     # Requirement 1 — execute only tasks with status == 'ready'.
@@ -433,27 +490,42 @@ def cmd_dispatch(vault: Path, name: str, yes: bool = False, mock: bool = False) 
     # Requirement 2–3 — resolve approved context before execution.
     package = resolve_context(vault, path)
     ctx = [Path(ref.path) for ref in package.nodes]
-    prompt = _build_prompt(name, fields, body, ctx)
-    role_ctx = task_role_context(agent_key, fields)
-    if role_ctx:
-        prompt = role_ctx + "\n" + prompt
+    task_prompt = _build_prompt(name, fields, body, ctx)
+    # A task-level ``role`` override is authoritative (and validated); otherwise
+    # the agent's configured roles/skills/profiles are composed by the runtime
+    # context builder.
+    role_override = (fields.get("role") or "").strip() or None
+    if role_override and roles.get_role(role_override, repo_root=_REPO_ROOT) is None:
+        raise VaultError(f"task role override {role_override!r} is not a known role")
+    prompt = runtime_context.build_runtime_prompt(
+        agent_key,
+        role_ids=[role_override] if role_override else None,
+        task=task_prompt,
+        repo_root=_REPO_ROOT,
+    )
     exe = _opencode_command() or "opencode"
     cmd = _build_run_command(exe, agent_key, prompt, model)
 
     print(f"task      : {name}")
     print(f"agent     : {agent_key} ({model})")
     print(f"context   : {len(ctx)} linked node(s)")
-    print(f"command   : {' '.join(cmd)}")
+    # Do not echo the composed runtime prompt here.  Besides flooding the
+    # terminal, role/skill text can contain Unicode that legacy Windows
+    # consoles cannot encode (for example an arrow on cp1252), causing a
+    # dispatch to fail before the child process even starts.
+    display_cmd = cmd[:-1] + ["<composed-prompt>"]
+    print(f"command   : {' '.join(display_cmd)}")
     if not yes:
         print("\nDRY-RUN: pass --yes to actually execute (explicit authorization required).")
         return 0
 
-    # Requirement 11 — per-task concurrency lock (atomic O_EXCL).
-    lock = _acquire_lock(name)
+    # Requirement 11 — per-task concurrency lock, scoped to this vault.
+    lock = _acquire_lock(vault, name)
     if lock is None:
         raise VaultError(f"{name}: already executing (lock held) — concurrent dispatch refused")
     outcome = "failed"
     detail = ""
+    report: dict[str, str] = {}
     try:
         # Authorized execution.
         _transition(name, fields, "in_progress")
@@ -482,6 +554,7 @@ def cmd_dispatch(vault: Path, name: str, yes: bool = False, mock: bool = False) 
     finally:
         # Requirement 5–6 — write the outcome back to the task node.
         new_body = _append_execution_log(body, outcome, detail)
+        new_body = _append_agent_report(new_body, report)
         try:
             update_task(path, "dispatch", {"status": outcome, "updated": _now()[:10]},
                         new_body=new_body)

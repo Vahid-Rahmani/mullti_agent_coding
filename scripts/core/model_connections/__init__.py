@@ -14,8 +14,13 @@ never a secret.
     resolver → runtime configuration (metadata + masked credential flag)
 """
 
-from scripts.core.model_connections import credential_store, providers, registry, resolver  # noqa: F401
-from scripts.core.model_connections.errors import (  # noqa: F401
+from scripts.core.model_connections import (  # noqa: F401
+    credential_store,
+    providers,
+    registry,
+    resolver,
+)
+from scripts.core.model_connections.errors import (
     ConnectionError,
     CredentialError,
     DuplicateConnectionError,
@@ -23,7 +28,7 @@ from scripts.core.model_connections.errors import (  # noqa: F401
     UnknownConnectionError,
     UnknownProviderError,
 )
-from scripts.core.model_connections.registry import (  # noqa: F401
+from scripts.core.model_connections.registry import (
     connection_metadata,
     connections_path,
     create_connection,
@@ -34,35 +39,35 @@ from scripts.core.model_connections.registry import (  # noqa: F401
     update_connection,
     validate_connection,
 )
-from scripts.core.model_connections.resolver import (  # noqa: F401
+from scripts.core.model_connections.resolver import (
     Resolution,
     resolve,
     resolve_credential,
 )
-from scripts.core.model_connections.schema import (  # noqa: F401
+from scripts.core.model_connections.schema import (
     ModelConnection,
     validate_connection_id,
 )
 
 __all__ = [
-    "ModelConnection",
-    "Resolution",
     "ConnectionError",
     "CredentialError",
     "DuplicateConnectionError",
+    "ModelConnection",
+    "Resolution",
     "ResolutionError",
     "UnknownConnectionError",
     "UnknownProviderError",
+    "connection_metadata",
     "connections_path",
+    "create_connection",
+    "delete_connection",
+    "get_connection",
     "list_connections",
     "list_connections_by_provider",
-    "get_connection",
-    "connection_metadata",
-    "create_connection",
-    "update_connection",
-    "delete_connection",
-    "validate_connection",
     "resolve",
     "resolve_credential",
+    "update_connection",
+    "validate_connection",
     "validate_connection_id",
 ]

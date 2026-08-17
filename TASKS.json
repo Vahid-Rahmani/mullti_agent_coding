@@ -42,9 +42,9 @@
     {
       "id": "O2",
       "title": "Add Component_* nodes for unmapped modules",
-      "description": "orchestrator, vault_bridge, context_resolver, change_detector, knowledge_sync currently have no Component_* node in the vault; adding them zeroes the Dashboard known-gaps list.",
+      "description": "Added and indexed active Component_* nodes for orchestrator, vault_bridge, context_resolver, change_detector, and knowledge_sync; reconciled architecture docs and resolved the Dashboard O2 known-gaps list.",
       "priority": "medium",
-      "status": "pending"
+      "status": "done"
     }
   ]
 }

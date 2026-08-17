@@ -18,19 +18,27 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from scripts.core import opencode_cfg, orchestrator as orch, roles
-from scripts.core import model_connections
-from scripts.core import model_registry
-from scripts.core import prompt_library
-from scripts.core import workflow_engine, workflows
+from scripts.core import (
+    model_connections,
+    model_registry,
+    opencode_cfg,
+    prompt_library,
+    roles,
+    skills,
+    workflow_engine,
+    workflows,
+)
+from scripts.core import orchestrator as orch
 from scripts.core.agents import (
-    AGENTS, AGENT_SPEC_BY_AGENT, AGENT_SPEC_BY_TAG, PROJECT_ROOT,
+    AGENT_SPEC_BY_AGENT,
+    AGENT_SPEC_BY_TAG,
+    AGENTS,
+    PROJECT_ROOT,
 )
 from scripts.core.context_resolver import resolve_context
 from scripts.core.project_profile import (
@@ -39,7 +47,6 @@ from scripts.core.project_profile import (
     suggested_role_reasons,
 )
 from scripts.core.run_hub import HUB
-from scripts.web_ui import settings as ui_settings
 from scripts.core.vault_bridge import (
     VALID_STATUSES,
     VaultError,
@@ -51,6 +58,7 @@ from scripts.core.vault_bridge import (
     update_task,
 )
 from scripts.web_ui import graph as vgraph
+from scripts.web_ui import settings as ui_settings
 from scripts.web_ui.state import WebState
 
 _REPO_ROOT = PROJECT_ROOT
@@ -64,7 +72,7 @@ AGENT_TO_NAME = {spec.agent: spec.name for spec in AGENT_SPEC_BY_AGENT.values()}
 
 class DispatchIn(BaseModel):
     prompt: str
-    agent: Optional[str] = None  # tag like "m4"; None → all agents
+    agent: str | None = None  # tag like "m4"; None → all agents
 
 
 class ActiveWorkflowIn(BaseModel):
@@ -81,25 +89,25 @@ class StatusIn(BaseModel):
 
 class SettingsTestIn(BaseModel):
     provider: str
-    key: Optional[str] = None
-    base_url: Optional[str] = None
-    auth: Optional[str] = None
+    key: str | None = None
+    base_url: str | None = None
+    auth: str | None = None
 
 
 class SettingsDiscoverIn(BaseModel):
     provider: str
-    key: Optional[str] = None
-    base_url: Optional[str] = None
-    auth: Optional[str] = None
+    key: str | None = None
+    base_url: str | None = None
+    auth: str | None = None
 
 
 class SettingsSaveIn(BaseModel):
     provider: str
     mode: str = "simple"
-    key: Optional[str] = None
-    base_url: Optional[str] = None
-    auth: Optional[str] = None
-    models: Optional[list[str]] = None
+    key: str | None = None
+    base_url: str | None = None
+    auth: str | None = None
+    models: list[str] | None = None
 
 
 class SettingsManualModelIn(BaseModel):
@@ -117,12 +125,12 @@ class SettingsFallbackIn(BaseModel):
 
 class SettingsModeIn(BaseModel):
     mode: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class RoleCreateIn(BaseModel):
     id: str
-    name: Optional[str] = None
+    name: str | None = None
     description: str = ""
     responsibilities: list[str] = []
     tools: list[str] = []
@@ -135,8 +143,16 @@ class RolesAssignIn(BaseModel):
     role_ids: list[str]
 
 
+class SkillsAssignIn(BaseModel):
+    skill_ids: list[str]
+
+
+class PromptsAssignIn(BaseModel):
+    prompt_profile_ids: list[str]
+
+
 class TaskRoleIn(BaseModel):
-    role: Optional[str] = None  # role id to override, or empty/None to clear
+    role: str | None = None  # role id to override, or empty/None to clear
 
 
 class WorkflowIn(BaseModel):
@@ -155,47 +171,47 @@ class WorkflowRunIn(BaseModel):
 
 
 class PromptRecommendIn(BaseModel):
-    task: Optional[str] = None
-    role: Optional[str] = None
+    task: str | None = None
+    role: str | None = None
     capabilities: list[str] = []
-    complexity: Optional[str] = None
-    risk: Optional[str] = None
+    complexity: str | None = None
+    risk: str | None = None
 
 
 class ModelRecommendIn(BaseModel):
-    task: Optional[str] = None
-    prompt_id: Optional[str] = None            # Phase 2 field (kept for compat)
-    prompt_profile: Optional[str] = None      # Phase 3 alias
-    provider: Optional[str] = None
-    explicit_model: Optional[str] = None
-    hard_requirements: Optional[dict] = None
-    available_models: Optional[list[dict]] = None
+    task: str | None = None
+    prompt_id: str | None = None            # Phase 2 field (kept for compat)
+    prompt_profile: str | None = None      # Phase 3 alias
+    provider: str | None = None
+    explicit_model: str | None = None
+    hard_requirements: dict | None = None
+    available_models: list[dict] | None = None
 
 
 class ConnectionCreateIn(BaseModel):
     provider: str
-    connection_id: Optional[str] = None
-    display_name: Optional[str] = None
-    api_key: Optional[str] = None             # accepted ONCE at create; never echoed
+    connection_id: str | None = None
+    display_name: str | None = None
+    api_key: str | None = None             # accepted ONCE at create; never echoed
     credential_type: str = "api_key"
-    endpoint: Optional[str] = None
-    deployment: Optional[str] = None
+    endpoint: str | None = None
+    deployment: str | None = None
     default: bool = False
 
 
 class ConnectionUpdateIn(BaseModel):
-    display_name: Optional[str] = None
-    api_key: Optional[str] = None             # optional replace; never echoed
-    credential_type: Optional[str] = None
-    endpoint: Optional[str] = None
-    deployment: Optional[str] = None
-    default: Optional[bool] = None
-    status: Optional[str] = None
+    display_name: str | None = None
+    api_key: str | None = None             # optional replace; never echoed
+    credential_type: str | None = None
+    endpoint: str | None = None
+    deployment: str | None = None
+    default: bool | None = None
+    status: str | None = None
 
 
 class ConnectionResolveIn(BaseModel):
-    model: Optional[str] = None
-    connection_id: Optional[str] = None
+    model: str | None = None
+    connection_id: str | None = None
 
 
 # ---------------------------------------------------------------- helpers
@@ -280,6 +296,16 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
                 "prompt": snap["prompts"].get(tag, ""),
             })
         return {"agents": agents, "prefs": state.prefs}
+
+    @router.get("/api/agent-catalog")
+    async def api_agent_catalog() -> dict:
+        """The Agent Catalog: Empty Agent + categories → resolved presets.
+
+        Deterministic and never generated from roles × prompts: each category
+        lists exactly its registered presets, and the Empty Agent is always
+        present (independent of every category).
+        """
+        return ui_settings.agent_catalog_data()
 
     @router.get("/api/sessions")
     async def api_sessions() -> dict:
@@ -458,6 +484,30 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         tasks.sort(key=lambda t: (t["status"], t["name"]))
         return {"tasks": tasks}
 
+    @router.get("/api/tasks/{name}")
+    async def api_task_detail(name: str) -> dict:
+        """Full task detail: frontmatter + body + persisted execution result.
+
+        The persisted Agent Report and Execution Log are parsed out of the node
+        body (never from a live process) so the Tasks tab can show the result
+        of a completed/failed run without shelling out.
+        """
+        path = _task_path(state_vault, name)
+        fields, body, _raw = read_task(path)
+        return {
+            "name": name,
+            "status": fields.get("status", ""),
+            "priority": fields.get("priority", ""),
+            "assigned_agent": fields.get("assigned_agent", ""),
+            "related_component": fields.get("related_component", ""),
+            "dependencies": fields.get("dependencies", ""),
+            "updated": fields.get("updated", ""),
+            "fields": fields,
+            "body": body,
+            "execution_log": orch._read_execution_log(body),
+            "agent_report": orch._parse_agent_report(body),
+        }
+
     @router.post("/api/tasks/{name}/assign")
     async def api_task_assign(name: str, body: AssignIn) -> dict:
         spec = AGENT_SPEC_BY_AGENT.get(body.agent)
@@ -526,7 +576,6 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
 
         def pump() -> None:
             try:
-                line = "x"  # sentinel for first iteration below
                 assert proc.stdout is not None
                 for raw in proc.stdout:
                     text = raw.rstrip("\r\n")
@@ -548,10 +597,12 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         if proc is None:
             raise HTTPException(404, f"{name}: not currently running")
         if os.name == "nt":
-            subprocess.run(
+            await asyncio.to_thread(
+                subprocess.run,
                 ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                 capture_output=True,
                 creationflags=subprocess.CREATE_NO_WINDOW,
+                check=False,
             )
         else:
             proc.terminate()
@@ -589,7 +640,7 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         return {
             "vault": str(state_vault),
             "sections": ["general", "connections", "models", "agents",
-                         "modes", "roles", "profile", "graph", "security"],
+                         "modes", "roles", "prompts", "profile", "graph", "security"],
             "simple_providers": [
                 {"id": p["id"], "name": p["name"]} for p in ui_settings.SIMPLE_PROVIDERS
             ],
@@ -698,6 +749,16 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         return {"roles": ui_settings.list_roles(),
                 "assignments": ui_settings.role_assignments()}
 
+    @router.get("/api/settings/role-categories")
+    async def api_settings_role_categories() -> dict:
+        """Role categories (two-level selector): category → roles."""
+        return {"categories": ui_settings.role_categories()}
+
+    @router.get("/api/settings/prompt-categories")
+    async def api_settings_prompt_categories() -> dict:
+        """Prompt categories (two-level selector): category → prompt profiles."""
+        return {"categories": ui_settings.prompt_categories()}
+
     @router.post("/api/settings/roles")
     async def api_settings_create_role(body: RoleCreateIn) -> dict:
         try:
@@ -728,6 +789,60 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
             raise HTTPException(409, str(exc)) from exc
         return {"ok": True, "agent": agent, "role_ids": role_ids}
 
+    # ---- agent skills / prompt profiles (Phase 30 runtime context) -------
+
+    @router.get("/api/settings/skills")
+    async def api_settings_skills() -> dict:
+        """Available skills (id/name/category) for the Settings picker."""
+        return {"skills": ui_settings.list_skills()}
+
+    @router.get("/api/settings/prompt-profiles")
+    async def api_settings_prompt_profiles() -> dict:
+        """Available prompt profiles (id/name/role) for the Settings picker."""
+        return {"profiles": ui_settings.list_prompt_profiles()}
+
+    @router.get("/api/settings/agents/{agent}/skills")
+    async def api_settings_agent_skills(agent: str) -> dict:
+        spec = AGENT_SPEC_BY_AGENT.get(agent)
+        if spec is None:
+            raise HTTPException(404, f"unknown agent key {agent!r}")
+        return {"agent": agent,
+                "skill_ids": ui_settings.skill_assignments().get(agent, []),
+                "role_derived_skill_ids": ui_settings.role_derived_skills(agent)}
+
+    @router.put("/api/settings/agents/{agent}/skills")
+    async def api_settings_assign_skills(agent: str, body: SkillsAssignIn) -> dict:
+        spec = AGENT_SPEC_BY_AGENT.get(agent)
+        if spec is None:
+            raise HTTPException(404, f"unknown agent key {agent!r}")
+        try:
+            skill_ids = ui_settings.assign_skills(agent, body.skill_ids)
+        except skills.SkillError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, "agent": agent, "skill_ids": skill_ids}
+
+    @router.get("/api/settings/agents/{agent}/prompts")
+    async def api_settings_agent_prompts(agent: str) -> dict:
+        spec = AGENT_SPEC_BY_AGENT.get(agent)
+        if spec is None:
+            raise HTTPException(404, f"unknown agent key {agent!r}")
+        return {"agent": agent,
+                "prompt_profile_ids": ui_settings.prompt_assignments().get(agent, []),
+                "role_derived_prompt_profile_ids":
+                    ui_settings.role_derived_prompt_profiles(agent)}
+
+    @router.put("/api/settings/agents/{agent}/prompts")
+    async def api_settings_assign_prompts(agent: str, body: PromptsAssignIn) -> dict:
+        spec = AGENT_SPEC_BY_AGENT.get(agent)
+        if spec is None:
+            raise HTTPException(404, f"unknown agent key {agent!r}")
+        try:
+            prompt_profile_ids = ui_settings.assign_prompt_profiles(
+                agent, body.prompt_profile_ids)
+        except prompt_library.PromptError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, "agent": agent, "prompt_profile_ids": prompt_profile_ids}
+
     # ---- prompt library (reusable, role-typed prompt profiles) -----------
 
     def _prompt_meta(profile: prompt_library.PromptProfile) -> dict:
@@ -738,7 +853,7 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         return meta
 
     @router.get("/api/prompts")
-    async def api_prompts(role: Optional[str] = None) -> dict:
+    async def api_prompts(role: str | None = None) -> dict:
         """List prompt profile metadata, optionally suggested for a role/agent.
 
         ``?role=developer`` maps keywords/role-store ids to prompt roles via
@@ -1126,4 +1241,4 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
     return router
 
 
-__all__ = ["create_router", "HUB"]
+__all__ = ["HUB", "create_router"]
