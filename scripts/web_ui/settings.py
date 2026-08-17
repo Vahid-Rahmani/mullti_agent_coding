@@ -770,9 +770,9 @@ def agent_catalog_data(repo_root: Path | None = None) -> dict:
     """
     empty = agent_catalog.resolve_preset_config(agent_catalog.empty_agent())
     categories: list[dict] = []
-    for cat in agent_catalog.list_categories():
+    for cat in agent_catalog.list_categories(repo_root):
         presets = [agent_catalog.resolve_preset_config(p, repo_root)
-                   for p in agent_catalog.presets_for_category(cat.id)]
+                   for p in agent_catalog.presets_for_category(cat.id, repo_root)]
         categories.append({**cat.to_dict(), "presets": presets})
     return {"empty_agent": empty, "categories": categories}
 
@@ -783,12 +783,13 @@ def role_categories(repo_root: Path | None = None) -> list[dict]:
     Derived from the catalog's role → category taxonomy over the live role
     registry; custom roles not in the taxonomy appear under ``Uncategorized``.
     """
-    known = set(agent_catalog.ROLE_CATEGORY_MAP)
+    known = {role_id for category in agent_catalog.role_categories(repo_root)
+             for role_id in agent_catalog.roles_in_category(category.id, repo_root)}
     roles_by_id = {r.id: r for r in roles.list_roles(repo_root)}
     out: list[dict] = []
-    for cat in agent_catalog.role_categories():
+    for cat in agent_catalog.role_categories(repo_root):
         items = []
-        for rid in agent_catalog.roles_in_category(cat.id):
+        for rid in agent_catalog.roles_in_category(cat.id, repo_root):
             r = roles_by_id.get(rid)
             if r:
                 items.append({"id": r.id, "name": r.name})

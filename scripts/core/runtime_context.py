@@ -295,14 +295,17 @@ def role_derived_profile_ids_for_agent(agent: str,
 
 def _resolved_role_ids(agent: str, repo_root: Path | None) -> list[str]:
     """Explicit role assignments win; otherwise use the effective matrix."""
-    explicit = roles.roles_for_agent(agent, repo_root)
-    if explicit:
-        return explicit
     try:
         taxonomy = load_effective(repo_root)
     except (FileNotFoundError, ValueError, OSError):
         taxonomy = load_effective(PROJECT_ROOT)
-    return _dedupe(taxonomy.get("agent_assignments", {}).get(agent, {}).get("role_ids", []))
+    assignment = taxonomy.get("agent_assignments", {}).get(agent, {})
+    if taxonomy.get("coverage", {}).get("assignment_sources", {}).get(agent) == "override":
+        return _dedupe(assignment.get("role_ids", []))
+    explicit = roles.roles_for_agent(agent, repo_root)
+    if explicit:
+        return explicit
+    return _dedupe(assignment.get("role_ids", []))
 
 
 def _resolve_skills(agent: str,

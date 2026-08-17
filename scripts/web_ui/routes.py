@@ -47,6 +47,10 @@ from scripts.core.project_profile import (
     suggested_role_reasons,
 )
 from scripts.core.run_hub import HUB
+from scripts.core.taxonomy.build import write_taxonomy
+from scripts.core.taxonomy.coverage import runtime_agent_keys
+from scripts.core.taxonomy.effective import load_effective
+from scripts.core.taxonomy.overrides import load_overrides, overrides_path
 from scripts.core.vault_bridge import (
     VALID_STATUSES,
     VaultError,
@@ -267,6 +271,18 @@ def _open_task_proc(state_vault: Path, name: str) -> subprocess.Popen:
 def create_router(state_vault: Path, state: WebState) -> APIRouter:
     router = APIRouter()
 
+    def taxonomy_status() -> dict:
+        taxonomy = load_effective(_REPO_ROOT)
+        coverage = taxonomy["coverage"]
+        sources = coverage.get("assignment_sources", {})
+        return {
+            "schema_version": taxonomy["schema_version"],
+            "artifact": {"path": str(_REPO_ROOT / "knowledge" / "taxonomy" / "taxonomy.json"), "exists": (_REPO_ROOT / "knowledge" / "taxonomy" / "taxonomy.json").is_file()},
+            "overrides": {"path": str(overrides_path(_REPO_ROOT)), "exists": overrides_path(_REPO_ROOT).is_file(), "agent_assignment_count": len(load_overrides(_REPO_ROOT).get("agent_assignment_overrides", {}))},
+            "counts": {"repositories": len(taxonomy["repositories"]), "evidence": len(taxonomy["evidence"]), "capabilities": len(taxonomy["capabilities"]), "categories": len(taxonomy["categories"]), "registered_agents": len(runtime_agent_keys())},
+            "coverage": {"covered_agents": len(taxonomy["agent_assignments"]) - len(coverage["uncovered_agents"]), "uncovered_agents": coverage["uncovered_agents"], "uncovered_capabilities": coverage["uncovered_capabilities"], "assignment_sources": sources, "assignment_source_counts": {kind: list(sources.values()).count(kind) for kind in sorted(set(sources.values()))}},
+        }
+
     # ---- live state -------------------------------------------------------
 
     @router.get("/api/state")
@@ -306,6 +322,23 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
         present (independent of every category).
         """
         return ui_settings.agent_catalog_data()
+
+    @router.get("/api/taxonomy/status")
+    async def api_taxonomy_status() -> dict:
+        return taxonomy_status()
+
+    @router.get("/api/taxonomy")
+    async def api_taxonomy() -> dict:
+        taxonomy = load_effective(_REPO_ROOT)
+        return {"status": taxonomy_status(), "categories": taxonomy["categories"], "capabilities": taxonomy["capabilities"], "role_skill_edges": taxonomy["role_skill_edges"], "role_prompt_edges": taxonomy["role_prompt_edges"], "agent_assignments": taxonomy["agent_assignments"], "coverage": taxonomy["coverage"]}
+
+    @router.post("/api/taxonomy/rebuild")
+    async def api_taxonomy_rebuild() -> dict:
+        try:
+            artifact = write_taxonomy(_REPO_ROOT)
+            return {"ok": True, "artifact": str(artifact), "status": taxonomy_status()}
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(500, f"taxonomy rebuild failed: {exc}") from exc
 
     @router.get("/api/sessions")
     async def api_sessions() -> dict:

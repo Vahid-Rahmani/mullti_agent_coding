@@ -2183,6 +2183,45 @@
     }
   }
 
+  async function loadTaxonomy() {
+    const body = $("#taxonomy-body");
+    if (!body) return;
+    empty(body);
+    body.appendChild(el("div", "placeholder", "loading taxonomy…"));
+    try {
+      const data = await api("/api/taxonomy");
+      empty(body);
+      const counts = data.status.counts;
+      const coverage = data.coverage;
+      body.appendChild(el("div", "taxonomy-summary",
+        `${counts.repositories} repositories · ${counts.evidence} evidence · ${counts.capabilities} capabilities · ${counts.categories} categories · ${counts.registered_agents} agents`));
+      body.appendChild(el("div", "taxonomy-summary",
+        `Coverage: ${data.status.coverage.covered_agents}/${counts.registered_agents} agents · uncovered agents: ${coverage.uncovered_agents.length} · uncovered capabilities: ${coverage.uncovered_capabilities.length}`));
+      body.appendChild(el("div", "taxonomy-summary",
+        `Overrides: ${data.status.overrides.agent_assignment_count} persisted assignment(s) · sources: ${Object.entries(data.status.coverage.assignment_source_counts).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}`));
+      const table = el("table", "status-table taxonomy-table");
+      const head = el("thead"); const row = el("tr");
+      ["Agent", "Roles", "Skills", "Profiles", "Source"].forEach((label) => row.appendChild(el("th", null, label)));
+      head.appendChild(row); table.appendChild(head);
+      const rows = el("tbody");
+      Object.entries(data.agent_assignments).forEach(([agent, assignment]) => {
+        const tr = el("tr");
+        [agent, assignment.role_ids.join(", ") || "—", assignment.skill_ids.join(", ") || "—", assignment.prompt_profile_ids.join(", ") || "—", coverage.assignment_sources[agent] || "derived"].forEach((value) => tr.appendChild(el("td", null, value)));
+        rows.appendChild(tr);
+      });
+      table.appendChild(rows); body.appendChild(table);
+    } catch (err) {
+      empty(body); body.appendChild(el("div", "placeholder", String(err.message || err)));
+    }
+  }
+
+  async function rebuildTaxonomy() {
+    const button = $("#taxonomy-rebuild");
+    if (button) button.disabled = true;
+    try { await post("/api/taxonomy/rebuild", {}); await loadTaxonomy(); }
+    finally { if (button) button.disabled = false; }
+  }
+
   /* ─────────────────────── tabs / modal / splitters ──────────── */
   function bindTabs() {
     $$(".tab").forEach((tab) => {
@@ -2195,6 +2234,7 @@
     $$(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === "tab-" + name));
     if (name === "logs") loadLog();
     if (name === "tasks") loadTasks();
+    if (name === "taxonomy") loadTaxonomy();
   }
 
   /* ── Bottom Status/Tasks/Execution/Logs dock (minimize → compact bar) ── */
@@ -2517,6 +2557,8 @@
     bindSendContext();
     bindModal();
     bindTabs();
+    const taxonomyRebuild = $("#taxonomy-rebuild");
+    if (taxonomyRebuild) taxonomyRebuild.addEventListener("click", rebuildTaxonomy);
     bindSplitters();
     bindGraphWindow();
     const bottomToggle = $("#bottom-toggle");

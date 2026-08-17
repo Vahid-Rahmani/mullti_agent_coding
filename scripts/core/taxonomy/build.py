@@ -108,8 +108,20 @@ def write_taxonomy(root: Path | None = None) -> Path:
     root = _root(root)
     destination = root / "knowledge" / "taxonomy" / "taxonomy.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(build_taxonomy(root), indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    taxonomy = build_taxonomy(root)
+    validate_taxonomy(taxonomy)
+    destination.write_text(json.dumps(taxonomy, indent=2, sort_keys=False) + "\n", encoding="utf-8")
     return destination
+
+
+def validate_taxonomy(taxonomy: dict[str, Any]) -> None:
+    """Validate the generated artifact before it is made visible to runtime."""
+    required = {"repositories", "evidence", "capabilities", "categories", "role_skill_edges", "role_prompt_edges", "agent_assignments", "coverage"}
+    missing = required - set(taxonomy)
+    if taxonomy.get("schema_version") != 1 or missing:
+        raise ValueError(f"invalid taxonomy artifact: missing {sorted(missing)}")
+    if taxonomy["coverage"].get("uncovered_agents") or taxonomy["coverage"].get("uncovered_capabilities"):
+        raise ValueError("invalid taxonomy artifact: incomplete coverage")
 
 
 def _role_skill_map() -> dict[str, tuple[str, ...]]:

@@ -615,6 +615,9 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tab-panel { flex: 1; min-height: 0; display: none; padding: 6px 10px; overflow: hidden; }
 .tab-panel.active { display: flex; flex-direction: column; }
+.taxonomy-body { overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.taxonomy-summary { padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); font-size: 12px; }
+.taxonomy-table td { vertical-align: top; max-width: 300px; word-break: break-word; }
 
 /* bottom dock minimize/expand toggle (compact dock) */
 #bottom-toggle {

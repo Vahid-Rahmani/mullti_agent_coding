@@ -131,6 +131,7 @@
       <button class="tab" data-tab="tasks">Tasks</button>
       <button class="tab" data-tab="execution">Execution</button>
       <button class="tab" data-tab="logs">Logs</button>
+      <button class="tab" data-tab="taxonomy">Taxonomy</button>
       <span class="spacer"></span>
       <button id="bottom-toggle" class="icon-btn" title="Minimize the bottom dock">▁</button>
     </nav>
@@ -179,6 +180,11 @@
         </div>
         <pre id="log-output" class="log-output"></pre>
       </div>
+    </div>
+
+    <div id="tab-taxonomy" class="tab-panel">
+      <div class="panel-title"><span>Repository-driven taxonomy</span><span class="spacer"></span><button id="taxonomy-rebuild" class="btn">Rebuild</button></div>
+      <div id="taxonomy-body" class="taxonomy-body"><div class="placeholder">select Taxonomy to load status</div></div>
     </div>
   </section>
 

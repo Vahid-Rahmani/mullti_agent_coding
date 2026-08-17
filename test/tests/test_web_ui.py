@@ -235,6 +235,29 @@ class ApiTestCase(VaultTestCase):
         self.assertEqual(len(data["agents"]), 7)
         self.assertTrue(all(a["tag"] and a["name"] for a in data["agents"]))
 
+    def test_taxonomy_status_and_effective_endpoints(self):
+        status = self.ctx.get("/api/taxonomy/status")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["counts"]["registered_agents"], 7)
+        self.assertEqual(status.json()["coverage"]["uncovered_agents"], [])
+        effective = self.ctx.get("/api/taxonomy")
+        self.assertEqual(effective.status_code, 200)
+        data = effective.json()
+        self.assertEqual(len(data["agent_assignments"]), 7)
+        self.assertTrue(data["capabilities"])
+        self.assertIn("assignment_sources", data["coverage"])
+
+    def test_taxonomy_rebuild_returns_validated_status(self):
+        result = self.ctx.post("/api/taxonomy/rebuild")
+        self.assertEqual(result.status_code, 200)
+        self.assertTrue(result.json()["ok"])
+        self.assertEqual(result.json()["status"]["coverage"]["uncovered_capabilities"], [])
+
+    def test_taxonomy_rebuild_failure_is_reported(self):
+        with mock.patch.object(self.routes_mod, "write_taxonomy", side_effect=ValueError("bad artifact")):
+            result = self.ctx.post("/api/taxonomy/rebuild")
+        self.assertEqual(result.status_code, 500)
+
     def test_dispatch_validates_prompt_and_target(self):
         r = self.ctx.post("/api/dispatch", json={"prompt": "", "agent": "m1"})
         self.assertEqual(r.status_code, 400)
