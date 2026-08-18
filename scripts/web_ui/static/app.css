@@ -49,8 +49,8 @@
   --home-panel-pref-h: 260px;    /* preferred height */
   --home-panel-compact-w: 160px; /* compact mode only */
   --home-panel-compact-h: 96px;
-  --home-panel-resize-min-w: 280px; /* interactive resize floor (readable) */
-  --home-panel-resize-min-h: 180px;
+  --home-panel-resize-min-w: 420px; /* compact FreeBuff-safe interactive floor */
+  --home-panel-resize-min-h: 240px;
 }
 
 * { box-sizing: border-box; }
@@ -571,6 +571,17 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
 .p-progress { height: 2px; background: var(--bg); }
 .p-progress .fill { height: 100%; background: var(--accent); width: 0%; transition: width .2s linear; }
 
+/* FreeBuff owns the Agent panel's console surface.  Do not let the normal
+   dispatch/task summary compete visually with the real cmd.exe screen. */
+.freebuff-panel .p-action,
+.freebuff-panel .p-task,
+.freebuff-panel .p-progress { display: none; }
+
+/* FreeBuff uses the same resizable Agent surface as every other runtime.  Do
+   not impose a large fixed viewport: the xterm grid follows the actual panel
+   dimensions and the user can shrink it when working with several Agents. */
+.freebuff-panel { min-width: 420px; min-height: 240px; }
+
 .p-console {
   flex: 1;
   overflow-y: auto;
@@ -589,6 +600,21 @@ button:focus, select:focus, input:focus { outline: 1px solid var(--accent); outl
 .p-console .ev.usermsg { color: var(--ok); font-style: italic; }
 .p-console .ev.taskline { color: var(--text-muted); }
 .p-console .ev.status { color: var(--text-faint); font-style: italic; }
+
+/* xterm owns the terminal grid; do not apply legacy log wrapping/scrolling
+   or padding to its host container. */
+.p-console.xterm-host {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  white-space: normal;
+  word-break: normal;
+}
 
 /* ── Bottom bar ──────────────────────────────────────────────────── */
 #bottom {
@@ -1110,7 +1136,24 @@ body.ws-body {
   z-index: 3;
   opacity: 0;
   transition: opacity .12s ease;
+  touch-action: none;
 }
+.p-terminal { flex: 1; min-height: 0; background: #111214; color: #e7e7e7; overflow: hidden; }
+.p-cmd-tab { margin-left: 6px; }
+.p-cmd-tab.active { background: var(--accent, #58a6ff); color: #fff; }
+.p-terminal .xterm { height: 100%; padding: 5px; }
+.freebuff-terminal-fallback { height: 100%; overflow: auto; white-space: pre-wrap; margin: 0; padding: 6px; color: #e7e7e7; }
+.p-console.xterm-host .xterm,
+.p-console.xterm-host .xterm-viewport,
+.p-console.xterm-host .xterm-screen {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.p-console.xterm-host .xterm { padding: 0; }
+.p-console .freebuff-terminal-fallback { height: 100%; overflow: auto; white-space: pre-wrap; margin: 0; padding: 6px; color: #e7e7e7; }
 .panel:hover .panel-resize { opacity: .55; }
 .panel-resize:hover { opacity: 1; background: var(--accent-soft); }
 

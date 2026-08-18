@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+import uuid
 from pathlib import Path
 
 from scripts.core.agents import AGENTS, PROJECT_ROOT
@@ -59,6 +60,9 @@ class WebState:
 
         self._hub_cursor = 0
         self._n = 0
+        # Process-local identity prevents n/seq reuse from colliding after a
+        # dashboard restart. Raw PTY bytes remain live transport only.
+        self.session_generation = uuid.uuid4().hex
         self._own_events: list[dict] = []
         self._own_cursor = 0
         self._sessions: dict[str, list[dict]] = {}
@@ -146,7 +150,7 @@ class WebState:
             if isinstance(rows, dict):
                 self._sessions = {
                     str(tag): [dict(event) for event in events[-self.session_tail:]
-                               if isinstance(event, dict)]
+                               if isinstance(event, dict) and not event.get("raw", False)]
                     for tag, events in rows.items() if isinstance(events, list)
                 }
         except (OSError, ValueError, TypeError):
@@ -170,7 +174,8 @@ class WebState:
         with self.lock:
             self._n += 1
             self._own_events.append({
-                "n": self._n, "tag": tag, "kind": kind, "text": text, "source": "own",
+                "n": self._n, "tag": tag, "kind": kind, "text": text,
+                "session_generation": self.session_generation, "source": "own",
             })
 
     def push_task_run(self, name: str, text: str) -> None:
@@ -219,8 +224,11 @@ class WebState:
                         "n": self._n,
                         "seq": e.get("seq"),
                         "tag": e.get("tag", "master"),
+                        "session_id": e.get("session_id"),
                         "kind": e.get("kind", "line"),
                         "text": e.get("text", ""),
+                        "raw": bool(e.get("raw", False)),
+                        "session_generation": self.session_generation,
                         "source": "hub",
                     })
                 hub_running = hub.running
@@ -234,8 +242,9 @@ class WebState:
             self._prev_running = hub_running
 
             for e in out:
-                tag = e["tag"]
-                if e["kind"] in (_SESSION_KINDS | _TASKLINE_KINDS):
+                tag = e.get("session_id") or e["tag"]
+                if (e["kind"] in (_SESSION_KINDS | _TASKLINE_KINDS)
+                        and not e.get("raw", False)):
                     bucket = self._sessions.setdefault(tag, [])
                     bucket.append(e)
                     if len(bucket) > self.session_tail:
@@ -258,12 +267,13 @@ class WebState:
                 "running": hub.running,
                 "session_tags": sorted(hub.session_tags),
                 "n": self._n,
+                "session_generation": self.session_generation,
             }
 
     def sessions(self) -> dict[str, list[dict]]:
         """Per-tag session events (conversations) as serializable lists."""
         with self.lock:
             return {
-                tag: [dict(e) for e in events]
+                tag: [dict(e) for e in events if not e.get("raw", False)]
                 for tag, events in self._sessions.items()
             }

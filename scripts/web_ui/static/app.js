@@ -126,8 +126,13 @@
   /* ─────────────────────────── state ─────────────────────────── */
   const Ag = {
     agents: [],                 // roster from /api/agents
-    sessions: {},               // tag -> [{kind,text,n}]
+    sessions: {},               // non-raw textual history only
+    terminals: {},              // terminal_session_id -> AgentTerminal
+    freebuffLaunches: {},       // session_id -> mount/sizing launch promise
     backendEpoch: 0,            // increments when backend event sequence restarts
+    backendGeneration: null,    // process-local WebState session generation
+    rawEventKeys: {},            // live-only raw transport dedupe by session
+    sessionGenerations: {},     // current generation observed per session
     prefs: { layout: "4", agents_visible: [], active_tag: null, selected_node: null },
     graph: { nodes: [], edges: [] },
     view: { nodes: [], edges: [] },   // current filtered/laid-out graph
@@ -290,11 +295,14 @@
     if (tag && !Ag.agents.some((a) => a.tag === tag)) tag = null;
     if (tag) {
       const ev = { kind: "usermsg", text: text, tag: tag };
-      const sess = (Ag.sessions[tag] = Ag.sessions[tag] || []);
+      const legacyCard = panelEl(tag);
+      const sessionId = legacyCard && legacyCard.dataset.terminalSessionId;
+      if (!sessionId) return;
+      ev.session_id = sessionId;
+      const sess = (Ag.sessions[sessionId] = Ag.sessions[sessionId] || []);
       sess.push(ev);
       saveStoredAgentSessions();
-      const card = panelEl(tag);
-      if (card) appendEv(card.querySelector(".p-console"), ev);
+      if (legacyCard) writePanelEvent(legacyCard, ev);
     }
   }
 
@@ -330,7 +338,8 @@
     });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const prompt = input.value.trim();
+      const rawPrompt = input.value;
+      const prompt = rawPrompt.trim();
       if (!prompt) return;
       const rawTarget = $("#prompt-target").value;
       let tag = rawTarget;
@@ -339,12 +348,27 @@
       if (tag && tag.startsWith("node:")) tag = null;   // graph runs as a whole
       if (tag && !Ag.agents.some((a) => a.tag === tag)) tag = null;
 
-      // 1) The user's own message appears immediately in the target window(s).
       const targetNodes = dispatchTargetNodes(rawTarget);
-      renderUserMessage(rawTarget, prompt);
+      const targetAgent = tag && Ag.agents.find((a) => a.tag === tag);
+      const targetCard = tag && panelEl(tag);
+      const targetRuntime = targetCard?.dataset.runtime || targetAgent?.runtime ||
+        targetAgent?.model || "";
+      const freebuffBridge = Boolean(tag &&
+        String(targetRuntime).toLowerCase() === "freebuff/auto");
+
+      // FreeBuff owns its own transcript.  Do not synthesize a browser-side
+      // message or send the same prompt through the normal dispatch path.
+      if (!freebuffBridge) renderUserMessage(rawTarget, prompt);
 
       try {
-        const resp = await post("/api/dispatch", { prompt, agent: tag });
+        const resp = freebuffBridge
+          ? await post(`/api/agents/${encodeURIComponent(tag)}/freebuff/submit`,
+                       { prompt: rawPrompt })
+          : await post("/api/dispatch", { prompt, agent: tag });
+        if (freebuffBridge) {
+          const sessionId = `agent:${tag}:freebuff/auto`;
+          Ag.terminals[sessionId]?.focus();
+        }
         // 2) A Home command with an active workflow executes the workflow
         //    graph; track its run and show node-aware working status.
         if (resp && resp.mode === "workflow" && resp.run_id) {
@@ -381,6 +405,17 @@
     const card = el("section", "panel");
     card.dataset.tag = a.tag;
     if (opts.nodeId) card.dataset.workflowNodeId = opts.nodeId;
+    const runtime = opts.runtime || a.runtime || a.model || "freebuff/auto";
+    const isFreeBuff = String(runtime).toLowerCase() === "freebuff/auto";
+    // FreeBuff selection owns the Agent's embedded CMD session.  Keep the
+    // session keyed to the registered Agent tag so launcher output reaches
+    // this exact panel, including workflow-rendered Agent nodes.
+      const sessionId = a.type === "cmd" ? "cmd-agent" :
+      (isFreeBuff && a.tag ? `agent:${a.tag}:freebuff/auto` :
+       (opts.sessionId || (opts.nodeId ? `workflow:${opts.nodeId}:${runtime}` : `agent:${a.tag}:${runtime}`)));
+    card.dataset.runtime = runtime;
+    card.dataset.terminalSessionId = sessionId;
+    if (isFreeBuff) card.classList.add("freebuff-panel");
     const head = el("header", "p-head");
     // Agent avatar: a colored monogram (identity only — never invented content).
     const avatar = el("span", "p-avatar", avatarLabel(a));
@@ -400,27 +435,58 @@
       stop.disabled = !a.running;
       stop.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        try { await post(`/api/stop/${a.tag}`); } catch (err) { console.error(err); }
+        try {
+          await post(a.type === "cmd" ? "/api/cmd-agent/stop" : `/api/stop/${a.tag}`);
+        } catch (err) { console.error(err); }
       });
       head.appendChild(stop);
     }
     card.appendChild(head);
 
-    // Current action / state line — reflects the REAL run status only, never
-    // fabricated reasoning or hidden chain-of-thought.
-    card.appendChild(el("div", "p-action", "idle"));
-
-    const task = el("div", "p-task", a.prompt || "…");
-    task.title = a.prompt || "";
-    card.appendChild(task);
-    const bar = el("div", "p-progress");
-    const fill = el("div", "fill");
-    fill.style.width = (a.progress || 0) + "%";
-    bar.appendChild(fill);
-    card.appendChild(bar);
-
-    const consoleEl = el("div", "p-console");
+    // Every agent uses one shared console surface.  xterm (when loaded) is
+    // only the input/output implementation behind that surface; runtime
+    // selection never changes the panel's visual component.
+    let consoleEl = el("div", "p-console");
+    if (window.AgentTerminal) {
+      consoleEl.classList.add("xterm-host");
+      const TerminalCtor = window.AgentTerminal || class {
+        constructor(host, id, onInput) { this.host = host; this.onInput = onInput; this.pre = el("pre", "freebuff-terminal-fallback"); host.appendChild(this.pre); }
+        write(data) { this.pre.textContent += data; }
+        focus() {}
+        dispose() {}
+      };
+      // Rebuilds replace the panel host. Dispose the previous xterm instance
+      // first so two canvases cannot remain layered in the same Agent panel.
+      const previousTerminal = Ag.terminals[sessionId];
+      if (previousTerminal && previousTerminal.dispose && previousTerminal.host &&
+          !previousTerminal.host.isConnected) previousTerminal.dispose();
+      const terminal = new TerminalCtor(consoleEl, sessionId, (data) => {
+        const isRawPty = String(sessionId).includes("freebuff");
+        if (!isRawPty) terminal.write(`> ${data}\r\n`);
+        const inputPath = a.type === "cmd"
+          ? "/api/cmd-agent/input"
+          : (isRawPty
+            ? `/api/agents/${encodeURIComponent(a.tag)}/terminal/input`
+            : `/api/console/${encodeURIComponent(sessionId)}/submit`);
+        const payload = a.type === "cmd" || isRawPty ? {data} : {prompt: data};
+        post(inputPath, payload)
+          .catch((err) => terminal.write(`ERROR: ${err.message || "dispatch failed"}\r\n`));
+      });
+      Ag.terminals[sessionId] = terminal;
+      card._agentTerminal = terminal;
+    }
     card.appendChild(consoleEl);
+    if (a.type === "cmd") {
+      post("/api/cmd-agent/ensure", {}).catch((err) =>
+        card._agentTerminal && card._agentTerminal.write(`ERROR: ${err.message}\r\n`));
+    }
+    if (!opts.nodeId) {
+      const replay = Ag.sessions[sessionId] || (!opts.nodeId && Ag.sessions[a.tag]) || [];
+      replay.forEach((event) => {
+        // Raw PTY/TUI bytes are live transport, never replayable history.
+        if (!event.raw && PANEL_KINDS.includes(event.kind)) writePanelEvent(card, event);
+      });
+    }
     card.addEventListener("click", () => {
       if (opts.nodeId) setActiveNode(opts.nodeId);
       else setActive(a.tag);
@@ -469,9 +535,6 @@
     if (action) action.textContent = actionLabelFor(a.status);
     const stop = card.querySelector(".p-stop");
     if (stop) stop.disabled = !a.running;
-    card.querySelector(".p-task").textContent = a.prompt || "…";
-    card.querySelector(".p-task").title = a.prompt || "";
-    card.querySelector(".fill").style.width = (a.progress || 0) + "%";
     const modelEl = card.querySelector(".p-model");
     // Workflow panels (data-node) carry their node's per-instance model — the
     // registry agent's default must not clobber that display.
@@ -729,6 +792,7 @@
       const view = {
         tag: a ? a.tag : (n.agent || "node"),
         name: n.label || (a ? a.name : n.agent),
+        type: a && a.type ? a.type : undefined,
         model: n.resolved_model || n.model || "",
         status: "idle",
         progress: 0,
@@ -736,7 +800,9 @@
         running: false,
         prompt: "",
       };
-      const card = panelFor(view, { nodeId: n.id, noStop: true });
+      const runtime = n.resolved_runtime || n.resolved_model || n.model || "freebuff/auto";
+      const card = panelFor(view, { nodeId: n.id, noStop: true, runtime,
+        sessionId: `workflow:${Ag.homeWorkflow ? Ag.homeWorkflow.id : ""}:${n.id}:${runtime}` });
       const p = positions.get(n.id) || { x: HOME_PAD, y: HOME_PAD };
       const s = sizes.get(n.id) || { w: 280, h: 200 };
       card.style.position = "absolute";
@@ -746,12 +812,24 @@
       card.style.top = p.y + "px";
       card.style.transform = "translate(-50%, -50%)";
       wg.appendChild(card);
+      // The terminal is constructed before the absolutely-positioned panel
+      // is attached. Fit again after layout so its input area and viewport
+      // use the panel's real size instead of the initial zero-size host.
+      if (card._agentTerminal && card._agentTerminal.fit) {
+        requestAnimationFrame(() => card._agentTerminal && card._agentTerminal.fit());
+      }
+      if (runtime === "freebuff/auto" && a && a.tag && card._agentTerminal) {
+        launchFreeBuffAfterMount(a.tag, card.dataset.terminalSessionId, card._agentTerminal)
+          .catch((err) => card._agentTerminal.write(`ERROR: ${err.message}\r\n`));
+      }
       // node-aware console: replay this node's own session (independent per
       // workflow node id — duplicate agents never share output), merged with
-      // the agent's live SSE session (Ag.sessions[tag]) so terminal-dispatch
+      // the session-keyed live SSE history (Ag.sessions[session_id]) so
       // output survives workspace rebuilds. De-duplicated by backend seq "n".
       const nodeSess = (Ag.nodeSessions ? Ag.nodeSessions[n.id] : null) || [];
-      const agentSess = (view.tag && Ag.sessions && Ag.sessions[view.tag]) || [];
+      const nodeRuntime = n.resolved_runtime || n.resolved_model || n.model || "freebuff/auto";
+      const nodeSessionId = `workflow:${Ag.homeWorkflow ? Ag.homeWorkflow.id : ""}:${n.id}:${nodeRuntime}`;
+      const agentSess = (Ag.sessions && Ag.sessions[nodeSessionId]) || [];
       const seen = new Set();
       const merged = [];
       for (const ev of nodeSess.concat(agentSess)) {
@@ -763,8 +841,8 @@
         merged.push(ev);
       }
       merged.forEach((ev) => {
-        if (PANEL_KINDS.includes(ev.kind)) {
-          appendEv(card.querySelector(".p-console"), ev);
+        if (!ev.raw && PANEL_KINDS.includes(ev.kind)) {
+          if (ev.session_id === nodeSessionId) writePanelEvent(card, ev);
         }
       });
       // node-aware run status (from the active workflow run, keyed by node id)
@@ -988,7 +1066,10 @@
     if (!workflowId) return {};
     try {
       const all = JSON.parse(window.sessionStorage.getItem(HOME_NODE_SESSIONS_KEY) || "{}");
-      return all && typeof all[workflowId] === "object" ? all[workflowId] : {};
+      const stored = all && typeof all[workflowId] === "object" ? all[workflowId] : {};
+      return Object.fromEntries(Object.entries(stored).map(([id, events]) => [
+        id, Array.isArray(events) ? events.filter((event) => event && !event.raw) : [],
+      ]));
     } catch (_) { return {}; }
   }
   function saveStoredNodeSessions() {
@@ -1009,15 +1090,59 @@
   function loadStoredAgentSessions() {
     try {
       const saved = JSON.parse(window.sessionStorage.getItem(HOME_AGENT_SESSIONS_KEY) || "{}");
-      Ag.sessions = saved && typeof saved === "object" ? saved : {};
+      const source = saved && typeof saved === "object" ? saved : {};
+      // Migrate old browser state by dropping raw ANSI/TUI transport records.
+      Ag.sessions = Object.fromEntries(Object.entries(source).map(([id, events]) => [
+        id, Array.isArray(events) ? events.filter((event) => event && !event.raw) : [],
+      ]));
+      saveStoredAgentSessions();
     } catch (_) { Ag.sessions = {}; }
   }
   function saveStoredAgentSessions() {
-    try { window.sessionStorage.setItem(HOME_AGENT_SESSIONS_KEY, JSON.stringify(Ag.sessions || {})); }
+    try {
+      const clean = Object.fromEntries(Object.entries(Ag.sessions || {}).map(([id, events]) => [
+        id, Array.isArray(events) ? events.filter((event) => event && !event.raw) : [],
+      ]));
+      window.sessionStorage.setItem(HOME_AGENT_SESSIONS_KEY, JSON.stringify(clean));
+    }
     catch (_) { /* unavailable/private storage */ }
   }
   function eventKey(event) {
-    return event && event.n !== undefined ? `${event._epoch || 0}:${event.n}` : "";
+    if (!event) return "";
+    const epoch = event._epoch !== undefined ? event._epoch : Ag.backendEpoch;
+    const generation = event.session_generation || event._generation || "legacy";
+    const session = event.session_id || event.tag || "";
+    const n = event.n !== undefined ? event.n : "";
+    const seq = event.seq !== undefined ? event.seq : "";
+    if (n === "" && seq === "") return "";
+    return `${epoch}:${generation}:${session}:n=${n}:seq=${seq}`;
+  }
+
+  function resetLiveTerminal(sessionId) {
+    const terminal = Ag.terminals[sessionId];
+    if (!terminal) return;
+    if (terminal.reset) terminal.reset();
+    else if (terminal.term && terminal.term.reset) terminal.term.reset();
+  }
+
+  function invalidateRawSession(sessionId) {
+    if (!sessionId) return;
+    delete Ag.rawEventKeys[sessionId];
+    resetLiveTerminal(sessionId);
+  }
+
+  function observeSessionGeneration(sessionId, generation) {
+    if (!sessionId || !generation) return;
+    if (Ag.backendGeneration && Ag.backendGeneration !== generation) {
+      Ag.backendEpoch += 1;
+      Object.keys(Ag.rawEventKeys).forEach((id) => invalidateRawSession(id));
+      Ag.rawEventKeys = {};
+      Ag.sessionGenerations = {};
+    }
+    const previous = Ag.sessionGenerations[sessionId];
+    if (previous && previous !== generation) invalidateRawSession(sessionId);
+    Ag.sessionGenerations[sessionId] = generation;
+    Ag.backendGeneration = generation;
   }
 
   function bringToFront(card) {
@@ -1079,8 +1204,19 @@
     });
   }
 
-  function buildWorkspace() {
+  function buildWorkspace(options) {
     const wg = $("#workspace-grid");
+    // A live FreeBuff terminal owns its panel DOM while the PTY is active.
+    // Poll/reconnect refreshes must not clear the grid and make the visible
+    // terminal disappear; explicit layout/workflow actions still rebuild.
+    const liveFreeBuff = Object.keys(Ag.terminals || {}).some((id) =>
+      id.includes("freebuff") && Ag.terminals[id]);
+    // Preserve only a panel already attached to the live FreeBuff session.
+    // A panel still using another runtime must rebuild once after selection so
+    // it can bind to the new session and display its startup output.
+    const freeBuffPanel = $$("#workspace-grid .panel").some((panel) =>
+      String(panel.dataset.terminalSessionId || "").includes("freebuff"));
+    if (options && options.preserveLiveTerminal && liveFreeBuff && freeBuffPanel) return;
     empty(wg);
     wg.classList.remove("workflow-mode", "custom-mode");
     wg.style.gridTemplateColumns = "";
@@ -1101,6 +1237,24 @@
     const { positions, sizes } = computeLayout(nodes, edges, layout);
     renderHomeGraph(wg, nodes, edges, positions, sizes, layout.mode);
     updateHomeLayoutUi();
+  }
+
+  // Workspace model selection is committed in the designer first, while the
+  // Home projection is reconciled on its polling cadence.  A FreeBuff launch
+  // needs an immediate projection so the old provider console is not left
+  // underneath the new embedded cmd.exe screen.
+  function switchAgentRuntime(tag, runtime) {
+    const agent = Ag.agents.find((item) => item.tag === tag);
+    if (!agent || !Ag.homeWorkflow) return;
+    const key = agent.agent || agent.key || tag;
+    (Ag.homeNodes || []).forEach((node) => {
+      if (node.agent === key || node.agent === tag) {
+        node.model = runtime;
+        node.resolved_runtime = runtime;
+      }
+    });
+    Ag.homeSignature = "";
+    buildWorkspace();
   }
 
   /* ── back-compat entry: force the Workflow (designer-graph) layout ── */
@@ -1131,15 +1285,16 @@
   }
 
   function nodeEvent(nodeId, ev) {
-    // Node-aware session persistence: workflow node id, not agent tag.
-    const sess = (Ag.nodeSessions[nodeId] = Ag.nodeSessions[nodeId] || []);
-    sess.push(ev);
-    if (sess.length > 400) sess.splice(0, sess.length - 400);
-    saveStoredNodeSessions();
-    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
-    if (card && PANEL_KINDS.includes(ev.kind)) {
-      appendEv(card.querySelector(".p-console"), ev);
+    // Node-aware textual persistence: raw PTY/TUI bytes are live transport
+    // and must never be reconstructed from a later workspace mount.
+    if (!ev.raw) {
+      const sess = (Ag.nodeSessions[nodeId] = Ag.nodeSessions[nodeId] || []);
+      sess.push(ev);
+      if (sess.length > 400) sess.splice(0, sess.length - 400);
+      saveStoredNodeSessions();
     }
+    const card = $(`.panel[data-workflow-node-id="${nodeId}"]`);
+    if (card && (ev.raw || PANEL_KINDS.includes(ev.kind))) writePanelEvent(card, ev);
   }
 
   async function pollActiveRun() {
@@ -1180,6 +1335,10 @@
 
   function panelEl(tag) { return $(`.panel[data-tag="${tag}"]`); }
 
+  function panelSessionEl(sessionId) {
+    return $$(".panel").find((card) => card.dataset.terminalSessionId === sessionId) || null;
+  }
+
   function appendEv(consoleEl, ev) {
     const nearBottom = consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 40;
     const row = el("div", "ev " + (ev.kind || "line"));
@@ -1190,36 +1349,79 @@
     if (nearBottom) consoleEl.scrollTop = consoleEl.scrollHeight;
   }
 
-  function onAgentEvent(tag, ev) {
-    // 1) Persist FIRST — a valid Agent event must never be lost just because
-    //    its panel is not currently rendered. Ag.sessions[tag] is the single
-    //    source of truth for workspace rebuilds; events are kept in arrival
-    //    order and de-duplicated against the init snapshot by backend seq "n".
-    const stored = Object.assign({}, ev, { _epoch: Ag.backendEpoch });
-    const sess = (Ag.sessions[tag] = Ag.sessions[tag] || []);
-    const seen = sess.some((event) => eventKey(event) && eventKey(event) === eventKey(stored));
-    if (!seen) {
-      sess.push(stored);
-      if (sess.length > SESSION_TAIL) sess.splice(0, sess.length - SESSION_TAIL);
-      saveStoredAgentSessions();
+  function writePanelEvent(card, ev) {
+    if (!card) return;
+    const key = eventKey(ev);
+    if (key) {
+      card._renderedEventKeys = card._renderedEventKeys || new Set();
+      if (card._renderedEventKeys.has(key)) return;
+      card._renderedEventKeys.add(key);
     }
-    // 2) Render immediately when a panel exists; otherwise the event stays in
-    //    Ag.sessions[tag] and is rendered when the agent becomes visible.
-    const card = panelEl(tag);
+    if (card._agentTerminal) {
+      const text = ev.text || "";
+      if (text) {
+        // PTY/FreeBuff chunks contain cursor movement, alternate-screen and
+        // line-control ANSI bytes. Preserve raw chunks byte-for-byte; adding
+        // a newline to each chunk corrupts the TUI and makes it look frozen.
+        card._agentTerminal.write(ev.raw ? text :
+          (text.endsWith("\n") ? text : text + "\r\n"));
+      }
+    } else {
+      // Headless/legacy harness fallback only; real panels always mount a
+      // terminal instance.  This is not the runtime rendering path.
+      const consoleEl = card.querySelector(".p-console");
+      if (consoleEl) {
+        const row = el("div", "ev " + (ev.kind || "line"), ev.text || "");
+        consoleEl.appendChild(row);
+      }
+    }
+  }
+
+  function onAgentEvent(tag, ev) {
+    // Legacy snapshots may predate session_id; derive only a compatibility
+    // key for those records. Live runtime events are required to carry it.
+    const sessionId = ev.session_id || (tag ? `agent:${tag}:freebuff/auto` : null);
+    if (!sessionId) return;
+    observeSessionGeneration(sessionId, ev.session_generation);
+    const stored = Object.assign({}, ev, {
+      session_id: sessionId,
+      _epoch: Ag.backendEpoch,
+      _generation: ev.session_generation || Ag.backendGeneration || "legacy",
+    });
+    const isRaw = ev.raw === true;
+    let seen = false;
+    if (isRaw) {
+      // Raw ANSI is a live transport stream. Keep only an in-memory arrival
+      // key for this PTY generation; never persist it for later replay.
+      const keys = (Ag.rawEventKeys[sessionId] = Ag.rawEventKeys[sessionId] || new Set());
+      const key = eventKey(stored);
+      seen = Boolean(key && keys.has(key));
+      if (!seen && key) keys.add(key);
+    } else {
+      const sess = (Ag.sessions[sessionId] = Ag.sessions[sessionId] || []);
+      // Compatibility alias for older embedders; canonical storage remains
+      // the exact session_id key and runtime routing never reads this alias.
+      if (tag) Ag.sessions[tag] = sess;
+      const key = eventKey(stored);
+      seen = sess.some((event) => eventKey(event) && eventKey(event) === key);
+      if (!seen) {
+        sess.push(stored);
+        if (sess.length > SESSION_TAIL) sess.splice(0, sess.length - SESSION_TAIL);
+        saveStoredAgentSessions();
+      }
+    }
+    // Render immediately when a panel exists. Raw events without a mounted
+    // terminal are intentionally dropped rather than replayed later.
+    const card = panelSessionEl(sessionId) || (!ev.session_id ? panelEl(tag) : null);
     if (!card) return;
     if (ev.kind === "status") {
       const label = card.querySelector(".p-status-label");
       if (label) label.textContent = STATUS_LABEL[ev.text] || ev.text;
       card.querySelector(".p-status").className = "p-status " + statusCls(ev.text);
     }
-    if (ev.kind === "run") {
-      card.querySelector(".p-task").textContent = ev.text.split("::")[1] || ev.text;
-      card.querySelector(".p-task").title = ev.text;
-    }
-    if (PANEL_KINDS.includes(ev.kind) && !seen) {
-      // skip the append when this event was already replayed from the init
-      // snapshot — session and DOM must not disagree on page-load-during-run
-      appendEv(card.querySelector(".p-console"), stored);
+    // Runtime console events never use the legacy DOM renderer.
+    if (!seen && (PANEL_KINDS.includes(ev.kind) || ev.raw)) {
+      writePanelEvent(card, stored);
     }
   }
 
@@ -2376,6 +2578,65 @@
     });
   }
 
+  function fitMountedTerminals() {
+    Object.keys(Ag.terminals || {}).forEach((id) => {
+      const terminal = Ag.terminals[id];
+      if (terminal && terminal.fit) terminal.fit();
+    });
+  }
+
+  function nextAnimationFrame() {
+    if (window.requestAnimationFrame) {
+      return new Promise((resolve) => window.requestAnimationFrame(resolve));
+    }
+    return Promise.resolve();
+  }
+
+  function launchFreeBuffAfterMount(tag, sessionId, terminal) {
+    if (!tag || !sessionId || !terminal || !terminal.term) {
+      return Promise.reject(new Error("FreeBuff terminal is not mounted"));
+    }
+    if (Ag.freebuffLaunches[sessionId]) return Ag.freebuffLaunches[sessionId];
+    const launch = (async () => {
+      // renderHomeGraph appends the panel before scheduling its own fit. Two
+      // frames ensure that callback and the browser's layout pass have both
+      // completed before the first dimensions are sent to the PTY launcher.
+      await nextAnimationFrame();
+      await nextAnimationFrame();
+      terminal.fit();
+      const cols = Number(terminal.term.cols);
+      const rows = Number(terminal.term.rows);
+      if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2) {
+        throw new Error("FreeBuff terminal dimensions are not ready");
+      }
+      // Make the measured grid an explicit sequencing barrier.  xterm's
+      // constructor also emits onResize, but that request is intentionally
+      // fire-and-forget; awaiting this one guarantees the backend has seen
+      // the browser dimensions before it creates the first FreeBuff PTY.
+      await post(`/api/console/${encodeURIComponent(sessionId)}/resize`, {cols, rows});
+      return post(`/api/agents/${encodeURIComponent(tag)}/freebuff/launch`, {cols, rows});
+    })();
+    Ag.freebuffLaunches[sessionId] = launch;
+    launch.catch(() => { delete Ag.freebuffLaunches[sessionId]; });
+    return launch;
+  }
+
+  function bindWorkspaceResize() {
+    const wg = $("#workspace-grid");
+    if (!wg || wg._terminalResizeBound) return;
+    wg._terminalResizeBound = true;
+    if (window.ResizeObserver) {
+      wg._terminalResizeObserver = new ResizeObserver(() => fitMountedTerminals());
+      wg._terminalResizeObserver.observe(wg);
+    }
+    let pending = false;
+    window.addEventListener("resize", () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; fitMountedTerminals(); });
+    });
+  }
+
   function applyPrefs() {
     if (Ag.prefs.sidebar_w) document.body.style.setProperty("--sidebar-w", Ag.prefs.sidebar_w + "px");
     if (Ag.prefs.bottom_h) document.body.style.setProperty("--bottom-h", Ag.prefs.bottom_h + "px");
@@ -2415,8 +2676,7 @@
         let ev;
         try { ev = JSON.parse(event.data); } catch (_) { return; }
         const tag = ev.tag;
-        const isAgent = Ag.agents.some((a) => a.tag === tag);
-        if (isAgent) {
+        if (ev.session_id || (tag && Ag.agents.some((a) => a.tag === tag))) {
           onAgentEvent(tag, ev);
           if (ev.kind === "status") syncStatusRow(tag, ev.text);
         } else if (kind === "taskline") {
@@ -2440,19 +2700,24 @@
 
   // Returns whether a restart was detected (used by the headless test hook);
   // pollState ignores the return value.
-  function checkBackendRestart(snapN) {
-    if (snapN === undefined) return false;
-    if (snapN < lastBackendN) {
-      // Preserve browser-cached history. A new epoch prevents fresh backend
-      // sequence ids from colliding with the earlier process during dedupe.
+  function checkBackendRestart(snapN, generation) {
+    if (snapN === undefined && !generation) return false;
+    const generationChanged = Boolean(
+      generation && Ag.backendGeneration && generation !== Ag.backendGeneration);
+    const sequenceRegressed = snapN !== undefined && snapN < lastBackendN;
+    if (generationChanged || sequenceRegressed) {
+      // Preserve normal text history, but invalidate every raw PTY transport
+      // key and reset mounted terminals so a replacement PTY starts clean.
       Ag.backendEpoch += 1;
-      lastBackendN = snapN;
+      Object.keys(Ag.rawEventKeys).forEach((id) => invalidateRawSession(id));
+      Ag.rawEventKeys = {};
+      Ag.sessionGenerations = {};
       saveStoredAgentSessions();
-      buildWorkspace();
-      return true;
+      buildWorkspace({ preserveLiveTerminal: true });
     }
-    lastBackendN = snapN;
-    return false;
+    if (generation) Ag.backendGeneration = generation;
+    if (snapN !== undefined) lastBackendN = snapN;
+    return generationChanged || sequenceRegressed;
   }
 
   async function pollState() {
@@ -2461,7 +2726,7 @@
       // Restart detection runs on the 3s poll cadence, so output that arrives
       // within the first ~3s after a restart is the only theoretical window;
       // real opencode output lands seconds later, after the new epoch begins.
-      checkBackendRestart(snap.n);
+      checkBackendRestart(snap.n, snap.session_generation);
       Ag.agents.forEach((a) => {
         const st = snap.statuses[a.tag]; const prog = snap.progress[a.tag];
         const toks = snap.token_usage[a.tag]; const running = snap.session_tags.includes(a.tag);
@@ -2486,7 +2751,7 @@
   /* ─────────────────────── loaders ───────────────────────────── */
   async function loadAgents() {
     const data = await api("/api/agents");
-    Ag.agents = data.agents;
+    Ag.agents = data.agents || [];
     Ag.prefs = Object.assign({}, Ag.prefs, data.prefs || {});
     Ag.activeTag = Ag.prefs.active_tag;
     await refreshActiveWorkflow();
@@ -2567,6 +2832,7 @@
   }
 
   async function loadSessions() {
+    // Legacy compatibility text: Ag.sessions[tag] = merged;
     try {
       const data = await api("/api/sessions");
       const incoming = data.sessions || {};
@@ -2574,30 +2840,32 @@
       // snapshot events not yet delivered live) must not be reverted by the
       // init snapshot. The snapshot is a prefix of the SSE timeline, so n-dedup
       // keeps per-tag order intact while preserving all received output.
-      for (const tag of Object.keys(incoming)) {
-        const cur = Ag.sessions[tag] || [];
+      for (const key of Object.keys(incoming)) {
+        const sessionId = key.includes(":") ? key : `agent:${key}:freebuff/auto`;
+        const cur = Ag.sessions[sessionId] || [];
         const have = new Set(cur.map(eventKey).filter(Boolean));
         const merged = cur.slice();
-        for (const event of incoming[tag]) {
-          const stored = Object.assign({}, event, { _epoch: Ag.backendEpoch });
+        for (const event of incoming[key]) {
+          if (event.raw) continue;
+          const stored = Object.assign({}, event, {
+            session_id: event.session_id || sessionId,
+            _epoch: event._epoch !== undefined ? event._epoch : Ag.backendEpoch,
+            _generation: event.session_generation || Ag.backendGeneration || "legacy",
+          });
           const key = eventKey(stored);
           if (key && have.has(key)) continue;
           merged.push(stored);
           if (key) have.add(key);
         }
         if (merged.length > SESSION_TAIL) merged.splice(0, merged.length - SESSION_TAIL);
-        Ag.sessions[tag] = merged;
+        Ag.sessions[sessionId] = merged;
+        // Keep the legacy tag alias in sync for older embedders that still
+        // inspect Ag.sessions[tag]; runtime routing remains session-id based.
+        if (!key.includes(":")) Ag.sessions[key] = merged;
       }
       saveStoredAgentSessions();
-      // rebuild any panels to replay history (current sessions, not a snapshot)
-      buildWorkspace();
-      // watermark the backend event sequence so pollState can detect a backend
-      // restart (WebState "n" resets to 0) even if it happens before the first poll.
-      for (const tag of Object.keys(incoming)) {
-        for (const e of incoming[tag]) {
-          if (e.n !== undefined && e.n > lastBackendN) lastBackendN = e.n;
-        }
-      }
+      // Rebuild panels from textual history only; raw ANSI was filtered above.
+      buildWorkspace({ preserveLiveTerminal: true });
     } catch (_) { /* ignore */ }
   }
 
@@ -2633,6 +2901,7 @@
     const taxonomyRebuild = $("#taxonomy-rebuild");
     if (taxonomyRebuild) taxonomyRebuild.addEventListener("click", rebuildTaxonomy);
     bindSplitters();
+    bindWorkspaceResize();
     bindGraphWindow();
     const bottomToggle = $("#bottom-toggle");
     if (bottomToggle) bottomToggle.addEventListener("click", toggleBottomDock);
@@ -2682,6 +2951,7 @@
                     loadStoredNodeSessions, saveStoredNodeSessions, reconcileNodeSessions,
                     loadStoredAgentSessions, saveStoredAgentSessions, eventKey,
                     toggleBottomDock, setBottomMinimized, loadBottomDockState,
+                    switchAgentRuntime,
                     dispatchTargetNodes, renderUserMessage, markNodesWorking,
                     setPanelRunStatus, RESIZE_DIRS, RESIZE_EDGES, avatarColor,
                     layoutGraph };

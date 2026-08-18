@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from scripts.core import (
+    cmd_agent,
     model_connections,
     model_registry,
     opencode_cfg,
@@ -41,6 +42,15 @@ from scripts.core.agents import (
     PROJECT_ROOT,
 )
 from scripts.core.context_resolver import resolve_context
+from scripts.core.freebuff_launcher import (
+    launch_freebuff_cmd,
+    output_checkpoint,
+    process_for,
+    resize_input,
+    stop_freebuff_cmd,
+    wait_for_output,
+    write_input,
+)
 from scripts.core.project_profile import (
     analyze_repository,
     suggest_roles,
@@ -82,6 +92,10 @@ AGENT_TO_NAME = {spec.agent: spec.name for spec in AGENT_SPEC_BY_AGENT.values()}
 class DispatchIn(BaseModel):
     prompt: str
     agent: str | None = None  # tag like "m4"; None → all agents
+
+
+class ConsoleSubmitIn(BaseModel):
+    prompt: str
 
 
 class ActiveWorkflowIn(BaseModel):
@@ -351,6 +365,221 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
     async def api_sessions() -> dict:
         return {"sessions": state.sessions()}
 
+    @router.post("/api/console/{session_id:path}/submit")
+    async def api_console_submit(session_id: str, body: ConsoleSubmitIn) -> dict:
+        """Submit raw console text through the backend runtime path.
+
+        The frontend sends no derived Agent context.  Existing PTYs are routed
+        through RunHub's canonical context composition before the write; a
+        missing Agent PTY starts the normal backend dispatch path.
+        """
+        prompt = (body.prompt or "").strip()
+        if not prompt:
+            raise HTTPException(400, "prompt must not be empty")
+        parts = session_id.split(":")
+        if not parts:
+            raise HTTPException(404, f"unsupported console session {session_id!r}")
+        if parts[0] == "agent" and len(parts) >= 3:
+            tag = parts[1]
+            if tag not in AGENT_TAGS:
+                raise HTTPException(404, f"unknown agent {tag!r}")
+            agent_key = AGENT_TAG_TO_AGENT[tag]
+        elif parts[0] == "empty" and len(parts) >= 2:
+            tag, agent_key = "empty", ""
+        elif parts[0] == "workflow" and len(parts) >= 4:
+            workflow_id, node_id = parts[1], parts[2]
+            wf = workflows.load_workflow(workflow_id)
+            node = next((n for n in (wf.nodes if wf else []) if n.id == node_id), None)
+            if node is None or node.kind != "agent":
+                raise HTTPException(404, f"unknown workflow console session {session_id!r}")
+            tag, agent_key = f"workflow:{workflow_id}:{node_id}", node.agent
+        else:
+            raise HTTPException(404, f"unsupported console session {session_id!r}")
+        # The embedded FreeBuff launcher owns its cmd.exe/ConPTY process.  A
+        # console line must be written to that same process (including the
+        # initial `dir`/`freebuff` interaction), rather than falling through
+        # to the normal provider dispatcher.
+        if (parts[0] == "agent" and parts[-1] == "freebuff/auto"
+                and process_for(tag) and write_input(tag, prompt + "\r")):
+            HUB.append_line(tag, f"> {prompt}")
+            return {"ok": True, "session_id": session_id, "mode": "pty"}
+        written, reason = HUB.submit_console_prompt(tag, prompt, agent_key)
+        if written:
+            return {"ok": True, "session_id": session_id, "mode": "pty"}
+        if parts[0] == "agent":
+            error = HUB.run(prompt, agents=[tag])
+        else:
+            # Empty/workflow identities are independent console processes;
+            # their canonical prompt is composed inside RunHub as usual.
+            error = HUB.run_console(tag, agent_key, prompt,
+                                    model=parts[-1] or "freebuff/auto",
+                                    session_id=session_id)
+        if error:
+            raise HTTPException(409, error)
+        return {"ok": True, "session_id": session_id, "mode": "dispatch",
+                "note": reason or "runtime started"}
+
+    @router.post("/api/console/{session_id:path}/activate")
+    async def api_console_activate(session_id: str, body: dict) -> dict:
+        runtime = str((body or {}).get("runtime") or "")
+        if runtime != "freebuff/auto":
+            return {"ok": True, "session_id": session_id, "state": "not_required"}
+        parts = session_id.split(":")
+        if parts[0] == "agent" and len(parts) >= 3:
+            tag, agent_key = parts[1], AGENT_TAG_TO_AGENT.get(parts[1])
+        elif parts[0] == "empty" and len(parts) >= 2:
+            tag, agent_key = "empty", ""
+        elif parts[0] == "workflow" and len(parts) >= 4:
+            wf = workflows.load_workflow(parts[1])
+            node = next((n for n in (wf.nodes if wf else []) if n.id == parts[2]), None)
+            if node is None:
+                raise HTTPException(404, "unknown workflow console session")
+            tag, agent_key = f"workflow:{parts[1]}:{parts[2]}", node.agent
+        else:
+            raise HTTPException(404, f"unsupported console session {session_id!r}")
+        ok, detail = HUB.activate_freebuff(tag, session_id, agent_key)
+        if not ok:
+            raise HTTPException(409, detail)
+        return {"ok": True, "session_id": session_id, "state": detail,
+                "runtime": "freebuff/auto"}
+
+    @router.post("/api/agents/{agent}/freebuff/launch")
+    async def api_freebuff_launch(agent: str, body: dict | None = None) -> dict:
+        if agent not in AGENT_TAG_TO_AGENT and agent not in AGENT_TAGS:
+            raise HTTPException(404, f"unknown agent {agent!r}")
+        try:
+            cols = int((body or {}).get("cols"))
+            rows = int((body or {}).get("rows"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                409, "FreeBuff launch requires measured terminal cols and rows",
+            ) from exc
+        cols = max(2, min(cols, 512))
+        rows = max(2, min(rows, 256))
+        try:
+            session_id = f"agent:{agent}:freebuff/auto"
+            HUB.session_ids[agent] = session_id
+            return launch_freebuff_cmd(
+                agent, _REPO_ROOT,
+                on_output=lambda text: HUB.append_line(agent, text, raw=True),
+                cols=cols, rows=rows,
+            )
+        except (FileNotFoundError, RuntimeError, OSError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @router.post("/api/console/{session_id:path}/resize")
+    async def api_console_resize(session_id: str, body: dict) -> dict:
+        """Propagate xterm's character grid to the PTY owning the session."""
+        parts = session_id.split(":")
+        try:
+            cols = int((body or {}).get("cols", 80))
+            rows = int((body or {}).get("rows", 24))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, "invalid terminal dimensions") from exc
+        cols = max(2, min(cols, 512))
+        rows = max(2, min(rows, 256))
+        if session_id == "cmd-agent":
+            resized = cmd_agent.resize(cols, rows, "cmd-agent")
+        elif len(parts) >= 3 and parts[0] == "agent" and parts[-1] == "freebuff/auto":
+            resized = resize_input(parts[1], cols, rows)
+        else:
+            resized = False
+        return {"ok": True, "resized": resized, "cols": cols, "rows": rows}
+
+    @router.post("/api/cmd-agent/ensure")
+    async def api_cmd_agent_ensure() -> dict:
+        try:
+            proc = cmd_agent.ensure_session(_REPO_ROOT)
+            HUB.session_ids["cmd-agent"] = "cmd-agent"
+            HUB.buffers.setdefault("cmd-agent", [])
+            cmd_agent.start_reader(lambda text: HUB.append_line("cmd-agent", text, raw=True))
+            return {"ok": True, "session_id": "cmd-agent", "pid": proc.pid,
+                    "cwd": str(_REPO_ROOT)}
+        except (RuntimeError, OSError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @router.post("/api/cmd-agent/{session_id}/ensure")
+    async def api_cmd_agent_session_ensure(session_id: str) -> dict:
+        try:
+            proc = cmd_agent.ensure_session(_REPO_ROOT, session_id)
+            key = f"cmd:{session_id}"
+            HUB.session_ids[key] = key
+            HUB.buffers.setdefault(key, [])
+            cmd_agent.start_reader(lambda text: HUB.append_line(key, text, raw=True), session_id)
+            return {"ok": True, "session_id": key, "pid": proc.pid, "cwd": str(_REPO_ROOT)}
+        except (RuntimeError, OSError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @router.post("/api/cmd-agent/{session_id}/input")
+    async def api_cmd_agent_session_input(session_id: str, body: dict) -> dict:
+        text = body.get("data", "") if isinstance(body, dict) else ""
+        if not isinstance(text, str) or len(text) > 4096:
+            raise HTTPException(400, "CMD input must be a string up to 4096 characters")
+        return {"ok": True, "written": cmd_agent.write(text, session_id)}
+
+    @router.post("/api/cmd-agent/input")
+    async def api_cmd_agent_input(body: dict) -> dict:
+        text = body.get("data", "") if isinstance(body, dict) else ""
+        if not isinstance(text, str) or len(text) > 4096:
+            raise HTTPException(400, "CMD input must be a string up to 4096 characters")
+        return {"ok": True, "written": cmd_agent.write(text)}
+
+    @router.post("/api/cmd-agent/stop")
+    async def api_cmd_agent_stop() -> dict:
+        return {"ok": True, "stopped": cmd_agent.stop()}
+
+
+    @router.post("/api/agents/{tag}/terminal/input")
+    async def api_terminal_input(tag: str, body: dict) -> dict:
+        text = body.get("data", "") if isinstance(body, dict) else ""
+        if not isinstance(text, str) or len(text) > 4096:
+            raise HTTPException(400, "terminal input must be a string up to 4096 characters")
+        # Empty Agent is a deliberate zero-config runtime, but it still owns
+        # an isolated console session when a workflow node selects it.
+        if tag not in AGENT_TAGS and tag != "empty":
+            raise HTTPException(404, f"unknown agent {tag!r}")
+        written = write_input(tag, text)
+        if not written:
+            written = HUB.write_agent_input(tag, text)
+        return {"ok": True, "written": written}
+
+    @router.post("/api/agents/{tag}/freebuff/submit")
+    async def api_freebuff_submit(tag: str, body: dict) -> dict:
+        """Bridge one dashboard prompt into the already-live FreeBuff PTY.
+
+        This endpoint deliberately does not start a process or fall back to
+        RunHub.  The prompt and its single submission Enter are written to the
+        exact process returned by ``process_for``.
+        """
+        if tag not in AGENT_TAGS:
+            raise HTTPException(404, f"unknown agent {tag!r}")
+        prompt = body.get("prompt", "") if isinstance(body, dict) else ""
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise HTTPException(400, "prompt must not be empty")
+        proc = process_for(tag)
+        if proc is None or proc.poll() is not None:
+            raise HTTPException(409, f"FreeBuff PTY for {tag!r} is not running")
+        try:
+            # Keep dashboard submission identical to two real terminal input
+            # writes: the prompt first, then one carriage-return on the same
+            # live FreeBuff session.  ``write_input`` preserves the existing
+            # direct-xterm input path and reports if the process died between
+            # the two writes.
+            checkpoint = output_checkpoint(tag, proc)
+            written = write_input(tag, prompt)
+            echoed = written and wait_for_output(tag, proc, checkpoint, timeout=1.0)
+            if not echoed:
+                raise RuntimeError("FreeBuff did not acknowledge the prompt redraw")
+            submitted = written and write_input(tag, "\r")
+            if not submitted:
+                raise RuntimeError("FreeBuff prompt or Enter write was not delivered")
+        except (OSError, RuntimeError, AttributeError) as exc:
+            raise HTTPException(409, f"FreeBuff PTY write failed: {exc}") from exc
+        return {"ok": True, "tag": tag, "session_id": f"agent:{tag}:freebuff/auto",
+                "mode": "pty", "pid": getattr(proc, "pid", None),
+                "written": bool(written), "echoed": bool(echoed),
+                "submitted": bool(submitted), "writes": 2}
+
     @router.get("/api/events")
     async def api_events(since: int = 0) -> dict:
         events = state.drain()
@@ -447,11 +676,14 @@ def create_router(state_vault: Path, state: WebState) -> APIRouter:
     async def api_stop_agent(tag: str) -> dict:
         if tag not in AGENT_TAGS:
             raise HTTPException(404, f"unknown agent {tag!r}")
+        stop_freebuff_cmd(tag)
         HUB.terminate_agent(tag)
         return {"ok": True}
 
     @router.post("/api/stop")
     async def api_stop_all() -> dict:
+        for tag in AGENT_TAGS:
+            stop_freebuff_cmd(tag)
         HUB.terminate_all()
         return {"ok": True}
 

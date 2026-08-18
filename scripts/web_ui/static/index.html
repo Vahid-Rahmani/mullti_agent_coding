@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MultiAgentCoding · Dashboard</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=20260818-freebuff-420">
 </head>
 <body>
 
@@ -218,7 +218,12 @@
   </div>
 
   <script src="/static/graph-math.js"></script>
+  <!-- Pinned local terminal assets; the embedded PTY must work offline. -->
+  <link rel="stylesheet" href="/static/vendor/xterm/xterm.css">
+  <script src="/static/vendor/xterm/xterm.js"></script>
+  <script src="/static/vendor/xterm-addon-fit/xterm-addon-fit.js"></script>
+  <script src="/static/terminal.js?v=20260818-fit-compact"></script>
   <script src="/static/settings.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260818-freebuff-direct"></script>
 </body>
 </html>
