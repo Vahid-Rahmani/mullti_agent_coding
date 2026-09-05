@@ -9,6 +9,28 @@ reusable roles, a prompt library, visual workflow construction, model/provider
 abstraction, BYOK connections, controlled execution, and persistent project
 knowledge come together behind graphical and terminal interfaces.
 
+<p align="center">
+  <a href="https://github.com/Vahid-Rahmani/mullti_agent_coding"><img src="https://img.shields.io/badge/status-active%20development-2563eb" alt="Active development"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/backend-FastAPI-009688" alt="FastAPI"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/runtime-Python-3776AB" alt="Python"></a>
+</p>
+
+## System map
+
+```mermaid
+flowchart LR
+    U[Developer] --> I[Dashboard / Terminal]
+    I --> W[Workflow graph]
+    W --> P[Planner and validator]
+    P --> O[Orchestrator]
+    O --> R[Runtime and provider adapters]
+    R --> M[Selected model]
+    O --> V[Project knowledge vault]
+    V --> I
+```
+
+The visual interfaces, workflow model, runtime selection, credentials, and project knowledge are deliberately separated so a workflow can be inspected before it is executed.
+
 ---
 
 ## What is MultiAgentCoding?
